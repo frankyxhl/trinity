@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-03-22
+### Added
+- README: "If You Are an AI" installation guide for LLM agents
+
 ## [1.1.0] - 2026-03-22
 ### Added
 - Remote install script (`install.sh`): `curl -fsSL .../install.sh | bash`
