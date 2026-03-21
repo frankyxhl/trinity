@@ -23,7 +23,7 @@ SCRIPTS_VERSION=$(python3 ~/.claude/skills/trinity/scripts/session.py --version 
 REQUIRED_VERSION="1.0.0"
 if [ "$SCRIPTS_VERSION" != "$REQUIRED_VERSION" ]; then
   echo "trinity: scripts not installed or outdated (found: ${SCRIPTS_VERSION:-none}, need: $REQUIRED_VERSION)"
-  echo "Run: cp -r trinity/scripts ~/.claude/skills/trinity/scripts"
+  echo "Run: make install (from trinity/ repo) or: cp -r trinity/scripts/. ~/.claude/skills/trinity/scripts/"
   # abort dispatch
 fi
 ```

@@ -7,17 +7,30 @@ Usage:
     install.py register <provider> --cli <cli_command> [--global-config <path>]
     install.py unregister <provider> [--global-config <path>]
 """
-import sys
+
+import importlib.util
 import json
 import os
-import time
+import sys
 
-VERSION = "1.0.0"
+
+def _load_version():
+    _init = os.path.join(os.path.dirname(os.path.abspath(__file__)), "__init__.py")
+    _spec = importlib.util.spec_from_file_location("_scripts_init", _init)
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    return _mod.__version__
+
+
+__version__ = _load_version()
 
 try:
     import fcntl
 except ImportError:
-    print("trinity-scripts: unsupported platform (fcntl not available). Windows is not supported.", file=sys.stderr)
+    print(
+        "trinity-scripts: unsupported platform (fcntl not available). Windows is not supported.",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 
@@ -32,7 +45,10 @@ def atomic_update(path, update_fn):
         try:
             os.makedirs(dir_path, exist_ok=True)
         except OSError as e:
-            print(f"trinity-scripts: IO error creating directory {dir_path}: {e}", file=sys.stderr)
+            print(
+                f"trinity-scripts: IO error creating directory {dir_path}: {e}",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
     try:
@@ -46,7 +62,10 @@ def atomic_update(path, update_fn):
                     try:
                         data = json.loads(content)
                     except json.JSONDecodeError as e:
-                        print(f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr)
+                        print(
+                            f"trinity-scripts: invalid JSON in {path}: {e}",
+                            file=sys.stderr,
+                        )
                         sys.exit(1)
                 else:
                     data = {}
@@ -96,12 +115,15 @@ def main():
         sys.exit(1)
 
     if args[0] == "--version":
-        print(VERSION)
+        print(__version__)
         return
 
     if args[0] == "register":
         if len(args) < 2:
-            print("install.py register <provider> --cli <cli_command> [--global-config <path>]", file=sys.stderr)
+            print(
+                "install.py register <provider> --cli <cli_command> [--global-config <path>]",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         provider = args[1]
@@ -128,7 +150,10 @@ def main():
 
     elif args[0] == "unregister":
         if len(args) < 2:
-            print("install.py unregister <provider> [--global-config <path>]", file=sys.stderr)
+            print(
+                "install.py unregister <provider> [--global-config <path>]",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         provider = args[1]

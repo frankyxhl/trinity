@@ -8,35 +8,36 @@ Usage:
     session.py write <project_dir> <instance_key> <session_id> <task_summary>
     session.py clear <project_dir> <instance_key|all>
 """
-import sys
+
+import importlib.util
 import json
 import os
+import sys
 import time
 
-VERSION = "1.0.0"
+
+def _load_version():
+    _init = os.path.join(os.path.dirname(os.path.abspath(__file__)), "__init__.py")
+    _spec = importlib.util.spec_from_file_location("_scripts_init", _init)
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    return _mod.__version__
+
+
+__version__ = _load_version()
 
 try:
     import fcntl
 except ImportError:
-    print("trinity-scripts: unsupported platform (fcntl not available). Windows is not supported.", file=sys.stderr)
+    print(
+        "trinity-scripts: unsupported platform (fcntl not available). Windows is not supported.",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 
 def trinity_path(project_dir):
     return os.path.join(project_dir, ".claude", "trinity.json")
-
-
-def load_json(path):
-    """Load JSON from path, exit 1 on invalid JSON."""
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        print(f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr)
-        sys.exit(1)
-    except OSError as e:
-        print(f"trinity-scripts: IO error reading {path}: {e}", file=sys.stderr)
-        sys.exit(1)
 
 
 def cmd_read(project_dir, instance_key):
@@ -50,12 +51,17 @@ def cmd_read(project_dir, instance_key):
             try:
                 content = f.read()
                 if not content.strip():
-                    print(f"trinity-scripts: invalid JSON in {path}: empty file", file=sys.stderr)
+                    print(
+                        f"trinity-scripts: invalid JSON in {path}: empty file",
+                        file=sys.stderr,
+                    )
                     sys.exit(1)
                 try:
                     data = json.loads(content)
                 except json.JSONDecodeError as e:
-                    print(f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr)
+                    print(
+                        f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr
+                    )
                     sys.exit(1)
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
@@ -76,7 +82,10 @@ def cmd_write(project_dir, instance_key, session_id, task_summary):
     try:
         os.makedirs(dir_path, exist_ok=True)
     except OSError as e:
-        print(f"trinity-scripts: IO error creating directory {dir_path}: {e}", file=sys.stderr)
+        print(
+            f"trinity-scripts: IO error creating directory {dir_path}: {e}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     try:
@@ -90,7 +99,10 @@ def cmd_write(project_dir, instance_key, session_id, task_summary):
                     try:
                         data = json.loads(content)
                     except json.JSONDecodeError as e:
-                        print(f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr)
+                        print(
+                            f"trinity-scripts: invalid JSON in {path}: {e}",
+                            file=sys.stderr,
+                        )
                         sys.exit(1)
                 else:
                     data = {}
@@ -123,21 +135,25 @@ def cmd_clear(project_dir, key):
         with open(path, "r+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             try:
-                data = json.load(f)
-            except json.JSONDecodeError as e:
-                print(f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr)
-                sys.exit(1)
-            if "sessions" not in data:
-                data["sessions"] = {}
-            if key == "all":
-                data["sessions"] = {}
-            else:
-                data["sessions"].pop(key, None)
-            f.seek(0)
-            f.truncate()
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-            fcntl.flock(f, fcntl.LOCK_UN)
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError as e:
+                    print(
+                        f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr
+                    )
+                    sys.exit(1)
+                if "sessions" not in data:
+                    data["sessions"] = {}
+                if key == "all":
+                    data["sessions"] = {}
+                else:
+                    data["sessions"].pop(key, None)
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
     except OSError as e:
         print(f"trinity-scripts: IO error writing {path}: {e}", file=sys.stderr)
         sys.exit(1)
@@ -151,7 +167,7 @@ def main():
         sys.exit(1)
 
     if args[0] == "--version":
-        print(VERSION)
+        print(__version__)
         return
 
     if args[0] == "read":
@@ -162,7 +178,10 @@ def main():
 
     elif args[0] == "write":
         if len(args) < 5:
-            print("session.py write <project_dir> <instance_key> <session_id> <task_summary>", file=sys.stderr)
+            print(
+                "session.py write <project_dir> <instance_key> <session_id> <task_summary>",
+                file=sys.stderr,
+            )
             sys.exit(1)
         cmd_write(args[1], args[2], args[3], args[4])
 

@@ -1,4 +1,5 @@
 """Tests for trinity/scripts/discover.py"""
+
 import json
 import subprocess
 import sys
@@ -50,10 +51,19 @@ def write_global_agent(global_agents_dir, name):
 
 # --- list ---
 
+
 def test_empty_config_no_agent_files_returns_empty(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"
-    rc, out, err = run(["list", "--global-config", str(global_config), "--project-dir", str(project_dir)])
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
     assert rc == 0
     result = json.loads(out)
     assert result == []
@@ -62,11 +72,20 @@ def test_empty_config_no_agent_files_returns_empty(tmp_path):
 def test_config_entry_with_agent_file_is_usable(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"
-    write_config(project_dir / ".claude" / "trinity.json", {
-        "providers": {"glm": {"cli": "droid exec --model glm-5"}}
-    })
+    write_config(
+        project_dir / ".claude" / "trinity.json",
+        {"providers": {"glm": {"cli": "droid exec --model glm-5"}}},
+    )
     write_agent(project_dir, "glm")
-    rc, out, err = run(["list", "--global-config", str(global_config), "--project-dir", str(project_dir)])
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
     assert rc == 0
     result = json.loads(out)
     assert len(result) == 1
@@ -80,11 +99,20 @@ def test_config_entry_with_agent_file_is_usable(tmp_path):
 def test_config_entry_no_agent_file_is_missing_agent(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"
-    write_config(project_dir / ".claude" / "trinity.json", {
-        "providers": {"glm": {"cli": "droid exec --model glm-5"}}
-    })
+    write_config(
+        project_dir / ".claude" / "trinity.json",
+        {"providers": {"glm": {"cli": "droid exec --model glm-5"}}},
+    )
     # no agent file written
-    rc, out, err = run(["list", "--global-config", str(global_config), "--project-dir", str(project_dir)])
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
     assert rc == 0
     result = json.loads(out)
     assert len(result) == 1
@@ -100,7 +128,15 @@ def test_agent_file_no_config_entry_is_missing_config(tmp_path):
     project_dir = tmp_path / "project"
     # no config entry, just agent file
     write_agent(project_dir, "glm")
-    rc, out, err = run(["list", "--global-config", str(global_config), "--project-dir", str(project_dir)])
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
     assert rc == 0
     result = json.loads(out)
     assert len(result) == 1
@@ -116,13 +152,22 @@ def test_project_agent_takes_precedence_over_global(tmp_path, patch_home):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"
 
-    write_config(project_dir / ".claude" / "trinity.json", {
-        "providers": {"glm": {"cli": "droid exec --model glm-5"}}
-    })
+    write_config(
+        project_dir / ".claude" / "trinity.json",
+        {"providers": {"glm": {"cli": "droid exec --model glm-5"}}},
+    )
     project_agent_path = write_agent(project_dir, "glm")
     write_global_agent(global_agents_dir, "glm")
 
-    rc, out, err = run(["list", "--global-config", str(global_config), "--project-dir", str(project_dir)])
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
     assert rc == 0
     result = json.loads(out)
     assert len(result) == 1
@@ -135,23 +180,33 @@ def test_output_sorted_usable_then_missing_agent_then_missing_config(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"
 
-    write_config(project_dir / ".claude" / "trinity.json", {
-        "providers": {
-            "glm": {"cli": "droid exec"},
-            "codex": {"cli": "codex exec"},  # missing_agent
-        }
-    })
+    write_config(
+        project_dir / ".claude" / "trinity.json",
+        {
+            "providers": {
+                "glm": {"cli": "droid exec"},
+                "codex": {"cli": "codex exec"},  # missing_agent
+            }
+        },
+    )
     # glm has agent file -> usable
     write_agent(project_dir, "glm")
     # gemini has agent file but no config -> missing_config
     write_agent(project_dir, "gemini")
     # codex has config but no agent -> missing_agent
 
-    rc, out, err = run(["list", "--global-config", str(global_config), "--project-dir", str(project_dir)])
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
     assert rc == 0
     result = json.loads(out)
     statuses = [e["status"] for e in result]
-    names = [e["name"] for e in result]
 
     # usable first, then missing_agent, then missing_config
     usable_idxs = [i for i, s in enumerate(statuses) if s == "usable"]
@@ -164,6 +219,7 @@ def test_output_sorted_usable_then_missing_agent_then_missing_config(tmp_path):
 
 
 # --- version ---
+
 
 def test_version_returns_parseable_semver():
     rc, out, err = run(["--version"])

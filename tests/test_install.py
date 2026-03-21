@@ -1,4 +1,5 @@
 """Tests for trinity/scripts/install.py"""
+
 import json
 import subprocess
 import sys
@@ -24,9 +25,19 @@ def global_config_path(tmp_path):
 
 # --- register ---
 
+
 def test_register_creates_providers_entry_in_new_file(tmp_path):
     cfg = global_config_path(tmp_path)
-    rc, out, err = run(["register", "glm", "--cli", "droid exec --model glm-5", "--global-config", str(cfg)])
+    rc, out, err = run(
+        [
+            "register",
+            "glm",
+            "--cli",
+            "droid exec --model glm-5",
+            "--global-config",
+            str(cfg),
+        ]
+    )
     assert rc == 0
     data = json.loads(cfg.read_text())
     assert data["providers"]["glm"]["cli"] == "droid exec --model glm-5"
@@ -36,7 +47,9 @@ def test_register_creates_providers_entry_in_new_file(tmp_path):
 def test_register_idempotent_second_call_updates_cli(tmp_path):
     cfg = global_config_path(tmp_path)
     run(["register", "glm", "--cli", "droid-v1", "--global-config", str(cfg)])
-    rc, out, err = run(["register", "glm", "--cli", "droid-v2", "--global-config", str(cfg)])
+    rc, out, err = run(
+        ["register", "glm", "--cli", "droid-v2", "--global-config", str(cfg)]
+    )
     assert rc == 0
     data = json.loads(cfg.read_text())
     assert data["providers"]["glm"]["cli"] == "droid-v2"
@@ -44,8 +57,12 @@ def test_register_idempotent_second_call_updates_cli(tmp_path):
 
 def test_register_preserves_existing_providers(tmp_path):
     cfg = global_config_path(tmp_path)
-    cfg.write_text(json.dumps({"providers": {"codex": {"cli": "codex exec", "installed": True}}}))
-    rc, out, err = run(["register", "glm", "--cli", "droid exec", "--global-config", str(cfg)])
+    cfg.write_text(
+        json.dumps({"providers": {"codex": {"cli": "codex exec", "installed": True}}})
+    )
+    rc, out, err = run(
+        ["register", "glm", "--cli", "droid exec", "--global-config", str(cfg)]
+    )
     assert rc == 0
     data = json.loads(cfg.read_text())
     assert data["providers"]["codex"]["cli"] == "codex exec"
@@ -55,7 +72,9 @@ def test_register_preserves_existing_providers(tmp_path):
 def test_cli_with_spaces_preserved_verbatim(tmp_path):
     cfg = global_config_path(tmp_path)
     cli_str = "droid exec --model glm-5 --some-flag with spaces"
-    rc, out, err = run(["register", "glm", "--cli", cli_str, "--global-config", str(cfg)])
+    rc, out, err = run(
+        ["register", "glm", "--cli", cli_str, "--global-config", str(cfg)]
+    )
     assert rc == 0
     data = json.loads(cfg.read_text())
     assert data["providers"]["glm"]["cli"] == cli_str
@@ -63,14 +82,19 @@ def test_cli_with_spaces_preserved_verbatim(tmp_path):
 
 # --- unregister ---
 
+
 def test_unregister_removes_provider(tmp_path):
     cfg = global_config_path(tmp_path)
-    cfg.write_text(json.dumps({
-        "providers": {
-            "glm": {"cli": "droid exec", "installed": True},
-            "codex": {"cli": "codex exec", "installed": True}
-        }
-    }))
+    cfg.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "glm": {"cli": "droid exec", "installed": True},
+                    "codex": {"cli": "codex exec", "installed": True},
+                }
+            }
+        )
+    )
     rc, out, err = run(["unregister", "glm", "--global-config", str(cfg)])
     assert rc == 0
     data = json.loads(cfg.read_text())
@@ -114,6 +138,7 @@ def test_concurrent_register_no_corruption(tmp_path):
 
 
 # --- version ---
+
 
 def test_version_returns_parseable_semver():
     rc, out, err = run(["--version"])

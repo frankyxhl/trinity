@@ -1,4 +1,5 @@
 """Tests for trinity/scripts/session.py"""
+
 import json
 import subprocess
 import sys
@@ -25,6 +26,7 @@ def trinity_path(project_dir):
 
 # --- read ---
 
+
 def test_read_returns_new_when_file_absent(tmp_path):
     rc, out, err = run(["read", str(tmp_path), "glm"])
     assert rc == 0
@@ -43,7 +45,11 @@ def test_read_returns_new_when_key_absent(tmp_path):
 def test_read_returns_session_id_when_key_present(tmp_path):
     p = trinity_path(tmp_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"sessions": {"glm": {"session_id": "sess-123", "task_summary": "test"}}}))
+    p.write_text(
+        json.dumps(
+            {"sessions": {"glm": {"session_id": "sess-123", "task_summary": "test"}}}
+        )
+    )
     rc, out, err = run(["read", str(tmp_path), "glm"])
     assert rc == 0
     assert out == "sess-123"
@@ -58,7 +64,17 @@ def test_read_exits_1_on_corrupt_json(tmp_path):
     assert err  # should have error message on stderr
 
 
+def test_read_exits_1_on_whitespace_only_file(tmp_path):
+    p = trinity_path(tmp_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("   \n   ")
+    rc, out, err = run(["read", str(tmp_path), "glm"])
+    assert rc == 1
+    assert "empty file" in err
+
+
 # --- write ---
+
 
 def test_write_creates_file_if_absent(tmp_path):
     rc, out, err = run(["write", str(tmp_path), "glm", "sess-abc", "my task"])
@@ -68,18 +84,23 @@ def test_write_creates_file_if_absent(tmp_path):
     data = json.loads(p.read_text())
     assert data["sessions"]["glm"]["session_id"] == "sess-abc"
     assert "last_used" in data["sessions"]["glm"]
-    import re
-    assert re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', data["sessions"]["glm"]["last_used"])
+    assert re.match(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", data["sessions"]["glm"]["last_used"]
+    )
 
 
 def test_write_preserves_existing_providers_and_defaults(tmp_path):
     p = trinity_path(tmp_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({
-        "providers": {"codex": {"cli": "codex exec"}},
-        "defaults": {"timeout": 120},
-        "sessions": {}
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "providers": {"codex": {"cli": "codex exec"}},
+                "defaults": {"timeout": 120},
+                "sessions": {},
+            }
+        )
+    )
     rc, out, err = run(["write", str(tmp_path), "glm", "sess-xyz", "task summary"])
     assert rc == 0
     data = json.loads(p.read_text())
@@ -127,15 +148,20 @@ def test_write_concurrent_no_corruption(tmp_path):
 
 # --- clear ---
 
+
 def test_clear_removes_specific_key(tmp_path):
     p = trinity_path(tmp_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({
-        "sessions": {
-            "glm": {"session_id": "sess-1"},
-            "codex": {"session_id": "sess-2"}
-        }
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "sessions": {
+                    "glm": {"session_id": "sess-1"},
+                    "codex": {"session_id": "sess-2"},
+                }
+            }
+        )
+    )
     rc, out, err = run(["clear", str(tmp_path), "glm"])
     assert rc == 0
     data = json.loads(p.read_text())
@@ -146,20 +172,33 @@ def test_clear_removes_specific_key(tmp_path):
 def test_clear_all_empties_sessions_preserves_rest(tmp_path):
     p = trinity_path(tmp_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({
-        "providers": {"glm": {"cli": "droid exec --model glm-5"}},
-        "defaults": {"timeout": 60},
-        "sessions": {
-            "glm": {"session_id": "sess-1"},
-            "codex": {"session_id": "sess-2"}
-        }
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": "droid exec --model glm-5"}},
+                "defaults": {"timeout": 60},
+                "sessions": {
+                    "glm": {"session_id": "sess-1"},
+                    "codex": {"session_id": "sess-2"},
+                },
+            }
+        )
+    )
     rc, out, err = run(["clear", str(tmp_path), "all"])
     assert rc == 0
     data = json.loads(p.read_text())
     assert data["sessions"] == {}
     assert data["providers"]["glm"]["cli"] == "droid exec --model glm-5"
     assert data["defaults"]["timeout"] == 60
+
+
+def test_clear_exits_1_on_corrupt_json(tmp_path):
+    p = trinity_path(tmp_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("{ not valid json }")
+    rc, out, err = run(["clear", str(tmp_path), "glm"])
+    assert rc == 1
+    assert err  # should have error message on stderr
 
 
 def test_clear_on_absent_key_is_noop(tmp_path):
@@ -173,6 +212,7 @@ def test_clear_on_absent_key_is_noop(tmp_path):
 
 
 # --- version ---
+
 
 def test_version_returns_parseable_semver():
     rc, out, err = run(["--version"])

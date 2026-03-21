@@ -6,13 +6,23 @@ Usage:
     discover.py --version
     discover.py list [--global-config <path>] [--project-dir <dir>]
 """
-import sys
+
+import importlib.util
 import json
 import os
 import subprocess
-from pathlib import Path
+import sys
 
-VERSION = "1.0.0"
+
+def _load_version():
+    _init = os.path.join(os.path.dirname(os.path.abspath(__file__)), "__init__.py")
+    _spec = importlib.util.spec_from_file_location("_scripts_init", _init)
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    return _mod.__version__
+
+
+__version__ = _load_version()
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_SCRIPT = os.path.join(SCRIPT_DIR, "config.py")
@@ -21,9 +31,15 @@ CONFIG_SCRIPT = os.path.join(SCRIPT_DIR, "config.py")
 def get_merged_config(global_config, project_dir):
     """Call config.py merge to get the merged provider map."""
     result = subprocess.run(
-        [sys.executable, CONFIG_SCRIPT, "merge",
-         "--global-config", global_config,
-         "--project-dir", project_dir],
+        [
+            sys.executable,
+            CONFIG_SCRIPT,
+            "merge",
+            "--global-config",
+            global_config,
+            "--project-dir",
+            project_dir,
+        ],
         capture_output=True,
         text=True,
     )
@@ -66,7 +82,7 @@ def scan_agent_dirs(project_dir):
     if os.path.isdir(global_agents_dir):
         for fname in os.listdir(global_agents_dir):
             if fname.startswith("trinity-") and fname.endswith(".md"):
-                name = fname[len("trinity-"):-len(".md")]
+                name = fname[len("trinity-") : -len(".md")]
                 if name and name not in found:
                     found[name] = os.path.join(global_agents_dir, fname)
 
@@ -75,7 +91,7 @@ def scan_agent_dirs(project_dir):
     if os.path.isdir(project_agents_dir):
         for fname in os.listdir(project_agents_dir):
             if fname.startswith("trinity-") and fname.endswith(".md"):
-                name = fname[len("trinity-"):-len(".md")]
+                name = fname[len("trinity-") : -len(".md")]
                 if name:
                     found[name] = os.path.join(project_agents_dir, fname)
 
@@ -135,7 +151,7 @@ def main():
         sys.exit(1)
 
     if args[0] == "--version":
-        print(VERSION)
+        print(__version__)
         return
 
     if args[0] == "list":
