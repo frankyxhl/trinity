@@ -16,6 +16,8 @@
 | 1004 | SOP | Release |
 | 1005 | SOP | Install |
 | 2001 | CHG | Release Infrastructure |
+| 2002 | PRP | Remote Install Script |
+| 2003 | CHG | Remote Install Script |
 
 ---
 

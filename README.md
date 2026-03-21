@@ -44,9 +44,18 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 ### Step 1: Install the skill
 
 ```bash
-mkdir -p ~/.claude/skills/trinity
-cp trinity/SKILL.md ~/.claude/skills/trinity/SKILL.md
-cp -r trinity/scripts ~/.claude/skills/trinity/scripts
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | bash
+```
+
+This downloads all skill files directly to `~/.claude/` — no git clone required. To install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=1.0.0 bash
+```
+
+**Or, if you have the repo cloned:**
+```bash
+make install
 ```
 
 ### Step 2: Install providers
