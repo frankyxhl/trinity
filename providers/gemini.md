@@ -29,7 +29,7 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 
 ### New session (no existing session)
 ```bash
-RESPONSE=$(gemini -p "<prompt>" 2>&1)
+RESPONSE=$(gemini --model gemini-3.1-pro-preview -p "<prompt>" 2>&1)
 ```
 Then extract session ID from session list:
 ```bash
@@ -44,7 +44,7 @@ Gemini uses session index or "latest" for resume. Store the UUID but use index f
 ```bash
 # Find index for our session UUID
 SESSION_INDEX=$(gemini --list-sessions 2>&1 | grep "<session_id>" | grep -oE '^\s+[0-9]+\.' | tr -d ' .')
-RESPONSE=$(gemini -r "$SESSION_INDEX" -p "<prompt>" 2>&1)
+RESPONSE=$(gemini --model gemini-3.1-pro-preview -r "$SESSION_INDEX" -p "<prompt>" 2>&1)
 ```
 Note: `-r` must come BEFORE `-p` in the argument order.
 
@@ -96,8 +96,8 @@ Return to Claude:
 
 ## Rules
 
-- Always use `gemini -p` for non-interactive mode
-- For resume: `gemini -r <index> -p "<prompt>"` (order matters: -r before -p)
+- Always use `gemini --model gemini-3.1-pro-preview -p` for non-interactive mode
+- For resume: `gemini --model gemini-3.1-pro-preview -r <index> -p "<prompt>"` (order matters: -r before -p)
 - Always manage sessions (read before, write after)
 - If Gemini needs file contents, read the file yourself and include it in the prompt
 - Keep your summary focused — Claude doesn't need the full conversation log
