@@ -8,6 +8,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 
 ## Table of Contents
 
+- [If You Are an AI](#if-you-are-an-ai)
 - [What Trinity Does](#what-trinity-does)
 - [Install](#install)
   - [Step 1: Install the skill](#step-1-install-the-skill)
@@ -25,6 +26,53 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 - [Architecture](#architecture)
 - [Adding a Provider](#adding-a-provider)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## If You Are an AI
+
+> This section is for LLM agents (Claude, GPT, Gemini, etc.) installing Trinity on behalf of a user.
+
+**You can install Trinity in one Bash call — no git clone required.**
+
+### Step 1: Run the installer
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | bash
+```
+
+This downloads all skill files to `~/.claude/` and registers the three default providers (glm, codex, gemini) in `~/.claude/trinity.json`. Expected output ends with:
+
+```
+Trinity 1.1.0 installed to ~/.claude/
+```
+
+If the command fails, check stderr for `trinity-install: failed downloading <file>` — that tells you exactly which file 404'd.
+
+### Step 2: Tell the user to restart Claude Code
+
+Trinity's skill (`SKILL.md`) is loaded by Claude Code at startup. The install takes effect after restart. Tell the user:
+
+> "Trinity is installed. Please restart Claude Code, then run `/trinity status` to confirm all providers are registered."
+
+### Step 3: Verify (after restart)
+
+```
+/trinity status
+```
+
+Expected output: glm, codex, and gemini all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
+
+### What was installed
+
+| Location | Contents |
+|----------|----------|
+| `~/.claude/skills/trinity/SKILL.md` | Trinity skill — loaded by Claude Code |
+| `~/.claude/skills/trinity/scripts/` | Python session/config/discover/install scripts |
+| `~/.claude/agents/trinity-glm.md` | GLM worker agent |
+| `~/.claude/agents/trinity-codex.md` | Codex worker agent |
+| `~/.claude/agents/trinity-gemini.md` | Gemini worker agent |
+| `~/.claude/trinity.json` | Global provider registry |
 
 ---
 
@@ -50,7 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh |
 This downloads all skill files directly to `~/.claude/` — no git clone required. To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=1.0.0 bash
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=1.1.0 bash
 ```
 
 **Or, if you have the repo cloned:**
@@ -345,4 +393,4 @@ mkdir -p .claude && echo '{}' > .claude/trinity.json
 
 - `trinity/SKILL.md` — full skill specification
 - `trinity/providers/` — built-in provider agent templates
-- `/team` skill — the original team orchestration skill (Trinity is a standalone redesign; both coexist)
+- `trinity/CHANGELOG.md` — full version history
