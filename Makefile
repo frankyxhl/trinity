@@ -22,6 +22,15 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	cp providers/glm.md ~/.claude/agents/trinity-glm.md
 	cp providers/codex.md ~/.claude/agents/trinity-codex.md
 	cp providers/gemini.md ~/.claude/agents/trinity-gemini.md
+	python3 ~/.claude/skills/trinity/scripts/install.py register glm \
+		--cli "droid exec --model glm-5" \
+		--global-config ~/.claude/trinity.json
+	python3 ~/.claude/skills/trinity/scripts/install.py register codex \
+		--cli "codex exec --skip-git-repo-check" \
+		--global-config ~/.claude/trinity.json
+	python3 ~/.claude/skills/trinity/scripts/install.py register gemini \
+		--cli "gemini -p" \
+		--global-config ~/.claude/trinity.json
 	@echo "Installed Trinity $(CURRENT_VERSION)"
 
 bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z

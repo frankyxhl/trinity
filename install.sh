@@ -47,6 +47,17 @@ _download "providers/gemini.md"       "${HOME}/.claude/agents/trinity-gemini.md"
 
 CURRENT_FILE=""
 
+# Register default providers in ~/.claude/trinity.json
+python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register glm \
+    --cli "droid exec --model glm-5" \
+    --global-config "${HOME}/.claude/trinity.json"
+python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register codex \
+    --cli "codex exec --skip-git-repo-check" \
+    --global-config "${HOME}/.claude/trinity.json"
+python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register gemini \
+    --cli "gemini -p" \
+    --global-config "${HOME}/.claude/trinity.json"
+
 # Print success with version
 VERSION_STRING=$(grep '^__version__ = ' "${HOME}/.claude/skills/trinity/scripts/__init__.py" \
     | sed 's/__version__ = "\(.*\)"/\1/' 2>/dev/null || true)

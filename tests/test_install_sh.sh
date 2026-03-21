@@ -46,6 +46,17 @@ t1_happy_path() {
 
     if [ $RC -ne 0 ]; then _fail "T1: non-zero exit"; return; fi
 
+    # Verify trinity.json was created with all 3 providers
+    TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
+    if [ ! -f "${TRINITY_JSON}" ]; then
+        _fail "T1: ~/.claude/trinity.json not created"; rm -rf "${FAKE_HOME}"; return
+    fi
+    for provider in glm codex gemini; do
+        if ! python3 -c "import json,sys; d=json.load(open('${TRINITY_JSON}')); sys.exit(0 if '${provider}' in d.get('providers',{}) else 1)"; then
+            _fail "T1: provider ${provider} missing from trinity.json"; rm -rf "${FAKE_HOME}"; return
+        fi
+    done
+
     EXPECTED_FILES=(
         ".claude/skills/trinity/SKILL.md"
         ".claude/skills/trinity/scripts/__init__.py"
