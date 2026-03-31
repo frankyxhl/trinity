@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-01
+### Added
+- `session.py heartbeat <output_file>`: parse JSONL output files and report agent activity, replacing inline Python snippets
+
 ## [1.1.1] - 2026-03-22
 ### Added
 - README: "If You Are an AI" installation guide for LLM agents

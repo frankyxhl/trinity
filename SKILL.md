@@ -20,7 +20,7 @@ command -v python3 >/dev/null 2>&1 || {
 
 # 2. Verify scripts are installed and up to date
 SCRIPTS_VERSION=$(python3 ~/.claude/skills/trinity/scripts/session.py --version 2>/dev/null)
-REQUIRED_VERSION="1.1.1"
+REQUIRED_VERSION="1.2.0"
 if [ "$SCRIPTS_VERSION" != "$REQUIRED_VERSION" ]; then
   echo "trinity: scripts not installed or outdated (found: ${SCRIPTS_VERSION:-none}, need: $REQUIRED_VERSION)"
   echo "Run: make install (from trinity/ repo) or: cp -r trinity/scripts/. ~/.claude/skills/trinity/scripts/"
