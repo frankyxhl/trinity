@@ -33,10 +33,9 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 ```bash
 RESPONSE=$(openrouter_cy -p "<prompt>" 2>&1)
 ```
-After the call, extract the session ID from the output. Claude CLI prints the session ID at the end of `-p` mode output. Look for a line like `Session: <uuid>` or parse from `~/.claude-openrouter/projects/` directory:
+After the call, extract the session ID from the most recently modified session file:
 ```bash
-# Get the most recent session ID
-SESSION_ID=$(ls -t ~/.claude-openrouter/projects/*/sessions/ 2>/dev/null | head -1 | sed 's/\.json//')
+SESSION_ID=$(ls -t ~/.claude-openrouter/projects/*/sessions/*.json 2>/dev/null | head -1 | xargs basename | sed 's/\.json//')
 ```
 
 ### Resume session (SESSION_ID != "NEW")
