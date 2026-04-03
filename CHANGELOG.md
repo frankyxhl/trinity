@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-04-03
+### Fixed
+- Include heartbeat code in release (v1.2.0 only had version-bump files)
+
 ## [1.2.0] - 2026-04-01
 ### Added
 - `session.py heartbeat <output_file>`: parse JSONL output files and report agent activity, replacing inline Python snippets
