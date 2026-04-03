@@ -14,6 +14,7 @@ Cut a GitHub release: test → lint → commit → tag → push → gh release.
 
 ## Prerequisites
 
+- All feature code and tests committed (`git status` shows only release files dirty)
 - TRN-1003 completed (CHANGELOG updated, `make bump` run, 4 files unstaged)
 - `gh auth status` shows authenticated
 
@@ -37,3 +38,4 @@ Cut a GitHub release: test → lint → commit → tag → push → gh release.
 | Date | Change | By |
 |------|--------|-----|
 | 2026-03-21 | Initial version | Claude Code |
+| 2026-04-03 | Add explicit prerequisite: commit code before release | Claude Code |
