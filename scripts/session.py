@@ -7,6 +7,7 @@ Usage:
     session.py read <project_dir> <instance_key>
     session.py write <project_dir> <instance_key> <session_id> <task_summary>
     session.py clear <project_dir> <instance_key|all>
+    session.py heartbeat <output_file>
 """
 
 import importlib.util
@@ -159,6 +160,45 @@ def cmd_clear(project_dir, key):
         sys.exit(1)
 
 
+def _find_last_assistant_activity(lines):
+    """Parse JSONL lines in reverse to find the last assistant tool_use or text."""
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if entry.get("type") != "assistant":
+            continue
+        for block in entry.get("message", {}).get("content", []):
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use":
+                name = block.get("name", "?")
+                inp = str(block.get("input", ""))[:150]
+                return f"tool: {name} | input: {inp}"
+            if block.get("type") == "text":
+                return f"text: {block.get('text', '')[:150]}"
+        break
+    return None
+
+
+def cmd_heartbeat(output_file):
+    if not os.path.exists(output_file):
+        print("FILE_NOT_FOUND")
+        return
+    with open(output_file, "r") as f:
+        lines = f.readlines()
+    print(f"{len(lines)} lines")
+    activity = _find_last_assistant_activity(lines)
+    if activity:
+        print(activity)
+    else:
+        print("no assistant activity")
+
+
 def main():
     args = sys.argv[1:]
 
@@ -190,6 +230,12 @@ def main():
             print("session.py clear <project_dir> <instance_key|all>", file=sys.stderr)
             sys.exit(1)
         cmd_clear(args[1], args[2])
+
+    elif args[0] == "heartbeat":
+        if len(args) < 2:
+            print("session.py heartbeat <output_file>", file=sys.stderr)
+            sys.exit(1)
+        cmd_heartbeat(args[1])
 
     else:
         print(f"session.py: unknown command '{args[0]}'", file=sys.stderr)

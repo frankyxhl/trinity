@@ -211,6 +211,110 @@ def test_clear_on_absent_key_is_noop(tmp_path):
     assert data["sessions"]["codex"]["session_id"] == "sess-2"
 
 
+# --- heartbeat ---
+
+
+def test_heartbeat_file_not_found(tmp_path):
+    rc, out, err = run(["heartbeat", str(tmp_path / "nonexistent.output")])
+    assert rc == 0
+    assert out == "FILE_NOT_FOUND"
+
+
+def test_heartbeat_empty_file(tmp_path):
+    f = tmp_path / "empty.output"
+    f.write_text("")
+    rc, out, err = run(["heartbeat", str(f)])
+    assert rc == 0
+    assert "0 lines" in out
+    assert "no assistant activity" in out
+
+
+def test_heartbeat_finds_tool_use(tmp_path):
+    f = tmp_path / "agent.output"
+    lines = [
+        json.dumps({"type": "user", "message": {"content": "hello"}}),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Bash",
+                            "input": {"command": "pytest tests/"},
+                        }
+                    ]
+                },
+            }
+        ),
+    ]
+    f.write_text("\n".join(lines) + "\n")
+    rc, out, err = run(["heartbeat", str(f)])
+    assert rc == 0
+    assert "2 lines" in out
+    assert "tool: Bash" in out
+    assert "pytest" in out
+
+
+def test_heartbeat_finds_text(tmp_path):
+    f = tmp_path / "agent.output"
+    lines = [
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "Analysis complete."}]
+                },
+            }
+        ),
+    ]
+    f.write_text("\n".join(lines) + "\n")
+    rc, out, err = run(["heartbeat", str(f)])
+    assert rc == 0
+    assert "1 lines" in out
+    assert "text: Analysis complete." in out
+
+
+def test_heartbeat_skips_malformed_lines(tmp_path):
+    f = tmp_path / "agent.output"
+    lines = [
+        "not json at all",
+        json.dumps({"type": "user", "message": {}}),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"path": "foo.py"},
+                        }
+                    ]
+                },
+            }
+        ),
+        "another bad line",
+    ]
+    f.write_text("\n".join(lines) + "\n")
+    rc, out, err = run(["heartbeat", str(f)])
+    assert rc == 0
+    assert "tool: Read" in out
+
+
+def test_heartbeat_no_assistant_messages(tmp_path):
+    f = tmp_path / "agent.output"
+    lines = [
+        json.dumps({"type": "user", "message": {"content": "hello"}}),
+        json.dumps({"type": "user", "message": {"content": "world"}}),
+    ]
+    f.write_text("\n".join(lines) + "\n")
+    rc, out, err = run(["heartbeat", str(f)])
+    assert rc == 0
+    assert "2 lines" in out
+    assert "no assistant activity" in out
+
+
 # --- version ---
 
 
