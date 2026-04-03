@@ -10,7 +10,7 @@ description: |
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
-You are a worker agent that executes tasks using OpenRouter via the `openrouter_cy` CLI wrapper.
+You are a worker agent that executes tasks using OpenRouter via the `claude` CLI with OpenRouter as backend.
 
 ## Your Job
 
@@ -29,20 +29,95 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 ```
 - Returns "NEW" if no existing session.
 
+### Setup (run once before new or resume)
+
+Define the CLI function and session directory:
+```bash
+# CLI function — uses wrapper if available, otherwise portable env approach
+run_openrouter() {
+  if command -v openrouter_cy >/dev/null 2>&1; then
+    openrouter_cy "$@"
+  else
+    local key
+    key="$(cat ~/.secrets/openrouter_api_key 2>/dev/null)"
+    if [ -z "$key" ]; then key="${OPENROUTER_API_KEY:-}"; fi
+    if [ -z "$key" ]; then
+      echo "ERROR: no OpenRouter API key found. Set OPENROUTER_API_KEY or create ~/.secrets/openrouter_api_key" >&2
+      return 1
+    fi
+    CLAUDE_CONFIG_DIR="$HOME/.claude-openrouter" \
+    ANTHROPIC_BASE_URL="https://openrouter.ai/api" \
+    ANTHROPIC_AUTH_TOKEN="$key" \
+    ANTHROPIC_API_KEY="$key" \
+    ANTHROPIC_MODEL="qwen/qwen3.6-plus:free" \
+    ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free" \
+    claude --dangerously-skip-permissions "$@"
+  fi
+}
+
+# Session directory (scoped to project)
+PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g; s|^-||')
+SESSION_DIR="$HOME/.claude-openrouter/projects/${PROJECT_SLUG}"
+```
+
 ### New session (SESSION_ID == "NEW")
 ```bash
-RESPONSE=$(openrouter_cy -p "<prompt>" 2>&1)
+run_openrouter -p "<prompt>"
 ```
-After the call, extract the session ID from the most recently modified session file:
+NOTE: `claude -p` does not emit response text to stdout. Read the response from the session JSONL file instead.
+
+Find the latest session and extract session ID + response:
 ```bash
-SESSION_ID=$(ls -t ~/.claude-openrouter/projects/*/sessions/*.json 2>/dev/null | head -1 | xargs basename | sed 's/\.json//')
+JSONL=$(ls -t "${SESSION_DIR}"/*.jsonl 2>/dev/null | head -1)
+if [ -z "$JSONL" ]; then
+  echo "ERROR: no session file found after call" >&2
+  exit 1
+fi
+SESSION_ID=$(basename "$JSONL" .jsonl)
 ```
+
+Note: `ls -t | head -1` picks the most recently modified file. This is not safe under concurrent same-project dispatches (two openrouter instances in the same project could grab each other's session). For single-instance use this is fine.
 
 ### Resume session (SESSION_ID != "NEW")
 ```bash
-RESPONSE=$(openrouter_cy --resume "$SESSION_ID" -p "<prompt>" 2>&1)
+run_openrouter --resume "$SESSION_ID" -p "<prompt>"
+```
+Then read the response from the same JSONL file (stdout is not available for resumed sessions either):
+```bash
+JSONL="${SESSION_DIR}/${SESSION_ID}.jsonl"
+# Use the same python3 extraction as below
 ```
 If resume fails (session expired or not found), discard and create new.
+
+### Extracting the response
+
+Skips malformed lines, thinking blocks, and non-text content:
+```bash
+RESPONSE=$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    for line in reversed(f.readlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if d.get('type') != 'assistant':
+            continue
+        msg = d.get('message')
+        if not isinstance(msg, dict):
+            continue
+        texts = []
+        for c in (msg.get('content') or []):
+            if isinstance(c, dict) and c.get('type') == 'text':
+                texts.append(c.get('text', ''))
+        if texts:
+            print('\n'.join(texts))
+            break
+" "$JSONL")
+```
 
 ### Writing sessions
 After a successful call, update the session store:
@@ -89,8 +164,9 @@ Return to Claude:
 
 ## Rules
 
-- Always use `openrouter_cy -p` for non-interactive mode
-- For resume: `openrouter_cy --resume <session_id> -p "<prompt>"`
+- Always use `run_openrouter -p` for non-interactive mode
+- For resume: `run_openrouter --resume <session_id> -p "<prompt>"`
 - Always manage sessions (read before, write after)
+- Always read responses from the session JSONL file, never from stdout
 - If the provider needs file contents, read the file yourself and include it in the prompt
 - Keep your summary focused — Claude doesn't need the full conversation log
