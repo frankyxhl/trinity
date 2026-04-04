@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-04
+### Added
+- `session.py heartbeat <output_file>`: parse JSONL output files and report agent activity
+- OpenRouter provider with portable `run_openrouter()` fallback (no custom wrapper required)
+- 6 new heartbeat tests (46 total)
+
+### Changed
+- Release SOPs (TRN-1003, TRN-1004): require code commit before version bump
+
 ## [1.2.1] - 2026-04-03
 ### Fixed
 - Include heartbeat code in release (v1.2.0 only had version-bump files)
