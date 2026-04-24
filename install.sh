@@ -44,6 +44,8 @@ _download "scripts/install.py"        "${HOME}/.claude/skills/trinity/scripts/in
 _download "providers/glm.md"          "${HOME}/.claude/agents/trinity-glm.md"
 _download "providers/codex.md"        "${HOME}/.claude/agents/trinity-codex.md"
 _download "providers/gemini.md"       "${HOME}/.claude/agents/trinity-gemini.md"
+_download "providers/openrouter.md"   "${HOME}/.claude/agents/trinity-openrouter.md"
+_download "providers/deepseek.md"     "${HOME}/.claude/agents/trinity-deepseek.md"
 
 CURRENT_FILE=""
 
@@ -56,6 +58,12 @@ python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register codex \
     --global-config "${HOME}/.claude/trinity.json"
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register gemini \
     --cli "gemini -p" \
+    --global-config "${HOME}/.claude/trinity.json"
+python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register openrouter \
+    --cli "openrouter_cy -p" \
+    --global-config "${HOME}/.claude/trinity.json"
+python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register deepseek \
+    --cli "deepseek_cy -p" \
     --global-config "${HOME}/.claude/trinity.json"
 
 # Print success with version

@@ -23,6 +23,7 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	cp providers/codex.md ~/.claude/agents/trinity-codex.md
 	cp providers/gemini.md ~/.claude/agents/trinity-gemini.md
 	cp providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
+	cp providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
 	python3 ~/.claude/skills/trinity/scripts/install.py register glm \
 		--cli "droid exec --model glm-5" \
 		--global-config ~/.claude/trinity.json
@@ -34,6 +35,9 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register openrouter \
 		--cli "openrouter_cy -p" \
+		--global-config ~/.claude/trinity.json
+	python3 ~/.claude/skills/trinity/scripts/install.py register deepseek \
+		--cli "deepseek_cy -p" \
 		--global-config ~/.claude/trinity.json
 	@echo "Installed Trinity $(CURRENT_VERSION)"
 

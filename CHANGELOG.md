@@ -1,6 +1,11 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- DeepSeek V4 provider (default model: `deepseek-v4-pro`, 1M context, session resume via `claude --resume`)
+
+### Fixed
+- `install.sh`: download + register `openrouter` provider (missing since v1.3.0)
 
 ## [1.3.0] - 2026-04-04
 ### Added

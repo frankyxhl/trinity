@@ -41,10 +41,10 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | bash
 ```
 
-This downloads all skill files to `~/.claude/` and registers the three default providers (glm, codex, gemini) in `~/.claude/trinity.json`. Expected output ends with:
+This downloads all skill files to `~/.claude/` and registers the five default providers (glm, codex, gemini, openrouter, deepseek) in `~/.claude/trinity.json`. Expected output ends with:
 
 ```
-Trinity 1.1.0 installed to ~/.claude/
+Trinity 1.4.0 installed to ~/.claude/
 ```
 
 If the command fails, check stderr for `trinity-install: failed downloading <file>` — that tells you exactly which file 404'd.
@@ -61,7 +61,7 @@ Trinity's skill (`SKILL.md`) is loaded by Claude Code at startup. The install ta
 /trinity status
 ```
 
-Expected output: glm, codex, and gemini all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
+Expected output: glm, codex, gemini, openrouter, and deepseek all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
 
 ### What was installed
 
@@ -72,6 +72,8 @@ Expected output: glm, codex, and gemini all show ✅ usable. If any show ⚠️,
 | `~/.claude/agents/trinity-glm.md` | GLM worker agent |
 | `~/.claude/agents/trinity-codex.md` | Codex worker agent |
 | `~/.claude/agents/trinity-gemini.md` | Gemini worker agent |
+| `~/.claude/agents/trinity-openrouter.md` | OpenRouter worker agent |
+| `~/.claude/agents/trinity-deepseek.md` | DeepSeek V4 worker agent |
 | `~/.claude/trinity.json` | Global provider registry |
 
 ---
@@ -123,6 +125,8 @@ Each install command:
 5. Runs a smoke test to verify everything works
 6. Rolls back atomically if any step fails
 
+**Wrapper-based providers** (`openrouter`, `deepseek`) don't have a package install path — they use the `claude` binary pointed at an Anthropic-compatible endpoint. They ship with `make install` / `install.sh`; see **Or install manually** below if you need to configure them independently.
+
 **Or install manually:**
 
 ```bash
@@ -134,15 +138,23 @@ cp trinity/providers/gemini.md ~/.claude/agents/trinity-gemini.md
 
 # GLM
 cp trinity/providers/glm.md ~/.claude/agents/trinity-glm.md
+
+# OpenRouter
+cp trinity/providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
+
+# DeepSeek V4
+cp trinity/providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
 ```
 
 Then create `~/.claude/trinity.json`:
 ```json
 {
   "providers": {
-    "codex":  { "cli": "codex exec --skip-git-repo-check", "installed": true },
-    "gemini": { "cli": "gemini -p",                        "installed": true },
-    "glm":    { "cli": "droid exec --model glm-5",         "installed": true }
+    "codex":      { "cli": "codex exec --skip-git-repo-check", "installed": true },
+    "gemini":     { "cli": "gemini -p",                        "installed": true },
+    "glm":        { "cli": "droid exec --model glm-5",         "installed": true },
+    "openrouter": { "cli": "openrouter_cy -p",                 "installed": true },
+    "deepseek":   { "cli": "deepseek_cy -p",                   "installed": true }
   },
   "defaults": {
     "heartbeat_interval": 120,

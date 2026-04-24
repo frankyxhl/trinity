@@ -35,7 +35,7 @@ _stop_server() {
     wait "${SERVER_PID}" 2>/dev/null || true
 }
 
-# T1: Happy path — all 9 files installed
+# T1: Happy path — all 11 files installed
 t1_happy_path() {
     FAKE_HOME=$(mktemp -d)
     _start_server "${REPO_DIR}"
@@ -46,12 +46,12 @@ t1_happy_path() {
 
     if [ $RC -ne 0 ]; then _fail "T1: non-zero exit"; return; fi
 
-    # Verify trinity.json was created with all 3 providers
+    # Verify trinity.json was created with all 5 providers
     TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
     if [ ! -f "${TRINITY_JSON}" ]; then
         _fail "T1: ~/.claude/trinity.json not created"; rm -rf "${FAKE_HOME}"; return
     fi
-    for provider in glm codex gemini; do
+    for provider in glm codex gemini openrouter deepseek; do
         if ! python3 -c "import json,sys; d=json.load(open('${TRINITY_JSON}')); sys.exit(0 if '${provider}' in d.get('providers',{}) else 1)"; then
             _fail "T1: provider ${provider} missing from trinity.json"; rm -rf "${FAKE_HOME}"; return
         fi
@@ -67,13 +67,15 @@ t1_happy_path() {
         ".claude/agents/trinity-glm.md"
         ".claude/agents/trinity-codex.md"
         ".claude/agents/trinity-gemini.md"
+        ".claude/agents/trinity-openrouter.md"
+        ".claude/agents/trinity-deepseek.md"
     )
     for f in "${EXPECTED_FILES[@]}"; do
         if [ ! -f "${FAKE_HOME}/${f}" ]; then
             _fail "T1: missing ${f}"; rm -rf "${FAKE_HOME}"; return
         fi
     done
-    _pass "T1: happy path — all 9 files installed"
+    _pass "T1: happy path — all 11 files installed"
     rm -rf "${FAKE_HOME}"
 }
 
