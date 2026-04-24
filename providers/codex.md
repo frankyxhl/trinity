@@ -29,7 +29,7 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 
 ### New session (no existing session)
 ```bash
-RESPONSE=$(codex exec --skip-git-repo-check -r xhigh "<prompt>" 2>&1)
+RESPONSE=$(codex exec --skip-git-repo-check -c reasoning.effort=high "<prompt>" 2>&1)
 ```
 Extract session ID from output header:
 ```bash
@@ -38,7 +38,7 @@ SESSION_ID=$(echo "$RESPONSE" | grep "^session id:" | awk '{print $3}')
 
 ### Resume session (existing session found)
 ```bash
-RESPONSE=$(codex exec resume --skip-git-repo-check -r xhigh "$SESSION_ID" "<prompt>" 2>&1)
+RESPONSE=$(codex exec resume --skip-git-repo-check -c reasoning.effort=high "$SESSION_ID" "<prompt>" 2>&1)
 ```
 
 If resume fails (non-zero exit or error), discard the old session and create a new one.
@@ -96,7 +96,7 @@ Return to Claude:
 
 ## Rules
 
-- Always use `codex exec --skip-git-repo-check -r xhigh` (non-interactive mode)
+- Always use `codex exec --skip-git-repo-check -c reasoning.effort=high` (non-interactive mode)
 - Always manage sessions (read before, write after)
 - If Codex needs file contents, read the file yourself and include it in the prompt
 - Strip metadata headers from Codex output — return only the actual content

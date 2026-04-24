@@ -6,6 +6,7 @@
 
 ### Fixed
 - `install.sh`: download + register `openrouter` provider (missing since v1.3.0)
+- `providers/codex.md`: replace removed `-r xhigh` short flag with `-c reasoning.effort=high` (codex CLI 0.124+ dropped the short form)
 
 ## [1.3.0] - 2026-04-04
 ### Added
