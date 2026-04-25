@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-25
+### Changed
+- **Provider templates now built from shared partials** (TRN-2004). `providers/*.md` are generated from `providers/_base/{common-session,common-tail,family-wrapper}.md` + `providers/<name>.delta.md` via `scripts/build_providers.sh`. Single source of truth, single edit propagates to all 5 providers. Source LOC reduced ~200 lines; install footprint and runtime behavior unchanged.
+
+### Fixed
+- `trinity-codex`: replace `-c reasoning.effort=high` (silently ignored by codex-cli 0.124+) with `-c model_reasoning_effort=$EFFORT`. Default `xhigh`. Per-prompt `EFFORT=<level>` override parsing (valid values: `none`, `low`, `medium`, `high`, `xhigh`).
+- `trinity-openrouter` / `trinity-deepseek`: replace race-unsafe `ls -t | head -1` JSONL selector with prompt-marker grep (`TRINITY_TRACE`). Bash 3.2 compatible (works on macOS default `/bin/bash`); robust under sub-second concurrent dispatches in the same project.
+- All 5 providers: lifted "If the provider produces code, verify it looks reasonable before returning" rule into common partial — previously inconsistent (codex/glm only).
+
+### Added
+- `make build`: regenerate `providers/*.md` from partials.
+- `make verify-built`: assert committed providers match generated output (drift gate). Runs as part of `make test` and `make release`.
+- `make install-hooks`: install pre-commit hook that runs `verify-built`.
+- `tests/test_build_providers.sh`: 96 assertions (T1 determinism, T2 frontmatter, T3 trailing LF, T4 partial invariants, T5 no stale `@include`, T6 semantic section presence + H3-under-H2 hierarchy walker, T7 drift sentinels for the 3 bundled fixes).
+- SOP updates: TRN-1003 notes `make build` runs in `make bump`; TRN-1004 adds `make verify-built` prerequisite.
+
+### Notes for users
+- **Reinstall recommended** to pick up the three bundled bug fixes — especially the codex reasoning-effort fix, which silently degraded Codex output on 1.4.0.
+- **Local hand-patches will be overwritten on reinstall.** If you previously hand-patched `~/.claude/agents/trinity-codex.md` or `trinity-deepseek.md`, the upstream fixes subsume those patches; reinstalling 1.5.0 overwrites your local edits (intended behavior).
+
 ## [1.4.0] - 2026-04-24
 ### Added
 - DeepSeek V4 provider (default model: `deepseek-v4-pro`, 1M context, session resume via `claude --resume`)
