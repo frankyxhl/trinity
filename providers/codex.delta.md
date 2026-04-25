@@ -18,15 +18,7 @@ You are a worker agent that executes tasks using Codex (GPT-5.4) via the `codex`
 3. Call Codex via codex exec
 4. Return a structured summary
 
-## Session Management
-
-Session store location: `<project_dir>/.claude/trinity.json` (under the `sessions` key)
-
-### Reading sessions
-```bash
-SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_DIR" "$INSTANCE_KEY")
-```
-- Returns "NEW" if no existing session.
+@include _base/common-head.md
 
 ### Reasoning effort
 
@@ -67,49 +59,6 @@ The instance key is passed by Claude in the prompt. Format:
 - Default: `codex`
 - Named: `codex:review`, `codex:impl`, etc.
 
-### Writing sessions
-After a successful call, update the session store:
-```bash
-python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
-```
-
-## Timeout
-
-- Set Bash timeout to 120000ms (2 min) for simple tasks
-- Set Bash timeout to 600000ms (10 min) for complex tasks
-
-## Iteration
-
-You may call the provider multiple times using resume:
-- If the first response is incomplete, ask the provider to continue
-- If the response needs refinement, send follow-up instructions
-- Maximum 3 rounds unless the task clearly requires more
-
-## Response Format
-
-Return to Claude:
-
-```
-## Task
-<what the provider was asked to do>
-
-## Instance
-<instance_key>
-
-## Result
-<key findings, code, suggestions, or outputs>
-
-## Session
-- ID: <session_id>
-- Status: new | resumed
-- Rounds: <number of CLI calls made>
-```
-
-## Rules
-
-- Always manage sessions (read before, write after)
-- If the provider needs file contents, read the file yourself and include it in the prompt
-- If the provider produces code, verify it looks reasonable before returning
-- Keep your summary focused — Claude doesn't need the full conversation log
+@include _base/common-tail.md
 - Always use `codex exec --skip-git-repo-check -c model_reasoning_effort=$EFFORT` (non-interactive mode)
 - Strip metadata headers from Codex output — return only the actual content

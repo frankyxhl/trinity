@@ -63,37 +63,65 @@ SESSION_DIR="$HOME/.claude-deepseek/projects/${PROJECT_SLUG}"
 ```
 
 ### New session (SESSION_ID == "NEW")
+Snapshot session-dir state per the wrapper family selector below, then call:
 ```bash
 run_deepseek -p "<prompt>"
 ```
-NOTE: `claude -p` does not emit response text to stdout. Read the response from the session JSONL file instead.
-
-Find the latest session and extract session ID + response:
-```bash
-JSONL=$(ls -t "${SESSION_DIR}"/*.jsonl 2>/dev/null | head -1)
-if [ -z "$JSONL" ]; then
-  echo "ERROR: no session file found after call" >&2
-  exit 1
-fi
-SESSION_ID=$(basename "$JSONL" .jsonl)
-```
-
-Note: `ls -t | head -1` picks the most recently modified file. This is not safe under concurrent same-project dispatches (two deepseek instances in the same project could grab each other's session). For single-instance use this is fine.
+After the call, run the race-safe selector to identify the new JSONL file (see family-wrapper section).
 
 ### Resume session (SESSION_ID != "NEW")
 ```bash
 run_deepseek --resume "$SESSION_ID" -p "<prompt>"
 ```
-Then read the response from the same JSONL file (stdout is not available for resumed sessions either):
+If resume fails (session expired or not found), discard and create new.
+
+### Race-safe session file selection
+
+`claude -p` (used by anthropic_cli wrappers) does NOT emit response text to stdout. The response must be read from the session JSONL file under `${SESSION_DIR}/<session_id>.jsonl`.
+
+Picking the right file under concurrent same-project dispatches is the tricky part. Picking by mtime alone is unsafe (TRINITY-2004 bundled fix #2): two simultaneous calls in the same project can grab each other's session. Instead, snapshot mtimes before the call and select files whose mtime advanced past the snapshot:
+
+```bash
+# 1) Snapshot mtime of every existing session file BEFORE the call.
+declare -A PRECALL_MTIME
+if compgen -G "${SESSION_DIR}"/*.jsonl > /dev/null; then
+  while IFS= read -r f; do
+    PRECALL_MTIME["$f"]=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)
+  done < <(ls "${SESSION_DIR}"/*.jsonl)
+fi
+TRINITY_CALL_START=$(date +%s)
+
+# 2) Run the CLI call here (provider-specific).
+
+# 3) Pick the file that's NEW or whose mtime advanced past TRINITY_CALL_START.
+JSONL=""
+JSONL_MTIME=0
+for f in "${SESSION_DIR}"/*.jsonl; do
+  [ -e "$f" ] || continue
+  m=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)
+  prev="${PRECALL_MTIME[$f]:-0}"
+  if [ "$m" -ge "$TRINITY_CALL_START" ] && [ "$m" -gt "$prev" ]; then
+    if [ "$m" -gt "$JSONL_MTIME" ]; then
+      JSONL="$f"
+      JSONL_MTIME="$m"
+    fi
+  fi
+done
+if [ -z "$JSONL" ]; then
+  echo "ERROR: no new/updated session file found after call" >&2
+  exit 1
+fi
+SESSION_ID=$(basename "$JSONL" .jsonl)
+```
+
+For resumed sessions the JSONL path is already known — read the same file directly:
 ```bash
 JSONL="${SESSION_DIR}/${SESSION_ID}.jsonl"
-# Use the same python3 extraction as below
 ```
-If resume fails (session expired or not found), discard and create new.
 
 ### Extracting the response
 
-Skips malformed lines, thinking blocks, and non-text content:
+Skips malformed lines, thinking blocks, and non-text content; returns the most recent assistant text turn:
 ```bash
 RESPONSE=$(python3 -c "
 import json, sys
@@ -121,27 +149,28 @@ with open(sys.argv[1]) as f:
 " "$JSONL")
 ```
 
-### Writing sessions
-After a successful call, update the session store:
-```bash
-python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
-```
-
 ## Instance Key
 
 Passed by Claude in the prompt. Format:
 - Default: `deepseek`
 - Named: `deepseek:review`, `deepseek:code`, etc.
 
+### Writing sessions
+After a successful call, update the session store:
+```bash
+python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
+```
+
 ## Timeout
 
 - Set Bash timeout to 120000ms (2 min) for simple tasks
-- Set Bash timeout to 600000ms (10 min) for complex tasks (DeepSeek V4 thinking can be slow)
+- Set Bash timeout to 600000ms (10 min) for complex tasks
 
 ## Iteration
 
 You may call the provider multiple times using resume:
-- If the first response is incomplete, send follow-up instructions
+- If the first response is incomplete, ask the provider to continue
+- If the response needs refinement, send follow-up instructions
 - Maximum 3 rounds unless the task clearly requires more
 
 ## Response Format
@@ -156,7 +185,7 @@ Return to Claude:
 <instance_key>
 
 ## Result
-<key findings, suggestions, or outputs>
+<key findings, code, suggestions, or outputs>
 
 ## Session
 - ID: <session_id>
@@ -166,9 +195,11 @@ Return to Claude:
 
 ## Rules
 
+- Always manage sessions (read before, write after)
+- If the provider needs file contents, read the file yourself and include it in the prompt
+- If the provider produces code, verify it looks reasonable before returning
+- Keep your summary focused — Claude doesn't need the full conversation log
 - Always use `run_deepseek -p` for non-interactive mode
 - For resume: `run_deepseek --resume <session_id> -p "<prompt>"`
-- Always manage sessions (read before, write after)
 - Always read responses from the session JSONL file, never from stdout
-- If the provider needs file contents, read the file yourself and include it in the prompt
-- Keep your summary focused — Claude doesn't need the full conversation log
+- DeepSeek V4 thinking can be slow — prefer the longer 600000ms timeout for complex tasks

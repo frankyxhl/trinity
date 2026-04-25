@@ -1,4 +1,4 @@
-.PHONY: setup test lint install bump release
+.PHONY: setup build verify-built install-hooks test lint install bump release
 
 # Read VERSION at make invocation time
 CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
@@ -7,8 +7,21 @@ setup:          ## Create venv and install dev dependencies
 	uv venv
 	uv pip install pytest ruff
 
-test:           ## Run all tests (TRN-1001)
+build:          ## Compose providers/*.md from _base/ partials and *.delta.md (TRN-2004)
+	@bash scripts/build_providers.sh
+
+verify-built:   ## Confirm committed providers/*.md matches partial sources (TRN-2004)
+	@bash scripts/build_providers.sh --check
+
+install-hooks:  ## Install git pre-commit hook to run verify-built (TRN-2004)
+	@cp scripts/pre-commit-hook.sh .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "Installed pre-commit hook → .git/hooks/pre-commit"
+
+test:           ## Run all tests (TRN-1001 + TRN-2004 build tests)
+	$(MAKE) verify-built
 	.venv/bin/pytest tests/ -v
+	bash tests/test_build_providers.sh
 
 lint:           ## Check and format code (TRN-1002)
 	.venv/bin/ruff check scripts/ tests/
@@ -45,6 +58,7 @@ bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z
 	@test -n "$(VERSION)" || (echo "Usage: make bump VERSION=x.y.z"; exit 1)
 	@echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || \
 		(echo "Invalid semver: $(VERSION)"; exit 1)
+	$(MAKE) build
 	@echo "$(VERSION)" > VERSION
 	@sed -i '' 's/__version__ = ".*"/__version__ = "$(VERSION)"/' scripts/__init__.py
 	@sed -i '' 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="$(VERSION)"/' SKILL.md
