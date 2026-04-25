@@ -28,6 +28,12 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 ```
 - Returns "NEW" if no existing session.
 
+### Writing sessions
+After a successful call, update the session store:
+```bash
+python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
+```
+
 ### New session (no existing session)
 ```bash
 RESPONSE=$(droid exec --model glm-5 "<prompt>" 2>&1)
@@ -54,12 +60,6 @@ If resume fails (non-zero exit or error), discard the old session and create a n
 The instance key is passed by Claude in the prompt. Format:
 - Default: `glm`
 - Named: `glm:auth`, `glm:order`, etc.
-
-### Writing sessions
-After a successful call, update the session store:
-```bash
-python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
-```
 
 ## Timeout
 

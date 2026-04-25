@@ -18,7 +18,7 @@ You are a worker agent that executes tasks using Gemini via the `gemini` CLI.
 3. Call Gemini via CLI
 4. Return a structured summary
 
-@include _base/common-head.md
+@include _base/common-session.md
 
 ### New session (no existing session)
 ```bash

@@ -19,7 +19,7 @@ You are a worker agent that executes tasks using DeepSeek V4 via the `claude` CL
 3. Call the provider via CLI
 4. Return a structured summary
 
-@include _base/common-head.md
+@include _base/common-session.md
 
 ### Setup (run once before new or resume)
 
@@ -55,11 +55,11 @@ SESSION_DIR="$HOME/.claude-deepseek/projects/${PROJECT_SLUG}"
 ```
 
 ### New session (SESSION_ID == "NEW")
-Snapshot session-dir state per the wrapper family selector below, then call:
+Generate a trace marker and prepend it to the prompt (see family-wrapper section for the full pattern), then call:
 ```bash
-run_deepseek -p "<prompt>"
+run_deepseek -p "$MARKED_PROMPT"
 ```
-After the call, run the race-safe selector to identify the new JSONL file (see family-wrapper section).
+After the call, the marker grep in the family-wrapper section identifies the new JSONL.
 
 ### Resume session (SESSION_ID != "NEW")
 ```bash

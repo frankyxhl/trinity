@@ -28,13 +28,19 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 ```
 - Returns "NEW" if no existing session.
 
+### Writing sessions
+After a successful call, update the session store:
+```bash
+python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
+```
+
 ### Reasoning effort
 
-Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `minimal`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it.
+Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it.
 
-Default to `xhigh`. The orchestrator may pass `EFFORT=<level>` in the prompt to override; parse it from the prompt body before calling Codex:
+Default to `xhigh`. The orchestrator may pass an `EFFORT=<level>` token anywhere in the task prompt to override; the worker parses it before invoking Codex (`$PROMPT` is the task prompt body, set by the worker from the user message):
 ```bash
-EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(minimal|low|medium|high|xhigh)' | head -1 | cut -d= -f2)
+EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(none|low|medium|high|xhigh)' | head -1 | cut -d= -f2)
 EFFORT="${EFFORT:-xhigh}"
 ```
 
@@ -66,12 +72,6 @@ CONTENT=$(echo "$RESPONSE" | sed -n '/^codex$/,/^tokens used$/p' | head -n -1 | 
 The instance key is passed by Claude in the prompt. Format:
 - Default: `codex`
 - Named: `codex:review`, `codex:impl`, etc.
-
-### Writing sessions
-After a successful call, update the session store:
-```bash
-python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
-```
 
 ## Timeout
 

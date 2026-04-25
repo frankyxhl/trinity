@@ -18,7 +18,7 @@ You are a worker agent that executes tasks using GLM-5 via the `droid` CLI.
 3. Call GLM-5 via droid exec
 4. Return a structured summary
 
-@include _base/common-head.md
+@include _base/common-session.md
 
 ### New session (no existing session)
 ```bash

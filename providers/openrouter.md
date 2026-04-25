@@ -29,6 +29,12 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 ```
 - Returns "NEW" if no existing session.
 
+### Writing sessions
+After a successful call, update the session store:
+```bash
+python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
+```
+
 ### Setup (run once before new or resume)
 
 Define the CLI function and session directory:
@@ -61,11 +67,11 @@ SESSION_DIR="$HOME/.claude-openrouter/projects/${PROJECT_SLUG}"
 ```
 
 ### New session (SESSION_ID == "NEW")
-Snapshot session-dir state per the wrapper family selector below, then call:
+Generate a trace marker and prepend it to the prompt (see family-wrapper section for the full pattern), then call:
 ```bash
-run_openrouter -p "<prompt>"
+run_openrouter -p "$MARKED_PROMPT"
 ```
-After the call, run the race-safe selector to identify the new JSONL file (see family-wrapper section).
+After the call, the marker grep in the family-wrapper section identifies the new JSONL.
 
 ### Resume session (SESSION_ID != "NEW")
 ```bash
@@ -77,36 +83,32 @@ If resume fails (session expired or not found), discard and create new.
 
 `claude -p` (used by anthropic_cli wrappers) does NOT emit response text to stdout. The response must be read from the session JSONL file under `${SESSION_DIR}/<session_id>.jsonl`.
 
-Picking the right file under concurrent same-project dispatches is the tricky part. Picking by mtime alone is unsafe (TRINITY-2004 bundled fix #2): two simultaneous calls in the same project can grab each other's session. Instead, snapshot mtimes before the call and select files whose mtime advanced past the snapshot:
+Picking the right file under concurrent same-project dispatches is the tricky part. Mtime alone is unsafe (TRINITY-2004 bundled fix #2): two simultaneous calls in the same wall-clock second produce JSONL files with identical mtimes, defeating any "newest file" heuristic. Macos APFS and Linux ext4 commonly only expose 1-second mtime resolution.
+
+**Solution: inject a unique trace marker into the prompt and grep the JSONL for it.** This works with bash 3.2+ (no associative arrays), is robust under any concurrency, and survives sub-second collisions.
 
 ```bash
-# 1) Snapshot mtime of every existing session file BEFORE the call.
-declare -A PRECALL_MTIME
-if compgen -G "${SESSION_DIR}"/*.jsonl > /dev/null; then
-  while IFS= read -r f; do
-    PRECALL_MTIME["$f"]=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)
-  done < <(ls "${SESSION_DIR}"/*.jsonl)
-fi
-TRINITY_CALL_START=$(date +%s)
+# 1) Generate a unique trace ID for this call.
+TRINITY_TRACE="trinity-trace-$$-${RANDOM}-$(date +%s)"
 
-# 2) Run the CLI call here (provider-specific).
+# 2) Embed the marker as an HTML comment at the top of the prompt.
+#    Anthropic CLI passes the prompt verbatim; the comment lands in the
+#    JSONL as part of the user message and is invisible to the model's output.
+MARKED_PROMPT=$(printf '<!-- %s -->\n%s' "$TRINITY_TRACE" "$PROMPT")
 
-# 3) Pick the file that's NEW or whose mtime advanced past TRINITY_CALL_START.
+# 3) Run the CLI call with $MARKED_PROMPT (provider-specific).
+
+# 4) After the call: find the JSONL file that contains the trace marker.
 JSONL=""
-JSONL_MTIME=0
 for f in "${SESSION_DIR}"/*.jsonl; do
   [ -e "$f" ] || continue
-  m=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)
-  prev="${PRECALL_MTIME[$f]:-0}"
-  if [ "$m" -ge "$TRINITY_CALL_START" ] && [ "$m" -gt "$prev" ]; then
-    if [ "$m" -gt "$JSONL_MTIME" ]; then
-      JSONL="$f"
-      JSONL_MTIME="$m"
-    fi
+  if grep -q "$TRINITY_TRACE" "$f" 2>/dev/null; then
+    JSONL="$f"
+    break
   fi
 done
 if [ -z "$JSONL" ]; then
-  echo "ERROR: no new/updated session file found after call" >&2
+  echo "ERROR: no session file containing trace marker $TRINITY_TRACE found" >&2
   exit 1
 fi
 SESSION_ID=$(basename "$JSONL" .jsonl)
@@ -152,12 +154,6 @@ with open(sys.argv[1]) as f:
 Passed by Claude in the prompt. Format:
 - Default: `openrouter`
 - Named: `openrouter:review`, `openrouter:code`, etc.
-
-### Writing sessions
-After a successful call, update the session store:
-```bash
-python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
-```
 
 ## Timeout
 

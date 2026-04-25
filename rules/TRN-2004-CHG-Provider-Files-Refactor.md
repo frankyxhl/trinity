@@ -20,12 +20,15 @@ Eliminate ~400 lines of duplication across the 5 provider agent templates (`prov
 ```
 providers/
   _base/
-    common.md           ← session.py read/write, Response Format, Timeout,
-                          Iteration cap, shared Rules. NO frontmatter.
-    family-native.md    ← native CLI shared logic (codex/gemini/glm). NO frontmatter.
+    common-session.md   ← Session Management H2 + Reading/Writing H3s. NO frontmatter.
+    common-tail.md      ← Timeout, Iteration, Response Format, common Rules
+                          (post-session shared content). NO frontmatter.
     family-wrapper.md   ← anthropic-wrapper shared logic (openrouter/deepseek):
-                          run_<name>() function, JSONL response extraction.
+                          TRINITY_TRACE marker selector + JSONL extraction.
                           NO frontmatter.
+                          (NOTE: family-native.md was planned but dropped during
+                           implementation — codex/gemini/glm CLIs share no
+                           meaningful shell beyond what common-* already covers.)
   codex.delta.md        ← FULL provider file with frontmatter at top, CLI-specific
                           bash blocks, and `@include _base/common.md` / `@include
                           _base/family-native.md` directives placed where shared
@@ -173,6 +176,9 @@ Frank reviewed the initial draft and raised 7 concerns. Each is addressed below;
 | 2026-04-25 | CHG drafted from three-model feasibility study (GLM/Codex/Gemini) | Pending approval |
 | 2026-04-25 | Resolved 7 review concerns from Frank; tightened partial conventions, replaced cat with `@include`, added `make verify-built` + pre-commit hook | Updated |
 | 2026-04-25 | Approved by Frank; status → Approved; implementation begins | Approved |
+| 2026-04-25 | Implementation iteration 1 complete: partials authored, build script written, providers regenerated, T1–T7 green | In review |
+| 2026-04-25 | COR-1602 review iteration 1 (Codex + Gemini, parallel). Convergent BLOCKERS: (a) `### Writing sessions` orphaned under `## Instance Key` — markdown hierarchy regression; (b) race-safe selector still races within sub-second on 1s mtime resolution. Codex-only BLOCKER: (c) `declare -A` is bash 4+ — broken on macOS default `/bin/bash` 3.2. Plus MAJOR M1 (`minimal` is not a valid effort value), M3 (no `@include` path sandbox), M6 (release may stage stale providers/). | REQUEST_CHANGES |
+| 2026-04-25 | Iteration 2 fixes: (a) merged common-head + Writing-sessions into single `_base/common-session.md` so both H3s sit under their parent `## Session Management`; (b) replaced mtime-array selector with prompt-marker grep (`TRINITY_TRACE`), bash-3.2-compatible and sub-second-safe; (c) dropped `minimal` from EFFORT regex; (d) added realpath sandbox to `@include` (must resolve under `providers/_base/` and end in `.md`); (e) `make release` now runs `verify-built` and asserts `providers/` is clean. New tests: H3-under-H2 walker, no-`declare -A` sentinel, `TRINITY_TRACE` presence in wrappers, `minimal`-rejected sentinel. | Resolved |
 
 ---
 

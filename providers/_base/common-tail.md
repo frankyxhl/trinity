@@ -1,9 +1,3 @@
-### Writing sessions
-After a successful call, update the session store:
-```bash
-python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
-```
-
 ## Timeout
 
 - Set Bash timeout to 120000ms (2 min) for simple tasks

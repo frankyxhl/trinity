@@ -19,7 +19,7 @@ cd "$REPO_ROOT"
 PROVIDERS=(codex gemini glm openrouter deepseek)
 NATIVE=(codex gemini glm)
 WRAPPER=(openrouter deepseek)
-PARTIALS=(_base/common-head.md _base/common-tail.md _base/family-wrapper.md)
+PARTIALS=(_base/common-session.md _base/common-tail.md _base/family-wrapper.md)
 
 PASS=0
 FAIL=0
@@ -68,6 +68,30 @@ echo "=== test_build_providers.sh ==="
 # Build script must exist.
 check "build script exists" test -f scripts/build_providers.sh
 check "build script executable" test -x scripts/build_providers.sh
+
+# Markdown hierarchy regression check (review iteration 2 fix):
+# In a generated provider, the H3 "### Writing sessions" must NOT appear under
+# any H2 other than "## Session Management". Specifically, between the line of
+# "## Instance Key" and the next H2 there must be no "### Writing sessions".
+assert_writing_sessions_under_session_management() {
+  local f="$1"
+  python3 - "$f" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+import re
+# Walk lines tracking current H2.
+current_h2 = None
+for ln in text.splitlines():
+    m = re.match(r'^## (.+)$', ln)
+    if m:
+        current_h2 = m.group(1).strip()
+        continue
+    if ln.strip() == '### Writing sessions':
+        if current_h2 != 'Session Management':
+            sys.exit(f"### Writing sessions appears under '## {current_h2}', not '## Session Management'")
+sys.exit(0)
+PY
+}
 
 # T4: partials must exist and pass invariants.
 echo "-- T4: partial invariants"
@@ -123,6 +147,8 @@ for p in "${PROVIDERS[@]}"; do
   check "Timeout header: $p"                   grep -q '^## Timeout' "$f"
   check "Iteration header: $p"                 grep -q '^## Iteration' "$f"
   check "Rules header: $p"                     grep -q '^## Rules' "$f"
+  check "Writing-sessions under Session Mgmt: $p" \
+    assert_writing_sessions_under_session_management "$f"
 done
 
 # Provider-specific CLI signatures (delta content survived).
@@ -143,10 +169,20 @@ check "codex fix #1: removed broken flag"         bash -c "! grep -q 'reasoning.
 for p in "${WRAPPER[@]}"; do
   check "wrapper fix #2: no 'ls -t | head -1' in $p.md" \
     bash -c "! grep -q 'ls -t.*head -1' 'providers/$p.md'"
+  # Selector must use the trace-marker grep pattern (race-safe under sub-second collisions)
+  check "wrapper fix #2: TRINITY_TRACE marker in $p.md" \
+    grep -q 'TRINITY_TRACE' "providers/$p.md"
+  # No bash-4-only associative arrays — must run on macOS bash 3.2.
+  check "wrapper fix #2: no 'declare -A' in $p.md" \
+    bash -c "! grep -q 'declare -A' 'providers/$p.md'"
 done
-# And the family-wrapper partial itself must contain the race-safe replacement marker.
-check "wrapper fix #2: family-wrapper has race-safe marker" \
-  grep -q 'race-safe\|TRINITY_CALL_START\|find .* -newer' providers/_base/family-wrapper.md
+# And the family-wrapper partial itself must contain the race-safe trace selector.
+check "wrapper fix #2: family-wrapper has trace marker selector" \
+  grep -q 'TRINITY_TRACE' providers/_base/family-wrapper.md
+
+# Codex fix #1 add'l — `minimal` removed from EFFORT regex (review M1 fix)
+check "codex fix #1: 'minimal' not accepted in EFFORT regex" \
+  bash -c "! grep -qE 'EFFORT=\(minimal' providers/codex.md"
 
 # Fix #3 — generic "verify ... reasonable" lifted to common, applies to all 5
 check "common fix #3: generic verify rule in common-tail" \

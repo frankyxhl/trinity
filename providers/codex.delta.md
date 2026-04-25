@@ -18,15 +18,15 @@ You are a worker agent that executes tasks using Codex (GPT-5.4) via the `codex`
 3. Call Codex via codex exec
 4. Return a structured summary
 
-@include _base/common-head.md
+@include _base/common-session.md
 
 ### Reasoning effort
 
-Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `minimal`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it.
+Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it.
 
-Default to `xhigh`. The orchestrator may pass `EFFORT=<level>` in the prompt to override; parse it from the prompt body before calling Codex:
+Default to `xhigh`. The orchestrator may pass an `EFFORT=<level>` token anywhere in the task prompt to override; the worker parses it before invoking Codex (`$PROMPT` is the task prompt body, set by the worker from the user message):
 ```bash
-EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(minimal|low|medium|high|xhigh)' | head -1 | cut -d= -f2)
+EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(none|low|medium|high|xhigh)' | head -1 | cut -d= -f2)
 EFFORT="${EFFORT:-xhigh}"
 ```
 

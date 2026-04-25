@@ -58,19 +58,24 @@ def assert_partial_invariants(path):
 
 def expand_delta(delta_path):
     """Return rendered provider content with @include directives expanded."""
+    base_dir = os.path.realpath(os.path.join(providers_dir, '_base'))
     with open(delta_path, encoding='utf-8') as f:
         delta_lines = f.readlines()
     out_lines = []
-    seen_partials = set()
     for i, line in enumerate(delta_lines, 1):
         m = INCLUDE_RE.match(line.rstrip('\n'))
         if m:
             rel = m.group(1)
+            # Sandbox: must resolve under providers/_base/ and end in .md.
+            if not rel.endswith('.md'):
+                die(f"@include target must end in .md: {rel} (from {delta_path}:{i})")
+            candidate = os.path.realpath(os.path.join(providers_dir, rel))
+            if not (candidate == base_dir or candidate.startswith(base_dir + os.sep)):
+                die(f"@include path escapes providers/_base/: {rel} (from {delta_path}:{i})")
             partial_path = os.path.join(providers_dir, rel)
             if not os.path.exists(partial_path):
                 die(f"@include target missing: {partial_path} (from {delta_path}:{i})")
             assert_partial_invariants(partial_path)
-            seen_partials.add(partial_path)
             with open(partial_path, encoding='utf-8') as pf:
                 # Partial already ends in exactly one \n (asserted above);
                 # inline as-is. The delta's own surrounding blank lines

@@ -28,6 +28,12 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PROJECT_
 ```
 - Returns "NEW" if no existing session.
 
+### Writing sessions
+After a successful call, update the session store:
+```bash
+python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
+```
+
 ### New session (no existing session)
 ```bash
 RESPONSE=$(gemini --model gemini-3.1-pro-preview -p "<prompt>" 2>&1)
@@ -56,12 +62,6 @@ If resume fails or session not found, discard and create new.
 The instance key is passed by Claude in the prompt. Format:
 - Default: `gemini`
 - Named: `gemini:design`, `gemini:brainstorm`, etc.
-
-### Writing sessions
-After a successful call, update the session store:
-```bash
-python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
-```
 
 ## Timeout
 

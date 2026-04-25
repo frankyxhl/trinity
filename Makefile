@@ -69,8 +69,10 @@ release:        ## Cut a release (TRN-1004): make release (reads VERSION from fi
 	@if git rev-parse -q --verify "refs/tags/v$(CURRENT_VERSION)" >/dev/null 2>&1; then \
 		echo "Tag already exists: v$(CURRENT_VERSION)"; exit 1; \
 	fi
+	$(MAKE) verify-built
 	$(MAKE) test
 	$(MAKE) lint
+	@git diff --quiet providers/ || (echo "release: providers/ has uncommitted changes — run 'make build' and commit first"; exit 1)
 	@git reset HEAD
 	@git add VERSION scripts/__init__.py CHANGELOG.md SKILL.md
 	@git commit -m "Release v$(CURRENT_VERSION)"
