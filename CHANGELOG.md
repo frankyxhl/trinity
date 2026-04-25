@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-26
+### Changed
+- `trinity-codex`: pin model to `gpt-5.5` via `-m gpt-5.5` on every `codex exec` / `codex exec resume` call (TRN-2005). Default codex CLI registration in `Makefile` and `install.sh` now includes the flag, so `make install` / remote `install.sh` produce a deterministic codex provider regardless of the user's local `~/.codex/config.toml` default model.
+- `trinity-codex` agent prose: GPT-5.4 → GPT-5.5.
+
+### Notes for users
+- **Requires codex-cli ≥ 0.125** (when `gpt-5.5` became available). Older CLIs will fail with "unknown model"; upgrade codex-cli before reinstalling Trinity.
+- **Reinstall recommended** to pick up the pinned `-m gpt-5.5` flag in `~/.claude/trinity.json` and the refreshed `trinity-codex.md` agent file.
+
 ## [1.5.0] - 2026-04-25
 ### Changed
 - **Provider templates now built from shared partials** (TRN-2004). `providers/*.md` are generated from `providers/_base/{common-session,common-tail,family-wrapper}.md` + `providers/<name>.delta.md` via `scripts/build_providers.sh`. Single source of truth, single edit propagates to all 5 providers. Source LOC reduced ~200 lines; install footprint and runtime behavior unchanged.
