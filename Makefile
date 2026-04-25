@@ -41,7 +41,7 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 		--cli "droid exec --model glm-5" \
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register codex \
-		--cli "codex exec --skip-git-repo-check" \
+		--cli "codex exec --skip-git-repo-check -m gpt-5.5" \
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register gemini \
 		--cli "gemini -p" \
