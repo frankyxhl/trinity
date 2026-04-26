@@ -1,6 +1,9 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- **One-click release** via Actions UI (TRN-2007). The `workflow_dispatch` trigger on `release.yml` now accepts an optional `tag_name` input; leaving it empty derives `vX.Y.Z` from the `VERSION` file on the dispatched ref, creates and pushes the tag, then publishes — all in one workflow run. Click "Run workflow" from the Actions tab on `main` and you're done. A new main-only guard rejects one-click attempts from feature branches; the explicit-`tag_name` retry path remains unchanged. New `tests/test_release_workflow.sh` T10 covers the optional input, main-only guard, version-derivation logic, pre-flight tag-exists check, and per-step `if:` gating. TRN-1004 SOP restructured into Path A (one-click) / Path B (tag push CLI) / Path C (retry).
+
 ### Changed
 - `.github/workflows/release.yml`: bump action pins to Node 24 majors — `actions/checkout@v4`→`@v6`, `actions/upload-artifact@v4`→`@v5`, `astral-sh/setup-uv@v5`→`@v6`. Resolves Node 20 deprecation annotation surfaced on the v1.7.0 release run. setup-uv@v8 was skipped because it removed floating major tags (`@v8` no longer resolves) — staying on `@v6` keeps the workflow low-maintenance. `tests/test_release_workflow.sh` assertions updated.
 

@@ -12,6 +12,7 @@
 # T7 CHANGELOG awk extractor — full / last / missing / header-only fixtures
 # T8 Tag/VERSION matcher — strips leading v + trims whitespace correctly
 # T9 Makefile invariants — release target removed, release-prep present, no BSD-sed in CI path
+# T10 One-click release path — tag_name optional, main-only guard, derive-from-VERSION logic
 
 set -e
 
@@ -124,7 +125,7 @@ awk '/^  release:/{r=1} r && /^    permissions:/{p=1; next} p && /^      content
 check "job contents: write"    test "$job_write" = "0"
 
 echo "-- T4: required steps in workflow"
-for step in "Resolve and validate tag" "Verify tag is on main" "Setup uv" "Install dev dependencies" "Verify build" "Test" "Lint" "Extract release notes" "Publish GitHub Release"; do
+for step in "Verify dispatched from main" "Resolve and validate tag" "Verify tag is on main" "Setup uv" "Install dev dependencies" "Verify build" "Test" "Lint" "Extract release notes" "Create + push tag" "Publish GitHub Release"; do
   check "step: $step" grep -qF "name: $step" "$WORKFLOW"
 done
 
@@ -199,6 +200,26 @@ echo "-- T9: Makefile invariants"
 check_neg "Makefile: release target removed"  grep -qE '^release:' Makefile
 check "Makefile: release-prep present"    grep -qE '^release-prep:' Makefile
 check "Makefile: setup uses uv→pip"       grep -q 'command -v uv' Makefile
+
+echo "-- T10: one-click release path"
+# tag_name's required attribute must be false (was true in TRN-2006).
+awk '/tag_name:/{f=1; next} f && /required:/{print; exit}' "$WORKFLOW" | grep -q 'required: false' \
+  && tag_optional=0 || tag_optional=1
+check "tag_name input is optional"            test "$tag_optional" = "0"
+# Main-only guard step exists and is gated on workflow_dispatch + empty input.
+check "main-only guard step exists"           grep -qF 'name: Verify dispatched from main' "$WORKFLOW"
+check "main-only guard checks empty input"    bash -c "grep -A1 'Verify dispatched from main' '$WORKFLOW' | grep -qF \"github.event.inputs.tag_name == ''\""
+check "main-only guard rejects non-main"      grep -q 'refs/heads/main' "$WORKFLOW"
+# Resolve step derives tag from VERSION when input is empty (one-click path).
+check "resolve: ONE_CLICK flag set"           grep -q 'ONE_CLICK=1' "$WORKFLOW"
+check "resolve: derives TAG from VERSION"     grep -qF 'TAG="v$VERSION_FILE"' "$WORKFLOW"
+# Pre-flight: tag must NOT exist on remote in one-click path.
+check "resolve: pre-flight tag-exists check"  grep -qF 'Did you forget to bump VERSION' "$WORKFLOW"
+# Tag-on-main verification skipped in one-click path (tag doesn't exist yet).
+check "verify-tag-on-main skip in one-click"  bash -c "grep -A1 'Verify tag is on main' '$WORKFLOW' | grep -qF \"steps.tag.outputs.one_click != '1'\""
+# Create + push tag step is conditional on one-click path.
+check "create-tag step gated to one-click"    bash -c "grep -A1 'Create + push tag' '$WORKFLOW' | grep -qF \"steps.tag.outputs.one_click == '1'\""
+check "create-tag step pushes to origin"      grep -qF 'git push origin "$TAG"' "$WORKFLOW"
 
 echo
 echo "=== Result ==="

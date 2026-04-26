@@ -7,8 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Existing tag to (re)publish, e.g. v1.7.0'
-        required: true
+        description: |
+          Optional. Leave empty to publish current main HEAD using its
+          VERSION file (one-click path). Provide an existing tag (e.g.
+          v1.7.0) to re-publish that tag (retry path; release must not
+          already exist on the GitHub Releases page).
+        required: false
 
 permissions:
   contents: read
@@ -19,6 +23,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Verify dispatched from main (one-click path only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name == ''
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::One-click release must be triggered from main, got ${{ github.ref }}"
+            exit 1
+          fi
+          echo "Dispatched from main — one-click path"
+
       - name: Checkout (full history for ancestor check)
         uses: actions/checkout@v6
         with:
@@ -27,21 +41,44 @@ jobs:
 
       - name: Resolve and validate tag
         id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag_name }}
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          ONE_CLICK=0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -z "$INPUT_TAG" ]; then
+            VERSION_FILE=$(tr -d '[:space:]' < VERSION)
+            TAG="v$VERSION_FILE"
+            ONE_CLICK=1
+          elif [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::Bad tag format: $TAG (expected v<MAJOR>.<MINOR>.<PATCH>)"; exit 1; }
+
           VERSION_FILE=$(tr -d '[:space:]' < VERSION)
           [[ "$VERSION_FILE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::Malformed VERSION file: '$VERSION_FILE'"; exit 1; }
           [ "${TAG#v}" = "$VERSION_FILE" ] || {
             echo "::error::Tag $TAG does not match VERSION $VERSION_FILE"; exit 1; }
+
+          if [ "$ONE_CLICK" = "1" ]; then
+            if git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null | grep -q "refs/tags/$TAG$"; then
+              echo "::error::Tag $TAG already exists on remote. Did you forget to bump VERSION? Use the retry path (provide tag_name input) to re-publish an existing tag."
+              exit 1
+            fi
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION_FILE" >> "$GITHUB_OUTPUT"
-          echo "Tag $TAG matches VERSION $VERSION_FILE"
+          echo "one_click=$ONE_CLICK" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag $TAG matches VERSION $VERSION_FILE (one_click=$ONE_CLICK)"
 
       - name: Verify tag is on main
+        if: steps.tag.outputs.one_click != '1'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
@@ -101,6 +138,20 @@ jobs:
           name: release-notes-${{ steps.tag.outputs.tag }}
           path: release-notes.md
           retention-days: 30
+
+      - name: Create + push tag (one-click path only)
+        if: steps.tag.outputs.one_click == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null | grep -q "refs/tags/$TAG$"; then
+            echo "::error::Tag $TAG appeared on remote after pre-flight (race with another workflow)"; exit 1
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Created and pushed tag $TAG"
 
       - name: Publish GitHub Release
         env:
