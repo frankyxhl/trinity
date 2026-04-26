@@ -137,7 +137,7 @@ awk '/^  verify:/{r=1; next} r && /^  [a-zA-Z]/{exit} r' "$WORKFLOW" \
 check_neg "verify job has no contents: write"  test "$verify_no_write" = "1"
 
 echo "-- T4: required steps in workflow"
-for step in "Verify dispatched from main" "Resolve and validate tag" "Verify tag is on main" "Setup uv" "Install dev dependencies" "Verify build" "Test" "Lint" "Extract release notes" "Create + push tag" "Publish GitHub Release"; do
+for step in "Verify dispatched from main" "Resolve and validate tag" "Verify tag is on main" "Setup uv" "Install dev dependencies" "Verify build" "Test" "Lint" "Extract release notes" "Verify RELEASE_TAG_PAT secret" "Checkout main HEAD with PAT" "Create + push tag" "Publish GitHub Release"; do
   check "step: $step" grep -qF "name: $step" "$WORKFLOW"
 done
 
@@ -240,6 +240,12 @@ check "main-only guard: GITHUB_REF env"       bash -c "awk '/Verify dispatched f
 
 # gh release create scoped via --repo flag (defense in depth, no implicit context).
 check "gh release create uses --repo flag"    grep -qE '\-\-repo "\$GITHUB_REPOSITORY"' "$WORKFLOW"
+
+# RELEASE_TAG_PAT wiring (D11 — Path A bypass for personal repos).
+check "publish: RELEASE_TAG_PAT verify step"  grep -qF 'name: Verify RELEASE_TAG_PAT secret' "$WORKFLOW"
+check "publish: PAT preflight uses secret"    bash -c "grep -A3 'Verify RELEASE_TAG_PAT' '$WORKFLOW' | grep -qF 'secrets.RELEASE_TAG_PAT'"
+check "publish: checkout uses PAT token"      bash -c "awk '/Checkout main HEAD with PAT/{f=1} f && /token:/{print;exit}' '$WORKFLOW' | grep -qF 'secrets.RELEASE_TAG_PAT'"
+check "publish: PAT-checkout gated to one-click"  bash -c "grep -A1 'Checkout main HEAD with PAT' '$WORKFLOW' | grep -qF \"needs.verify.outputs.one_click == '1'\""
 
 echo "-- T10: one-click release path"
 # tag_name's required attribute must be false (was true in TRN-2006).

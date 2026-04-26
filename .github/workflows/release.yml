@@ -165,12 +165,31 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout main HEAD (one-click path only — needed for git tag)
+      # Fail fast if the PAT is missing (one-click path only). Without it,
+      # `git push origin <tag>` will hit the tag-protection ruleset and 403.
+      # See TRN-2007 §D11 for the PAT-setup runbook.
+      - name: Verify RELEASE_TAG_PAT secret (one-click path only)
+        if: needs.verify.outputs.one_click == '1'
+        env:
+          PAT: ${{ secrets.RELEASE_TAG_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PAT" ]; then
+            echo "::error::RELEASE_TAG_PAT secret is not configured. See TRN-2007 §D11 for the PAT-setup runbook (fine-grained PAT, contents:write, repo-scoped)."
+            exit 1
+          fi
+          echo "RELEASE_TAG_PAT is set"
+
+      # One-click checkout uses the PAT so the local git remote is wired with
+      # an actor (PAT owner = admin) that satisfies the tag-protection ruleset.
+      # All other paths skip this step (no tag-push needed).
+      - name: Checkout main HEAD with PAT (one-click path only)
         if: needs.verify.outputs.one_click == '1'
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
           ref: refs/heads/main
+          token: ${{ secrets.RELEASE_TAG_PAT }}
 
       - name: Download release notes artifact
         uses: actions/download-artifact@v5
@@ -190,6 +209,8 @@ jobs:
             echo "::error::Tag $TAG appeared on remote after pre-flight (race with another workflow)"; exit 1
           fi
           git tag "$TAG"
+          # Push uses the PAT-wired remote (configured by the previous checkout step),
+          # so the actor is the PAT owner — satisfies tag-protection ruleset bypass.
           git push origin "$TAG"
           echo "Created and pushed tag $TAG"
 

@@ -135,14 +135,38 @@ gh api -X POST .../rulesets   # actor_type: "Integration", actor_id: 15368
 → "Actor GitHub Actions integration must be part of the ruleset source or owner organization"
 ```
 
-This means **Path A's `git push origin "$TAG"` from `${{ github.token }}` (the `github-actions[bot]` actor) will hit the ruleset and 403**. Workarounds:
+This means **Path A's `git push origin "$TAG"` from `${{ github.token }}` (the `github-actions[bot]` actor) will hit the ruleset and 403**.
 
-1. **Fine-grained PAT (recommended)** — Create a PAT scoped to this repo with `contents: write`. Store as repository secret `RELEASE_TAG_PAT`. Configure the publish job's `actions/checkout@v6` with `token: ${{ secrets.RELEASE_TAG_PAT }}`. The git remote then uses the PAT, and the push actor is the PAT owner (a maintainer/admin) — admin bypass kicks in. Path A works.
-2. **Remove the ruleset** — Trinity is currently single-maintainer; the ruleset's primary value is "prevent tag push from a leaked SSH key/token". If you accept that risk, drop the ruleset and Path A works directly via `GITHUB_TOKEN`.
-3. **Migrate to GitHub organization** — Org repos CAN add the GitHub Actions integration as a bypass actor. Heavy migration; out of scope.
-4. **Disable Path A** — Keep ruleset; one-click via `workflow_dispatch` empty `tag_name` is documented as broken; users fall back to Path B.
+**Resolution chosen 2026-04-26: fine-grained PAT.** The publish job's checkout uses a `RELEASE_TAG_PAT` repo secret instead of `GITHUB_TOKEN`. The git remote is then wired with the PAT, so subsequent `git push origin <tag>` is authenticated as the PAT owner (a maintainer/admin) — admin bypass on the ruleset kicks in. Other workarounds considered: remove ruleset (accepted risk on single-maintainer repo); migrate to GitHub organization (out of scope); disable Path A (defeats the point of TRN-2007).
 
-**Current frankyxhl/trinity status (2026-04-26)**: ruleset id 15562010 active, target `refs/tags/v[0-9]*.[0-9]*.[0-9]*`, bypass `RepositoryRole id 5 (admin) Always` only. Resolution path TBD per user — see CHANGELOG / follow-up PR.
+#### One-time PAT setup (required before Path A works)
+
+1. **Create the PAT** at https://github.com/settings/personal-access-tokens (the fine-grained beta; not classic):
+   - **Token name**: `trinity-release-tag-push`
+   - **Expiration**: 1 year (current max for fine-grained); set a calendar reminder to rotate
+   - **Repository access**: "Only select repositories" → pick `frankyxhl/trinity`
+   - **Repository permissions**:
+     - `Contents`: **Read and write** (required for `git push <tag>`)
+     - `Metadata`: Read (auto-required, already selected)
+     - All others: leave at default (No access)
+   - Click **Generate token** and copy the value (starts with `github_pat_...`)
+
+2. **Add as repo secret**:
+   ```bash
+   gh secret set RELEASE_TAG_PAT --repo frankyxhl/trinity --body "<paste-pat-here>"
+   ```
+   Or via UI: Settings → Secrets and variables → Actions → New repository secret → Name: `RELEASE_TAG_PAT`, Secret: paste
+
+3. **Verify** — kick off Path A on the next release. The `Verify RELEASE_TAG_PAT secret` step in the publish job fails fast with a clear error if the secret is missing.
+
+#### Rotation runbook (annually)
+
+1. Create a new PAT (same scopes) with the same name; set expiration 1 year out
+2. `gh secret set RELEASE_TAG_PAT --repo frankyxhl/trinity --body "<new-pat>"` (overwrites)
+3. Delete the old PAT from https://github.com/settings/personal-access-tokens
+4. Trigger one-click on the next release to confirm — if it 403s on tag push, the new PAT's `Contents: write` permission is missing or the PAT was scoped to the wrong repo
+
+**Current frankyxhl/trinity status**: ruleset id 15562010 active, target `refs/tags/v[0-9]*.[0-9]*.[0-9]*`, bypass `RepositoryRole id 5 (admin) Always` only. Path A requires the PAT runbook above.
 
 ### D12 — Context-injection hardening (per Gemini)
 
