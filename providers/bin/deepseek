@@ -11,10 +11,13 @@ KEY="${DEEPSEEK_API_KEY:-}"
 KEY_FILE="${HOME}/.secrets/deepseek_api_key"
 
 if [ -z "$KEY" ] && [ -f "$KEY_FILE" ]; then
-    # BSD stat (macOS, FreeBSD): -f '%Lp'; GNU stat (Linux): -c '%a'.
-    # `|| echo unknown` keeps `set -e` from aborting silently on exotic FS.
-    PERM=$(stat -f '%Lp' "$KEY_FILE" 2>/dev/null \
-        || stat -c '%a' "$KEY_FILE" 2>/dev/null \
+    # GNU stat (Linux): -c '%a'; BSD stat (macOS, FreeBSD): -f '%Lp'.
+    # GNU first because BSD's `-f` is `--file-system` on GNU stat (returns 0
+    # with multi-line filesystem info, breaks the case match). GNU's `-c` is
+    # invalid on BSD (fails fast). `|| echo unknown` keeps `set -e` from
+    # aborting silently on exotic FS where neither tool can stat.
+    PERM=$(stat -c '%a' "$KEY_FILE" 2>/dev/null \
+        || stat -f '%Lp' "$KEY_FILE" 2>/dev/null \
         || echo unknown)
     case "$PERM" in
         600|400) ;;
