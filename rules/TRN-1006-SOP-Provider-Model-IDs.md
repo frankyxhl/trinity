@@ -2,6 +2,7 @@
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-04-26
+**Last reviewed:** 2026-04-26
 **Status:** Active
 **Related:** TRN-2005 (CHG: Pin trinity-codex to gpt-5.5), TRN-2009 (CHG: Remove zsh dependency)
 
@@ -25,6 +26,20 @@ Each provider exposes multiple model variants:
 | Date/snapshot | `claude-opus-4-7`, `claude-opus-4-7[1m]` |
 
 If Trinity defers to the user's CLI default (`~/.codex/config.toml`, `~/.deepseek/config`, etc.), behaviour is non-deterministic across machines and across user reconfigurations — the same `/trinity codex "x"` could pick `gpt-5.4` on one box and `gpt-5.5-mini` on another. We pin explicitly to make `make install` produce the same provider behaviour everywhere.
+
+---
+
+## When to Use
+
+- Bumping a provider's model ID after vendor announces a new tier or snapshot (e.g., DeepSeek announces 1M-context, Codex pins move from GPT-5.4 → GPT-5.5).
+- Pinning a previously-unpinned provider for the first time, when CLI-default drift starts producing surprises across machines.
+- Reviewing whether existing pins still match current vendor docs (cadence: per evolve cycle, signal in TRN-1800).
+
+## When NOT to Use
+
+- Cosmetic edits to a model name (e.g., adding a snapshot date that the provider treats as a synonym) — bump VERSION instead, no SOP required.
+- Provider behaviour change that lives entirely in the agent `.delta.md` prompt (system message, session resume flag) — that's a doc-only change.
+- Trying to *unpin* a provider (revert to CLI default) — re-run the routing decision from TRN-1000; pinning vs unpinning is a different question than which value to pin to.
 
 ---
 
@@ -78,7 +93,9 @@ Single source of truth per provider:
 
 ---
 
-## Steps — Updating a Model ID
+## Steps
+
+The exact procedure depends on which pin location the provider uses. Section A covers native-CLI providers (codex, glm, gemini); Section B covers Anthropic-compat wrappers (deepseek, openrouter); Section C covers verification after `make install`.
 
 ### A. Native-CLI providers (codex, glm)
 

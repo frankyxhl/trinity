@@ -2,6 +2,8 @@
 
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
 **Date:** 2026-04-26
+**Last updated:** 2026-04-26
+**Last reviewed:** 2026-04-26
 **Status:** In Progress
 **PRP:** TRN-2008 (Approved — Round 2: Codex 8.9/PASS, Gemini 9.8/PASS, GLM 8.8/PASS, DeepSeek 10/PASS)
 **Implementer:** Claude Opus 4.7
