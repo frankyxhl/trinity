@@ -22,6 +22,8 @@
 | 2005 | CHG | Pin trinity-codex to gpt-5.5 |
 | 2006 | CHG | Release-on-tag GitHub Action |
 | 2007 | CHG | One-click release via workflow_dispatch |
+| 2008 | PRP | Remove Zsh Dependency from Trinity Providers |
+| 2009 | CHG | Remove Zsh Dependency from Trinity Providers |
 
 ---
 
@@ -34,3 +36,5 @@
 | 2026-04-26 | Add TRN-2005 | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-2006 | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-2007 | Claude Opus 4.7 |
+| 2026-04-26 | Add TRN-2008 | Claude Opus 4.7 |
+| 2026-04-26 | Add TRN-2009 | Claude Opus 4.7 |

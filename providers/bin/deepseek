@@ -1,0 +1,44 @@
+#!/bin/sh
+# providers/bin/deepseek — Anthropic-compat wrapper for DeepSeek V4.
+# Loads API key from $DEEPSEEK_API_KEY (preferred) or ~/.secrets/deepseek_api_key
+# (mode 600 or 400; anything else is refused). Then exec's claude --dangerously-
+# skip-permissions with DeepSeek's Anthropic-compatible endpoint env vars.
+#
+# Pattern: trinity Anthropic-compat wrapper (see PRP TRN-2008, CHG TRN-2009).
+set -eu
+
+KEY="${DEEPSEEK_API_KEY:-}"
+KEY_FILE="${HOME}/.secrets/deepseek_api_key"
+
+if [ -z "$KEY" ] && [ -f "$KEY_FILE" ]; then
+    # BSD stat (macOS, FreeBSD): -f '%Lp'; GNU stat (Linux): -c '%a'.
+    # `|| echo unknown` keeps `set -e` from aborting silently on exotic FS.
+    PERM=$(stat -f '%Lp' "$KEY_FILE" 2>/dev/null \
+        || stat -c '%a' "$KEY_FILE" 2>/dev/null \
+        || echo unknown)
+    case "$PERM" in
+        600|400) ;;
+        unknown)
+            echo "trinity-deepseek: cannot stat $KEY_FILE — refusing to read for safety." >&2
+            exit 1 ;;
+        *)
+            echo "trinity-deepseek: refuse to read $KEY_FILE (perm $PERM, expected 600 or 400). Run: chmod 600 $KEY_FILE" >&2
+            exit 1 ;;
+    esac
+    KEY=$(cat "$KEY_FILE")
+fi
+
+if [ -z "$KEY" ]; then
+    echo "trinity-deepseek: no API key. Set \$DEEPSEEK_API_KEY or write ~/.secrets/deepseek_api_key (mode 600)." >&2
+    exit 1
+fi
+
+CLAUDE_CONFIG_DIR="${HOME}/.claude-deepseek" \
+ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic" \
+ANTHROPIC_AUTH_TOKEN="$KEY" \
+ANTHROPIC_API_KEY="$KEY" \
+ANTHROPIC_MODEL="deepseek-v4-pro" \
+ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash" \
+API_TIMEOUT_MS="600000" \
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1" \
+exec claude --dangerously-skip-permissions "$@"

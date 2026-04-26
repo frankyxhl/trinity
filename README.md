@@ -125,7 +125,21 @@ Each install command:
 5. Runs a smoke test to verify everything works
 6. Rolls back atomically if any step fails
 
-**Wrapper-based providers** (`openrouter`, `deepseek`) don't have a package install path — they use the `claude` binary pointed at an Anthropic-compatible endpoint. They ship with `make install` / `install.sh`; see **Or install manually** below if you need to configure them independently.
+**Wrapper-based providers** (`openrouter`, `deepseek`) don't have a package install path — they use the `claude` binary pointed at an Anthropic-compatible endpoint via small POSIX shell wrappers shipped in `providers/bin/` and installed to `~/.claude/skills/trinity/bin/`. `install.sh` and `make install` set them up automatically; no `~/.zshrc` edits required.
+
+Each wrapper expects an API key, in this order of precedence:
+1. **Environment variable** — `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY`
+2. **Key file** — `~/.secrets/<provider>_api_key` with mode `600` (or `400`); the wrapper refuses anything more permissive
+
+```bash
+# Either set an env var in your shell rc:
+export DEEPSEEK_API_KEY=sk-...
+
+# Or write the key to a file (safer for unattended use):
+mkdir -p ~/.secrets
+echo "sk-..." > ~/.secrets/deepseek_api_key
+chmod 600 ~/.secrets/deepseek_api_key
+```
 
 **Or install manually:**
 
@@ -153,8 +167,8 @@ Then create `~/.claude/trinity.json`:
     "codex":      { "cli": "codex exec --skip-git-repo-check", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
     "glm":        { "cli": "droid exec --model glm-5",         "installed": true },
-    "openrouter": { "cli": "openrouter_cy -p",                 "installed": true },
-    "deepseek":   { "cli": "deepseek_cy -p",                   "installed": true }
+    "openrouter": { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p", "installed": true },
+    "deepseek":   { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",   "installed": true }
   },
   "defaults": {
     "heartbeat_interval": 120,
