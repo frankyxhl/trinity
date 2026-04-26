@@ -2,14 +2,17 @@
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-04-26
+
 ### Fixed
 - `Makefile` `bump` target: replace BSD-only `sed -i ''` with portable `perl -i -pe` for both `__version__` (in `scripts/__init__.py`) and `REQUIRED_VERSION` (in `SKILL.md`) rewrites. The prior form failed on Linux because GNU sed treats `''` as the input file path — a Linux maintainer running `make bump` would have hit the same trap class as the v2.0.0 stat-order incident. Found by the first run of the TRN-1801 evolve cycle (signal: cross-platform shell trap grep). Pre-existing version pins were already in sync (VERSION=2.0.3 / `__version__=2.0.3` / `REQUIRED_VERSION=2.0.3`), so this is preventive, not a fix-after-incident. New `tests/test_make_bump.sh` adds two regression cases — T1 verifies `perl -i -pe` rewrites both pin files and preserves unrelated lines; T2 is a static guard that fails if anyone re-introduces `sed -i ''` in the bump target. Wired into `make test`.
 - `rules/TRN-1006-SOP-Provider-Model-IDs.md`: backfill canonical SOP structure — add `Last reviewed` metadata, `## When to Use`, `## When NOT to Use`, and rename `## Steps — Updating a Model ID` to `## Steps` with a one-line preamble (the suffix tripped `af validate`'s exact-match section check). Brings the SOP added in v2.0.3 to the same shape as TRN-1801 / TRN-1000.
-- Metadata backfill across 8 PRJ docs flagged by `af validate`: `TRN-1004-SOP-Release.md` and `TRN-1005-SOP-Install.md` now carry `Last reviewed: 2026-04-26`; `TRN-2003/2004/2005/2006/2007/2009-CHG-*.md` now carry both `Last updated` (matching their original `Date`) and `Last reviewed: 2026-04-26`. Drops `af validate` issue count from 43 → 25.
+- Metadata backfill across 8 PRJ docs flagged by `af validate`: `TRN-1004-SOP-Release.md` and `TRN-1005-SOP-Install.md` now carry `Last reviewed: 2026-04-26`; `TRN-2003/2004/2005/2006/2007/2009-CHG-*.md` now carry both `Last updated` (matching their original `Date`) and `Last reviewed: 2026-04-26`. Drops `af validate` issue count from 43 → 24.
 - `rules/TRN-1003-SOP-Version-Bump.md` line 24: replace stale "BSD `sed -i ''` syntax" note with the new portable `perl -i -pe` form and a pointer to `tests/test_make_bump.sh`. Caught by Codex in the §5 Reviewer A gate on the diff — active-SOP drift would have left a future contributor reading "never invoke `make bump` from CI" while the actual implementation was already cross-platform. Added `Last reviewed` while touching the metadata.
 
 ### Notes
-- This is the first run of the TRN-1801 evolve cycle. Two-reviewer gate met (Codex + DeepSeek; both reviewed the candidate slate against TRN-1800 weights and converged on Option 2 constrained: C2 + C4 + C1-with-regression-test). Skipped C3 (TRN-1001/1002/1003/1004 structural-section retrofit) — atomicity rule splits it into 16 sub-candidates, deferred for a future cycle.
+- First run of the TRN-1801 evolve cycle. Four-reviewer gate met (Codex 9.1 / DeepSeek 9.5 / GLM 9.2 / Gemini 9.3, mean 9.275, all PASS ≥9.0). Codex initially returned 8.4/FAIL on the diff (caught the TRN-1003:24 active-SOP drift blocker that lead missed); resolved by C5 patch then re-gated to PASS. Shipped as merged PR #14. Skipped C3 (TRN-1001/1002/1003/1004 structural-section retrofit) — atomicity rule splits it into 16 sub-candidates, deferred for a future cycle.
+- **v2.0.4 was skipped.** A `v2.0.4` tag was pushed to origin pointing at the cycle-1 PR-merge commit (where VERSION was still 2.0.3), without the `Release v2.0.4` commit having reached origin. CI's `verify` job correctly rejected the mismatch (TRN-2007 working as designed — no GitHub Release was published). Per TRN-1801 guard rail "fix forward with a patch bump, do not force-push the tag," the cycle ships as v2.0.5. The dead `v2.0.4` tag remains on origin with no Release attached.
 
 ## [2.0.3] - 2026-04-26
 ### Added
