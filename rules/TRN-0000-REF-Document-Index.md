@@ -21,6 +21,7 @@
 | 2004 | CHG | Provider Files Refactor (Build-Time Composition) |
 | 2005 | CHG | Pin trinity-codex to gpt-5.5 |
 | 2006 | CHG | Release-on-tag GitHub Action |
+| 2007 | CHG | One-click release via workflow_dispatch |
 
 ---
 
@@ -32,3 +33,4 @@
 | 2026-04-25 | Add TRN-2004 | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-2005 | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-2006 | Claude Opus 4.7 |
+| 2026-04-26 | Add TRN-2007 | Claude Opus 4.7 |

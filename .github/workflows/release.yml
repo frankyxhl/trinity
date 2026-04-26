@@ -7,18 +7,48 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Existing tag to (re)publish, e.g. v1.7.0'
-        required: true
+        description: |
+          Optional. Leave empty to publish current main HEAD using its
+          VERSION file (one-click path). Provide an existing tag (e.g.
+          v1.7.0) to re-publish that tag (retry path; release must not
+          already exist on the GitHub Releases page).
+        required: false
 
 permissions:
   contents: read
 
+# At most one release flow at a time. Two simultaneous dispatches for the
+# same tag would race at push; cancel-in-progress: false because we do not
+# want to interrupt an already-running publish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  # Read-only verification job. Holds NO write permission so any third-party
+  # action loaded here (setup-uv, upload-artifact, etc.) cannot push tags or
+  # mutate releases. Outputs feed the publish job.
+  verify:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      one_click: ${{ steps.tag.outputs.one_click }}
     steps:
+      - name: Verify dispatched from main (one-click path only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name == ''
+        env:
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::One-click release must be triggered from main, got $GITHUB_REF"
+            exit 1
+          fi
+          echo "Dispatched from main — one-click path"
+
       - name: Checkout (full history for ancestor check)
         uses: actions/checkout@v6
         with:
@@ -27,21 +57,46 @@ jobs:
 
       - name: Resolve and validate tag
         id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          ONE_CLICK=0
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$INPUT_TAG" ]; then
+            VERSION_FILE=$(tr -d '[:space:]' < VERSION)
+            TAG="v$VERSION_FILE"
+            ONE_CLICK=1
+          elif [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::Bad tag format: $TAG (expected v<MAJOR>.<MINOR>.<PATCH>)"; exit 1; }
+
           VERSION_FILE=$(tr -d '[:space:]' < VERSION)
           [[ "$VERSION_FILE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::Malformed VERSION file: '$VERSION_FILE'"; exit 1; }
           [ "${TAG#v}" = "$VERSION_FILE" ] || {
             echo "::error::Tag $TAG does not match VERSION $VERSION_FILE"; exit 1; }
+
+          if [ "$ONE_CLICK" = "1" ]; then
+            if git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null | grep -q "refs/tags/$TAG$"; then
+              echo "::error::Tag $TAG already exists on remote. Did you forget to bump VERSION? Use the retry path (provide tag_name input) to re-publish an existing tag."
+              exit 1
+            fi
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION_FILE" >> "$GITHUB_OUTPUT"
-          echo "Tag $TAG matches VERSION $VERSION_FILE"
+          echo "one_click=$ONE_CLICK" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag $TAG matches VERSION $VERSION_FILE (one_click=$ONE_CLICK)"
 
       - name: Verify tag is on main
+        if: steps.tag.outputs.one_click != '1'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
@@ -102,17 +157,75 @@ jobs:
           path: release-notes.md
           retention-days: 30
 
+  # Write-permission job. Runs only after verify is fully green. No third-party
+  # actions other than first-party `actions/checkout` and `actions/download-artifact`.
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Fail fast if the PAT is missing (one-click path only). Without it,
+      # `git push origin <tag>` will hit the tag-protection ruleset and 403.
+      # See TRN-2007 §D11 for the PAT-setup runbook.
+      - name: Verify RELEASE_TAG_PAT secret (one-click path only)
+        if: needs.verify.outputs.one_click == '1'
+        env:
+          PAT: ${{ secrets.RELEASE_TAG_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PAT" ]; then
+            echo "::error::RELEASE_TAG_PAT secret is not configured. See TRN-2007 §D11 for the PAT-setup runbook (fine-grained PAT, contents:write, repo-scoped)."
+            exit 1
+          fi
+          echo "RELEASE_TAG_PAT is set"
+
+      # One-click checkout uses the PAT so the local git remote is wired with
+      # an actor (PAT owner = admin) that satisfies the tag-protection ruleset.
+      # All other paths skip this step (no tag-push needed).
+      - name: Checkout main HEAD with PAT (one-click path only)
+        if: needs.verify.outputs.one_click == '1'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: refs/heads/main
+          token: ${{ secrets.RELEASE_TAG_PAT }}
+
+      - name: Download release notes artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: release-notes-${{ needs.verify.outputs.tag }}
+
+      - name: Create + push tag (one-click path only)
+        if: needs.verify.outputs.one_click == '1'
+        env:
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Race re-check: another workflow may have pushed the tag between
+          # verify's pre-flight and now (concurrency: group: release should
+          # serialize, but defense in depth).
+          if git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null | grep -q "refs/tags/$TAG$"; then
+            echo "::error::Tag $TAG appeared on remote after pre-flight (race with another workflow)"; exit 1
+          fi
+          git tag "$TAG"
+          # Push uses the PAT-wired remote (configured by the previous checkout step),
+          # so the actor is the PAT owner — satisfies tag-protection ruleset bypass.
+          git push origin "$TAG"
+          echo "Created and pushed tag $TAG"
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ needs.verify.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Release $TAG already exists. Delete it manually if you intend to recreate."
             exit 1
           fi
           gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --notes-file release-notes.md
           echo "Published $TAG"
