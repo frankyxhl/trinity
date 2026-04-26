@@ -27,6 +27,7 @@ fi
 
 # Create destination directories
 mkdir -p "${HOME}/.claude/skills/trinity/scripts"
+mkdir -p "${HOME}/.claude/skills/trinity/bin"
 mkdir -p "${HOME}/.claude/agents"
 
 # Download each file
@@ -46,6 +47,10 @@ _download "providers/codex.md"        "${HOME}/.claude/agents/trinity-codex.md"
 _download "providers/gemini.md"       "${HOME}/.claude/agents/trinity-gemini.md"
 _download "providers/openrouter.md"   "${HOME}/.claude/agents/trinity-openrouter.md"
 _download "providers/deepseek.md"     "${HOME}/.claude/agents/trinity-deepseek.md"
+_download "providers/bin/deepseek"    "${HOME}/.claude/skills/trinity/bin/deepseek"
+_download "providers/bin/openrouter"  "${HOME}/.claude/skills/trinity/bin/openrouter"
+chmod +x "${HOME}/.claude/skills/trinity/bin/deepseek" \
+         "${HOME}/.claude/skills/trinity/bin/openrouter"
 
 CURRENT_FILE=""
 
@@ -60,10 +65,10 @@ python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register gemini \
     --cli "gemini -p" \
     --global-config "${HOME}/.claude/trinity.json"
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register openrouter \
-    --cli "openrouter_cy -p" \
+    --cli "${HOME}/.claude/skills/trinity/bin/openrouter -p" \
     --global-config "${HOME}/.claude/trinity.json"
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register deepseek \
-    --cli "deepseek_cy -p" \
+    --cli "${HOME}/.claude/skills/trinity/bin/deepseek -p" \
     --global-config "${HOME}/.claude/trinity.json"
 
 # Print success with version

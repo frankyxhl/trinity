@@ -1,8 +1,10 @@
 ---
 name: trinity-openrouter
 description: |
-  Worker agent for OpenRouter (via anthropic_cli wrapper).
-  Uses openrouter_cy (claude --dangerously-skip-permissions with OpenRouter backend).
+  Worker agent for OpenRouter. Wraps `claude --dangerously-skip-permissions`
+  with OpenRouter's Anthropic-compatible endpoint via the bin script installed
+  by trinity (providers/bin/openrouter). API key from $OPENROUTER_API_KEY or
+  ~/.secrets/openrouter_api_key (mode 600 or 400).
   Default model: qwen/qwen3.6-plus:free. Supports session resume via --resume.
 
   Invoked via Agent tool with subagent_type="general-purpose".
@@ -37,28 +39,15 @@ python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTA
 
 ### Setup (run once before new or resume)
 
-Define the CLI function and session directory:
+Define the CLI entry function and session directory. `run_openrouter` calls the
+wrapper script installed by `install.sh` / `make install` (repo source:
+`providers/bin/openrouter`). The wrapper handles env injection, key-file loading
+from `~/.secrets/openrouter_api_key` (mode 600 or 400), and precedence
+(`OPENROUTER_API_KEY` env var wins over file).
+
 ```bash
-# CLI function — uses wrapper if available, otherwise portable env approach
 run_openrouter() {
-  if command -v openrouter_cy >/dev/null 2>&1; then
-    openrouter_cy "$@"
-  else
-    local key
-    key="$(cat ~/.secrets/openrouter_api_key 2>/dev/null)"
-    if [ -z "$key" ]; then key="${OPENROUTER_API_KEY:-}"; fi
-    if [ -z "$key" ]; then
-      echo "ERROR: no OpenRouter API key found. Set OPENROUTER_API_KEY or create ~/.secrets/openrouter_api_key" >&2
-      return 1
-    fi
-    CLAUDE_CONFIG_DIR="$HOME/.claude-openrouter" \
-    ANTHROPIC_BASE_URL="https://openrouter.ai/api" \
-    ANTHROPIC_AUTH_TOKEN="$key" \
-    ANTHROPIC_API_KEY="$key" \
-    ANTHROPIC_MODEL="qwen/qwen3.6-plus:free" \
-    ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free" \
-    claude --dangerously-skip-permissions "$@"
-  fi
+  "$HOME/.claude/skills/trinity/bin/openrouter" "$@"
 }
 
 # Session directory (scoped to project)

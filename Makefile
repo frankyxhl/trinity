@@ -33,6 +33,7 @@ lint:           ## Check and format code (TRN-1002)
 
 install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	@mkdir -p ~/.claude/skills/trinity/scripts
+	@mkdir -p ~/.claude/skills/trinity/bin
 	@mkdir -p ~/.claude/agents
 	cp SKILL.md ~/.claude/skills/trinity/SKILL.md
 	cp -r scripts/. ~/.claude/skills/trinity/scripts/
@@ -41,6 +42,9 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	cp providers/gemini.md ~/.claude/agents/trinity-gemini.md
 	cp providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
 	cp providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
+	cp providers/bin/deepseek ~/.claude/skills/trinity/bin/deepseek
+	cp providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
+	chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter
 	python3 ~/.claude/skills/trinity/scripts/install.py register glm \
 		--cli "droid exec --model glm-5" \
 		--global-config ~/.claude/trinity.json
@@ -51,10 +55,10 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 		--cli "gemini -p" \
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register openrouter \
-		--cli "openrouter_cy -p" \
+		--cli "$(HOME)/.claude/skills/trinity/bin/openrouter -p" \
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register deepseek \
-		--cli "deepseek_cy -p" \
+		--cli "$(HOME)/.claude/skills/trinity/bin/deepseek -p" \
 		--global-config ~/.claude/trinity.json
 	@echo "Installed Trinity $(CURRENT_VERSION)"
 

@@ -200,6 +200,96 @@ t7_success_output_version() {
     rm -rf "${FAKE_HOME}"
 }
 
+# T9 (TRN-2008/2009): bin scripts present + executable; deepseek/openrouter
+# registered with absolute-path cli (no _cy reference).
+t9_bin_scripts_and_absolute_cli() {
+    FAKE_HOME=$(mktemp -d)
+    _start_server "${REPO_DIR}"
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+        bash "${INSTALL_SCRIPT}" >/dev/null
+    _stop_server
+
+    BIN_DIR="${FAKE_HOME}/.claude/skills/trinity/bin"
+    for w in deepseek openrouter; do
+        if [ ! -x "${BIN_DIR}/${w}" ]; then
+            _fail "T9: ${BIN_DIR}/${w} missing or not executable"
+            rm -rf "${FAKE_HOME}"; return
+        fi
+    done
+
+    TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
+    EXPECTED_DS="${BIN_DIR}/deepseek -p"
+    EXPECTED_OR="${BIN_DIR}/openrouter -p"
+    ACTUAL_DS=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['deepseek']['cli'])")
+    ACTUAL_OR=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['openrouter']['cli'])")
+
+    if [ "${ACTUAL_DS}" != "${EXPECTED_DS}" ]; then
+        _fail "T9: deepseek cli mismatch: got '${ACTUAL_DS}' expected '${EXPECTED_DS}'"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+    if [ "${ACTUAL_OR}" != "${EXPECTED_OR}" ]; then
+        _fail "T9: openrouter cli mismatch: got '${ACTUAL_OR}' expected '${EXPECTED_OR}'"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+
+    # Sanity: no legacy _cy reference anywhere in trinity.json.
+    if grep -q "_cy" "${TRINITY_JSON}"; then
+        _fail "T9: trinity.json still contains _cy reference"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+
+    _pass "T9: bin scripts installed + executable; deepseek/openrouter cli use absolute paths"
+    rm -rf "${FAKE_HOME}"
+}
+
+# T11 (TRN-2008/2009): legacy `deepseek_cy -p` cli is overwritten by re-install.
+t11_legacy_cli_migration() {
+    FAKE_HOME=$(mktemp -d)
+    mkdir -p "${FAKE_HOME}/.claude"
+    # Simulate an existing user with the legacy zsh-wrapper registration.
+    cat > "${FAKE_HOME}/.claude/trinity.json" <<EOF
+{
+  "providers": {
+    "deepseek":   {"cli": "deepseek_cy -p",  "installed": true},
+    "openrouter": {"cli": "openrouter_cy -p", "installed": true},
+    "glm":        {"cli": "droid exec --model glm-5", "installed": true}
+  }
+}
+EOF
+
+    _start_server "${REPO_DIR}"
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+        bash "${INSTALL_SCRIPT}" >/dev/null
+    _stop_server
+
+    TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
+    BIN_DIR="${FAKE_HOME}/.claude/skills/trinity/bin"
+
+    # Legacy cli must have been overwritten.
+    if grep -q "_cy" "${TRINITY_JSON}"; then
+        _fail "T11: legacy _cy entries not overwritten"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+
+    # New absolute-path cli must be present.
+    EXPECTED_DS="${BIN_DIR}/deepseek -p"
+    ACTUAL_DS=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['deepseek']['cli'])")
+    if [ "${ACTUAL_DS}" != "${EXPECTED_DS}" ]; then
+        _fail "T11: deepseek cli not migrated: got '${ACTUAL_DS}'"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+
+    # Other providers untouched (glm was pre-existing).
+    ACTUAL_GLM=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['glm']['cli'])")
+    if [ "${ACTUAL_GLM}" != "droid exec --model glm-5" ]; then
+        _fail "T11: glm registration mutated unexpectedly: '${ACTUAL_GLM}'"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+
+    _pass "T11: legacy deepseek_cy/openrouter_cy cli overwritten with absolute paths; other providers untouched"
+    rm -rf "${FAKE_HOME}"
+}
+
 # Run all tests
 t1_happy_path
 t2_idempotent
@@ -209,6 +299,8 @@ t4_leading_v_stripped
 t5_dirs_created
 t6_404_exits_nonzero
 t7_success_output_version
+t9_bin_scripts_and_absolute_cli
+t11_legacy_cli_migration
 
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"

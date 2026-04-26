@@ -1,8 +1,10 @@
 ---
 name: trinity-deepseek
 description: |
-  Worker agent for DeepSeek V4 (via anthropic_cli wrapper).
-  Uses deepseek_cy (claude --dangerously-skip-permissions with DeepSeek backend).
+  Worker agent for DeepSeek V4. Wraps `claude --dangerously-skip-permissions`
+  with DeepSeek's Anthropic-compatible endpoint via the bin script installed
+  by trinity (providers/bin/deepseek). API key from $DEEPSEEK_API_KEY or
+  ~/.secrets/deepseek_api_key (mode 600 or 400).
   Default model: deepseek-v4-pro. Supports session resume via --resume.
 
   Invoked via Agent tool with subagent_type="general-purpose".
@@ -23,30 +25,15 @@ You are a worker agent that executes tasks using DeepSeek V4 via the `claude` CL
 
 ### Setup (run once before new or resume)
 
-Define the CLI function and session directory:
+Define the CLI entry function and session directory. `run_deepseek` calls the
+wrapper script installed by `install.sh` / `make install` (repo source:
+`providers/bin/deepseek`). The wrapper handles env injection, key-file loading
+from `~/.secrets/deepseek_api_key` (mode 600 or 400), and precedence
+(`DEEPSEEK_API_KEY` env var wins over file).
+
 ```bash
-# CLI function — uses wrapper if available, otherwise portable env approach
 run_deepseek() {
-  if command -v deepseek_cy >/dev/null 2>&1; then
-    deepseek_cy "$@"
-  else
-    local key
-    key="$(cat ~/.secrets/deepseek_api_key 2>/dev/null)"
-    if [ -z "$key" ]; then key="${DEEPSEEK_API_KEY:-}"; fi
-    if [ -z "$key" ]; then
-      echo "ERROR: no DeepSeek API key found. Set DEEPSEEK_API_KEY or create ~/.secrets/deepseek_api_key" >&2
-      return 1
-    fi
-    CLAUDE_CONFIG_DIR="$HOME/.claude-deepseek" \
-    ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic" \
-    ANTHROPIC_AUTH_TOKEN="$key" \
-    ANTHROPIC_API_KEY="$key" \
-    ANTHROPIC_MODEL="deepseek-v4-pro" \
-    ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash" \
-    API_TIMEOUT_MS="600000" \
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1" \
-    claude --dangerously-skip-permissions "$@"
-  fi
+  "$HOME/.claude/skills/trinity/bin/deepseek" "$@"
 }
 
 # Session directory (scoped to project)
