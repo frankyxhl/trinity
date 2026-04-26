@@ -121,13 +121,22 @@ The original TRN-2006 §D8 said "configure tag protection" without specifying by
 **Required configuration** (one-time, per repo):
 
 1. Settings → Rules → Rulesets → New tag ruleset
-2. Target tags: `Include by pattern: v[0-9]+.[0-9]+.[0-9]+`
+2. **Target tags pattern**: `v[0-9]*.[0-9]*.[0-9]*`
+   - ⚠️ GitHub Rulesets use **fnmatch (glob) syntax**, NOT regex. The `+` quantifier from regex is unsupported here. `[0-9]*` in fnmatch means "one digit followed by any chars" — slightly more permissive than the workflow trigger filter (which uses GitHub workflow-filter syntax that DOES support `+`), but the divergence is safe: tags like `v1.2.3` are covered by both, oddly-named tags like `v1abc.2.3` would be protected (no harm) but wouldn't trigger publish.
 3. Rules: Restrict creations + Restrict updates + Restrict deletions
-4. Bypass list MUST include EITHER:
-   - **Repository admin** role (Always) — covers maintainers, AND
-   - **GitHub Actions** integration / `github-actions[bot]` actor — covers Path A workflow tag push
+4. Bypass list MUST include BOTH:
+   - **Repository admin** role with `Always` mode — covers maintainers running Path B (CLI tag push)
+   - **GitHub Actions** integration with `Always` mode — covers Path A workflow tag push (`github-actions[bot]` identity)
 
-Without #4, Path A (`workflow_dispatch` empty `tag_name`) will fail at the tag-push step with HTTP 403. Path B (CLI tag push by maintainer) and Path C (retry existing tag, no push) are unaffected.
+**Important**: The "GitHub Actions" bypass cannot be added via the Rulesets POST API directly — `gh api -X POST .../rulesets` with `actor_type: "Integration", actor_id: 15368` returns:
+
+> Actor GitHub Actions integration must be part of the ruleset source or owner organization
+
+It MUST be added through the UI: Settings → Rules → Rulesets → `<your ruleset>` → "Add bypass" → search `GitHub Actions` → mode `Always` → Save.
+
+Without the GitHub Actions bypass, Path A (`workflow_dispatch` empty `tag_name`) fails at the `Create + push tag` step with HTTP 403. Path B (CLI tag push by maintainer with admin bypass) and Path C (retry existing tag, no push) are unaffected.
+
+**Reference configuration** (frankyxhl/trinity, 2026-04-26): ruleset id 15562010, target `refs/tags/v[0-9]*.[0-9]*.[0-9]*`, bypass `RepositoryRole id 5 (admin) Always` + `GitHub Actions integration Always` (added via UI).
 
 ### D12 — Context-injection hardening (per Gemini)
 

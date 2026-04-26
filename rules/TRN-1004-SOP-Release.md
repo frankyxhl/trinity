@@ -17,7 +17,7 @@ Cut a GitHub release. The release pipeline lives entirely in `.github/workflows/
 - All feature code and tests committed (`git status` clean)
 - TRN-1003 completed on `main`: `CHANGELOG.md` has a non-empty `## [X.Y.Z]` section, `VERSION` / `scripts/__init__.py` / `SKILL.md` reflect `X.Y.Z`. (Easiest path: a "Release vX.Y.Z" PR with these 4 files, merged to main.)
 - `providers/*.md` is up-to-date with `*.delta.md` + `_base/` partials (TRN-2004) — `make verify-built` exits 0
-- One-time setup: tag-protection ruleset in repo settings (see TRN-2007 §D11). Bypass list MUST include both **Repository admin** (for maintainers running Path B) AND **GitHub Actions** (for Path A's workflow tag push). Without the GitHub Actions bypass, Path A fails at the tag-push step with HTTP 403.
+- One-time setup: tag-protection ruleset in repo settings (see TRN-2007 §D11). Pattern `v[0-9]*.[0-9]*.[0-9]*` (fnmatch — GitHub Rulesets do NOT support regex `+`). Bypass list MUST include both **Repository admin** with `Always` mode (for Path B maintainer CLI) AND **GitHub Actions** integration with `Always` mode (for Path A workflow tag push). The GitHub Actions bypass MUST be added via UI; the API rejects it with "Actor GitHub Actions integration must be part of the ruleset source or owner organization".
 
 ---
 
