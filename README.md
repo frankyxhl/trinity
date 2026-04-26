@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh |
 This downloads all skill files to `~/.claude/` and registers the five default providers (glm, codex, gemini, openrouter, deepseek) in `~/.claude/trinity.json`. Expected output ends with:
 
 ```
-Trinity 1.4.0 installed to ~/.claude/
+Trinity 2.0.1 installed to ~/.claude/
 ```
 
 If the command fails, check stderr for `trinity-install: failed downloading <file>` — that tells you exactly which file 404'd.
@@ -74,6 +74,8 @@ Expected output: glm, codex, gemini, openrouter, and deepseek all show ✅ usabl
 | `~/.claude/agents/trinity-gemini.md` | Gemini worker agent |
 | `~/.claude/agents/trinity-openrouter.md` | OpenRouter worker agent |
 | `~/.claude/agents/trinity-deepseek.md` | DeepSeek V4 worker agent |
+| `~/.claude/skills/trinity/bin/deepseek` | DeepSeek `claude --dangerously-skip-permissions` wrapper (env injection + key-file loader) |
+| `~/.claude/skills/trinity/bin/openrouter` | OpenRouter wrapper (same shape) |
 | `~/.claude/trinity.json` | Global provider registry |
 
 ---
@@ -100,7 +102,7 @@ curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh |
 This downloads all skill files directly to `~/.claude/` — no git clone required. To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=1.1.0 bash
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=2.0.1 bash
 ```
 
 **Or, if you have the repo cloned:**
@@ -158,13 +160,19 @@ cp trinity/providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
 
 # DeepSeek V4
 cp trinity/providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
+
+# Wrapper bin scripts (deepseek + openrouter)
+mkdir -p ~/.claude/skills/trinity/bin
+cp trinity/providers/bin/deepseek   ~/.claude/skills/trinity/bin/deepseek
+cp trinity/providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
+chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter
 ```
 
 Then create `~/.claude/trinity.json`:
 ```json
 {
   "providers": {
-    "codex":      { "cli": "codex exec --skip-git-repo-check", "installed": true },
+    "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
     "glm":        { "cli": "droid exec --model glm-5",         "installed": true },
     "openrouter": { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p", "installed": true },
