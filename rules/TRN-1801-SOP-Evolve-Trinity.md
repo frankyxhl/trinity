@@ -48,10 +48,15 @@ Run each signal source from TRN-1800 §Signal Sources and record findings in a w
 # Build drift — must be empty / OK
 make verify-built
 
-# Provider parity — diff Makefile vs install.sh register blocks
+# Provider parity — diff Makefile vs install.sh register blocks.
+# Normalize before sort: leading tabs/spaces (Makefile uses TAB, install.sh
+# uses 4 spaces) AND Makefile's $(HOME) vs install.sh's ${HOME} (semantically
+# identical). Without normalization the diff produces false positives where
+# parity is actually fine.
+_norm() { sed -E 's/^[[:space:]]+//; s/\$\(HOME\)/${HOME}/g'; }
 diff \
-  <(grep -E "^\s+--cli " Makefile | sort) \
-  <(grep -E '^\s+--cli ' install.sh | sort)
+  <(grep -E '^[[:space:]]+--cli ' Makefile   | _norm | sort) \
+  <(grep -E '^[[:space:]]+--cli ' install.sh | _norm | sort)
 
 # Cross-platform shell traps — every hit needs a "did we test the other OS?" review
 grep -rnE "stat -[fc] |sed -i ''|readlink -f|date -d " \

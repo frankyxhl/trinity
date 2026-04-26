@@ -1,8 +1,8 @@
 # SOP-1000: Workflow Routing PRJ — Trinity
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-03-21
-**Last reviewed:** 2026-03-21
+**Last updated:** 2026-04-26
+**Last reviewed:** 2026-04-26
 **Status:** Active
 
 ---
