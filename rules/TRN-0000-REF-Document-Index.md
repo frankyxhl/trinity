@@ -15,6 +15,7 @@
 | 1003 | SOP | Version Bump |
 | 1004 | SOP | Release |
 | 1005 | SOP | Install |
+| 1006 | SOP | Provider Model IDs — Pinning and the `[1m]` Convention |
 | 2001 | CHG | Release Infrastructure |
 | 2002 | PRP | Remote Install Script |
 | 2003 | CHG | Remote Install Script |
@@ -38,3 +39,4 @@
 | 2026-04-26 | Add TRN-2007 | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-2008 | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-2009 | Claude Opus 4.7 |
+| 2026-04-26 | Add TRN-1006 (Provider Model IDs SOP) | Claude Opus 4.7 |

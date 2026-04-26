@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+
+## [2.0.2] - 2026-04-26
+### Changed
+- `providers/bin/deepseek`: pin `ANTHROPIC_MODEL` to `deepseek-v4-pro[1m]` (1M-context tier) instead of the bare `deepseek-v4-pro` (default-context tier). The `[1m]` suffix is a literal model-ID convention for the 1M-context variant — same shape as Anthropic's `claude-opus-4-7[1m]` — NOT an ANSI escape. Regression assertion in `tests/test_anthropic_compat_wrappers.py::test_t1_deepseek_env_key_sets_anthropic_env_and_passes_argv` guards future copy-paste from accidentally stripping the suffix. `ANTHROPIC_SMALL_FAST_MODEL` stays at `deepseek-v4-flash` (small-fast tier rarely needs 1M context).
+- New SOP `rules/TRN-1006-SOP-Provider-Model-IDs.md` documenting the `[1m]` suffix convention, where each provider's model ID is pinned (native-CLI providers vs Anthropic-compat wrappers), and the update workflow with shell-quoting guard rails.
+
 ### Fixed
 - `README.md`: refresh stale version examples (`Trinity 1.4.0` → `2.0.1`, `TRINITY_VERSION=1.1.0` → `2.0.1`) and document the new `bin/` wrappers shipped in v2.0.0. The "What was installed" table now lists `~/.claude/skills/trinity/bin/{deepseek,openrouter}`. The "Or install manually" block was actively misleading on v2.0.0 — it omitted the `mkdir -p .../bin/`, `cp providers/bin/*`, and `chmod +x` steps, so anyone copying it ended up with broken DeepSeek/OpenRouter providers (no wrapper script to invoke). The manual `trinity.json` example also picks up the `-m gpt-5.5` codex pin (TRN-2005, shipped in v1.6.0) that was never reflected.
 
