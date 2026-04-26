@@ -4,6 +4,9 @@
 ### Changed
 - `.github/workflows/release.yml`: bump action pins to Node 24 majors — `actions/checkout@v4`→`@v6`, `actions/upload-artifact@v4`→`@v5`, `astral-sh/setup-uv@v5`→`@v6`. Resolves Node 20 deprecation annotation surfaced on the v1.7.0 release run. setup-uv@v8 was skipped because it removed floating major tags (`@v8` no longer resolves) — staying on `@v6` keeps the workflow low-maintenance. `tests/test_release_workflow.sh` assertions updated.
 
+### Fixed
+- `.github/workflows/release.yml`: add `cache-dependency-glob: 'Makefile'` to the `setup-uv` step. Resolves the "No file matched to [**/uv.lock,**/requirements*.txt]. The cache will never get invalidated." annotation surfaced on the v1.7.0 release run. Trinity has neither `uv.lock` nor `requirements*.txt`; deps live in `Makefile` (`uv pip install pytest ruff`), so that file is the right cache key.
+
 ## [1.7.0] - 2026-04-26
 ### Added
 - `.github/workflows/release.yml`: tag-push triggers automated GitHub Release publish (TRN-2006). Strict semver glob `v[0-9]+.[0-9]+.[0-9]+` for trigger; `workflow_dispatch` with `tag_name` input for manual retry. Defense-in-depth tag/VERSION validation, tag-must-be-on-main check, CHANGELOG section extraction (fail on empty), least-privilege permissions (global `contents: read`, only the publish job gets `contents: write`). No third-party publish actions — direct `gh release create` only.
