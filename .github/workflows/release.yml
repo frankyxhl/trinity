@@ -25,10 +25,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Cheap pre-flight: when a tag-push event fires for a tag whose release
+  # already exists (Path A's PAT-pushed tag re-triggering `on.push.tags`),
+  # short-circuit the rest of the workflow. Without this, verify would burn
+  # ~3 min on a duplicate run that's destined to exit cleanly at publish.
+  # `workflow_dispatch` events skip this check (operator intent: run it).
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ] && gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG already exists for push event — skipping verify+publish"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Read-only verification job. Holds NO write permission so any third-party
   # action loaded here (setup-uv, upload-artifact, etc.) cannot push tags or
   # mutate releases. Outputs feed the publish job.
   verify:
+    needs: preflight
+    if: needs.preflight.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -160,7 +188,8 @@ jobs:
   # Write-permission job. Runs only after verify is fully green. No third-party
   # actions other than first-party `actions/checkout` and `actions/download-artifact`.
   publish:
-    needs: verify
+    needs: [preflight, verify]
+    if: needs.preflight.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -106,6 +106,7 @@ echo "== TRN-2006: release-on-tag workflow tests =="
 echo "-- T1: workflow file structure"
 check "workflow file exists"   test -f "$WORKFLOW"
 check "yaml: name field"       grep -q '^name: Release' "$WORKFLOW"
+check "yaml: jobs.preflight"   grep -q '^  preflight:' "$WORKFLOW"
 check "yaml: jobs.verify"      grep -q '^  verify:' "$WORKFLOW"
 check "yaml: jobs.publish"     grep -q '^  publish:' "$WORKFLOW"
 
@@ -219,8 +220,9 @@ check "concurrency: group key present"        grep -qE '^concurrency:$' "$WORKFL
 check "concurrency: group value"              grep -qE '^\s*group:\s*release\s*$' "$WORKFLOW"
 check "concurrency: cancel-in-progress false" grep -qE '^\s*cancel-in-progress:\s*false\s*$' "$WORKFLOW"
 
-# 2-job structure: publish needs verify.
-check "publish job needs verify"              grep -qE '^\s*needs:\s*verify\s*$' "$WORKFLOW"
+# 3-job structure: publish needs both preflight and verify.
+check "publish job needs preflight+verify"    grep -qE '^\s*needs:\s*\[preflight,\s*verify\]\s*$' "$WORKFLOW"
+check "verify job needs preflight"            bash -c "awk '/^  verify:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    needs:/{print; exit}' '$WORKFLOW' | grep -qF 'needs: preflight'"
 # Verify job's outputs are wired (tag, version, one_click).
 check "verify outputs: tag"                   bash -c "awk '/^  verify:/{r=1} r && /^    outputs:/{o=1} o && /^      tag:/{print;exit}' '$WORKFLOW' | grep -q 'tag:'"
 check "verify outputs: version"               bash -c "awk '/^  verify:/{r=1} r && /^    outputs:/{o=1} o && /^      version:/{print;exit}' '$WORKFLOW' | grep -q 'version:'"
@@ -252,10 +254,30 @@ check "publish: PAT-checkout gated to one-click"  bash -c "grep -A1 'Checkout ma
 check "publish: EVENT_NAME env in publish step"   bash -c "awk '/Publish GitHub Release/{f=1; next} f && /env:/{e=1; next} e && /EVENT_NAME:/{print; exit}' '$WORKFLOW' | grep -q 'EVENT_NAME:'"
 check "publish: literal EVENT_NAME == push check"  grep -qF '[ "$EVENT_NAME" = "push" ]' "$WORKFLOW"
 check "publish: workflow_dispatch retry still fails on existing release"  grep -qF 'Delete it manually if you intend to recreate' "$WORKFLOW"
-# Verify exit 0 (clean skip) lives INSIDE the EVENT_NAME == push branch (not at top level of run script).
-check "publish: exit 0 inside EVENT_NAME push branch"  bash -c "awk '/\\[ \"\\\$EVENT_NAME\" = \"push\" \\]/{f=1; next} f && /^[[:space:]]*fi[[:space:]]*\$/{exit} f && /exit 0/{print; found=1; exit} END{exit !found}' '$WORKFLOW'"
+# Verify exit 0 (clean skip) lives INSIDE the EVENT_NAME == push branch in the
+# Publish step (defense-in-depth for the race window between preflight and publish;
+# preflight short-circuits the common duplicate-trigger case).
+check "publish: exit 0 inside EVENT_NAME push branch"  bash -c "awk '/Publish GitHub Release/{p=1} p && /\\[ \"\\\$EVENT_NAME\" = \"push\" \\]/{f=1; next} f && /^[[:space:]]*fi[[:space:]]*\$/{exit} f && /exit 0/{print; found=1; exit} END{exit !found}' '$WORKFLOW'"
 # Verify the EVENT_NAME branch is itself nested inside the `gh release view` existing-release block.
 check "publish: EVENT_NAME branch nested under gh release view"  bash -c "awk '/gh release view.*GITHUB_REPOSITORY/{f=1; next} f && /\\[ \"\\\$EVENT_NAME\" = \"push\" \\]/{print; exit}' '$WORKFLOW' | grep -q 'EVENT_NAME'"
+
+echo "-- T12: preflight short-circuit (issue #11 — skip duplicate verify+publish)"
+# Preflight job: read-only, single step, computes `skip` output for tag-push duplicates.
+check "preflight: job present"                 grep -qE '^  preflight:' "$WORKFLOW"
+check "preflight: contents: read"              bash -c "awk '/^  preflight:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^      contents:/{print; exit}' '$WORKFLOW' | grep -q 'contents: read'"
+check "preflight: outputs.skip declared"       bash -c "awk '/^  preflight:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^      skip:/{print; exit}' '$WORKFLOW' | grep -q 'skip:'"
+check "preflight: EVENT_NAME push guard"       grep -qF '[ "$EVENT_NAME" = "push" ] && gh release view' "$WORKFLOW"
+check "preflight: writes skip=true"            grep -qF 'echo "skip=true"' "$WORKFLOW"
+check "preflight: writes skip=false"           grep -qF 'echo "skip=false"' "$WORKFLOW"
+
+# Both downstream jobs gate on preflight.outputs.skip != 'true'.
+check "verify gated on preflight.skip"         bash -c "awk '/^  verify:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    if:/{print; exit}' '$WORKFLOW' | grep -qF \"needs.preflight.outputs.skip != 'true'\""
+check "publish gated on preflight.skip"        bash -c "awk '/^  publish:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    if:/{print; exit}' '$WORKFLOW' | grep -qF \"needs.preflight.outputs.skip != 'true'\""
+
+# Preflight must NOT have contents: write.
+awk '/^  preflight:/{r=1; next} r && /^  [a-zA-Z]/{exit} r' "$WORKFLOW" \
+  | grep -q 'contents: write' && preflight_no_write=1 || preflight_no_write=0
+check_neg "preflight job has no contents: write"  test "$preflight_no_write" = "1"
 
 echo "-- T10: one-click release path"
 # tag_name's required attribute must be false (was true in TRN-2006).
