@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+
+## [1.7.0] - 2026-04-26
 ### Added
 - `.github/workflows/release.yml`: tag-push triggers automated GitHub Release publish (TRN-2006). Strict semver glob `v[0-9]+.[0-9]+.[0-9]+` for trigger; `workflow_dispatch` with `tag_name` input for manual retry. Defense-in-depth tag/VERSION validation, tag-must-be-on-main check, CHANGELOG section extraction (fail on empty), least-privilege permissions (global `contents: read`, only the publish job gets `contents: write`). No third-party publish actions — direct `gh release create` only.
 - `make release-prep`: local-only target replacing `make release`. Runs verify-built/test/lint, stages 4 metadata files, commits `Release vX.Y.Z`, creates local tag. Does NOT push, does NOT publish. CI handles the publish on tag push.
