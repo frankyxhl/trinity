@@ -128,15 +128,21 @@ The original TRN-2006 §D8 said "configure tag protection" without specifying by
    - **Repository admin** role with `Always` mode — covers maintainers running Path B (CLI tag push)
    - **GitHub Actions** integration with `Always` mode — covers Path A workflow tag push (`github-actions[bot]` identity)
 
-**Important**: The "GitHub Actions" bypass cannot be added via the Rulesets POST API directly — `gh api -X POST .../rulesets` with `actor_type: "Integration", actor_id: 15368` returns:
+**Critical constraint discovered 2026-04-26**: On **personal repositories** (not org repos), the "GitHub Actions" integration **cannot be added to a ruleset's bypass list**. It does not appear in the UI's "Add bypass" search, and the Rulesets POST API rejects it explicitly:
 
-> Actor GitHub Actions integration must be part of the ruleset source or owner organization
+```
+gh api -X POST .../rulesets   # actor_type: "Integration", actor_id: 15368
+→ "Actor GitHub Actions integration must be part of the ruleset source or owner organization"
+```
 
-It MUST be added through the UI: Settings → Rules → Rulesets → `<your ruleset>` → "Add bypass" → search `GitHub Actions` → mode `Always` → Save.
+This means **Path A's `git push origin "$TAG"` from `${{ github.token }}` (the `github-actions[bot]` actor) will hit the ruleset and 403**. Workarounds:
 
-Without the GitHub Actions bypass, Path A (`workflow_dispatch` empty `tag_name`) fails at the `Create + push tag` step with HTTP 403. Path B (CLI tag push by maintainer with admin bypass) and Path C (retry existing tag, no push) are unaffected.
+1. **Fine-grained PAT (recommended)** — Create a PAT scoped to this repo with `contents: write`. Store as repository secret `RELEASE_TAG_PAT`. Configure the publish job's `actions/checkout@v6` with `token: ${{ secrets.RELEASE_TAG_PAT }}`. The git remote then uses the PAT, and the push actor is the PAT owner (a maintainer/admin) — admin bypass kicks in. Path A works.
+2. **Remove the ruleset** — Trinity is currently single-maintainer; the ruleset's primary value is "prevent tag push from a leaked SSH key/token". If you accept that risk, drop the ruleset and Path A works directly via `GITHUB_TOKEN`.
+3. **Migrate to GitHub organization** — Org repos CAN add the GitHub Actions integration as a bypass actor. Heavy migration; out of scope.
+4. **Disable Path A** — Keep ruleset; one-click via `workflow_dispatch` empty `tag_name` is documented as broken; users fall back to Path B.
 
-**Reference configuration** (frankyxhl/trinity, 2026-04-26): ruleset id 15562010, target `refs/tags/v[0-9]*.[0-9]*.[0-9]*`, bypass `RepositoryRole id 5 (admin) Always` + `GitHub Actions integration Always` (added via UI).
+**Current frankyxhl/trinity status (2026-04-26)**: ruleset id 15562010 active, target `refs/tags/v[0-9]*.[0-9]*.[0-9]*`, bypass `RepositoryRole id 5 (admin) Always` only. Resolution path TBD per user — see CHANGELOG / follow-up PR.
 
 ### D12 — Context-injection hardening (per Gemini)
 
