@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Existing tag to (re)publish, e.g. v1.7.0'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (full history for ancestor check)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag_name || github.ref }}
+
+      - name: Resolve and validate tag
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::Bad tag format: $TAG (expected v<MAJOR>.<MINOR>.<PATCH>)"; exit 1; }
+          VERSION_FILE=$(tr -d '[:space:]' < VERSION)
+          [[ "$VERSION_FILE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::Malformed VERSION file: '$VERSION_FILE'"; exit 1; }
+          [ "${TAG#v}" = "$VERSION_FILE" ] || {
+            echo "::error::Tag $TAG does not match VERSION $VERSION_FILE"; exit 1; }
+          echo "version=$VERSION_FILE" >> "$GITHUB_OUTPUT"
+          echo "Tag $TAG matches VERSION $VERSION_FILE"
+
+      - name: Verify tag is on main
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git rev-parse "$TAG" >/dev/null || { echo "::error::Tag $TAG does not exist"; exit 1; }
+          git fetch origin main --depth=0 2>/dev/null || git fetch origin main
+          git merge-base --is-ancestor "$TAG" origin/main || {
+            echo "::error::Tag $TAG is not an ancestor of origin/main"; exit 1; }
+          echo "Tag $TAG is on main"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dev dependencies (uv → pip fallback)
+        run: |
+          set -euo pipefail
+          if command -v uv >/dev/null 2>&1; then
+            uv venv
+            uv pip install pytest ruff
+          else
+            python3 -m venv .venv
+            .venv/bin/pip install pytest ruff
+          fi
+
+      - name: Verify build
+        run: make verify-built
+
+      - name: Test
+        run: make test
+
+      - name: Lint
+        run: make lint
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES=$(awk -v v="$VERSION" '
+            $0 ~ "^## \\["v"\\]" {found=1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG section [$VERSION] is missing or empty"; exit 1
+          fi
+          printf '%s\n' "$NOTES" > release-notes.md
+          echo "Extracted $(wc -l < release-notes.md) lines from CHANGELOG"
+
+      - name: Upload release notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ steps.tag.outputs.tag }}
+          path: release-notes.md
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. Delete it manually if you intend to recreate."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md
+          echo "Published $TAG"

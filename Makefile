@@ -1,11 +1,14 @@
-.PHONY: setup build verify-built install-hooks test lint install bump release
+.PHONY: setup build verify-built install-hooks test lint install bump release-prep
 
 # Read VERSION at make invocation time
 CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
 
-setup:          ## Create venv and install dev dependencies
-	uv venv
-	uv pip install pytest ruff
+setup:          ## Create venv and install dev dependencies (uv → pip fallback)
+	@if command -v uv >/dev/null 2>&1; then \
+		uv venv && uv pip install pytest ruff; \
+	else \
+		python3 -m venv .venv && .venv/bin/pip install pytest ruff; \
+	fi
 
 build:          ## Compose providers/*.md from _base/ partials and *.delta.md (TRN-2004)
 	@bash scripts/build_providers.sh
@@ -18,10 +21,11 @@ install-hooks:  ## Install git pre-commit hook to run verify-built (TRN-2004)
 	@chmod +x .git/hooks/pre-commit
 	@echo "Installed pre-commit hook → .git/hooks/pre-commit"
 
-test:           ## Run all tests (TRN-1001 + TRN-2004 build tests)
+test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 release workflow tests)
 	$(MAKE) verify-built
 	.venv/bin/pytest tests/ -v
 	bash tests/test_build_providers.sh
+	bash tests/test_release_workflow.sh
 
 lint:           ## Check and format code (TRN-1002)
 	.venv/bin/ruff check scripts/ tests/
@@ -64,24 +68,19 @@ bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z
 	@sed -i '' 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="$(VERSION)"/' SKILL.md
 	@echo "Bumped to $(VERSION)"
 
-release:        ## Cut a release (TRN-1004): make release (reads VERSION from file)
-	@command -v gh >/dev/null 2>&1 || (echo "gh CLI required: brew install gh"; exit 1)
+release-prep:   ## Stage release-metadata commit + local tag (TRN-1004): no push, CI publishes
 	@if git rev-parse -q --verify "refs/tags/v$(CURRENT_VERSION)" >/dev/null 2>&1; then \
 		echo "Tag already exists: v$(CURRENT_VERSION)"; exit 1; \
 	fi
 	$(MAKE) verify-built
 	$(MAKE) test
 	$(MAKE) lint
-	@git diff --quiet providers/ || (echo "release: providers/ has uncommitted changes — run 'make build' and commit first"; exit 1)
+	@git diff --quiet providers/ || (echo "release-prep: providers/ has uncommitted changes — run 'make build' and commit first"; exit 1)
 	@git reset HEAD
 	@git add VERSION scripts/__init__.py CHANGELOG.md SKILL.md
 	@git commit -m "Release v$(CURRENT_VERSION)"
 	@git tag "v$(CURRENT_VERSION)"
-	@git push || \
-		(git tag -d "v$(CURRENT_VERSION)"; git reset --soft HEAD~1; \
-		 echo "Branch push failed — commit rolled back (4 files are staged), local tag deleted"; exit 1)
-	@git push origin "v$(CURRENT_VERSION)" || \
-		(echo "Tag push failed — branch is on remote, tag is local only. Run: git push origin v$(CURRENT_VERSION)"; exit 1)
-	@NOTES=$$(awk '/^## \[$(CURRENT_VERSION)\]/{found=1; next} found && /^## \[/{exit} found{print}' CHANGELOG.md); \
-		gh release create "v$(CURRENT_VERSION)" --title "v$(CURRENT_VERSION)" --notes "$$NOTES" || \
-		echo "WARNING: tag pushed but gh release failed. Run: gh release create v$(CURRENT_VERSION) --title v$(CURRENT_VERSION) manually"
+	@echo ""
+	@echo "Prepared release commit + local tag v$(CURRENT_VERSION)."
+	@echo "Next: git push origin <branch> v$(CURRENT_VERSION)"
+	@echo "      then watch the Release workflow at github.com/frankyxhl/trinity/actions"
