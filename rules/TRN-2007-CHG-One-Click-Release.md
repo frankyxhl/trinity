@@ -91,9 +91,49 @@ Re-check `git ls-remote --tags origin "refs/tags/$TAG"` immediately before `git 
 
 Local `make release-prep` continues to create a local tag. That tag is now optional (one-click doesn't need it pushed) — but harmless. People who prefer the CLI flow can keep using `git push origin <branch> vX.Y.Z`. Both paths converge at the same publish step.
 
-### D8 — Token & permissions
+### D8 — Token & permissions (revised 2026-04-26 after multi-model review)
 
-No change. Same `GITHUB_TOKEN`, same `contents: write` on the release job. Tag pushes via `GITHUB_TOKEN` are subject to the existing tag-protection ruleset on `v[0-9]+.[0-9]+.[0-9]+` (only maintainers — and the workflow's own token — can create matching tags).
+Multi-model review (Codex + Gemini, both FAIL on initial draft) flagged that the original single-job design exposed `contents: write` to every step including third-party actions like `astral-sh/setup-uv`. Restructured into 2 jobs (D9). Tag pushes via `GITHUB_TOKEN` are subject to the tag-protection ruleset (D11); the workflow's identity must be on the bypass list for one-click to succeed.
+
+### D9 — 2-job split for least-privilege (added per Codex blocker)
+
+Restructured into:
+
+- **`verify` job** — `permissions: contents: read`. Runs checkout, semver/VERSION validation, `make verify-built`/`test`/`lint`, CHANGELOG extraction, artifact upload. Third-party actions (`astral-sh/setup-uv@v6`) cannot push tags or mutate releases because the job's `GITHUB_TOKEN` is read-only.
+- **`publish` job** — `permissions: contents: write`. `needs: verify`. Only first-party `actions/checkout@v6` + `actions/download-artifact@v5`. Steps: optional checkout (one-click only), download release-notes artifact, `git tag + push` (one-click only), `gh release create`.
+
+Job outputs (`tag`, `version`, `one_click`) flow from verify to publish via `needs.verify.outputs.*`. Release notes flow via uploaded artifact.
+
+### D10 — `concurrency:` key (added per Gemini blocker)
+
+```yaml
+concurrency:
+  group: release
+  cancel-in-progress: false
+```
+
+At most one Release workflow runs at a time. Two simultaneous one-click dispatches for the same tag would otherwise burn ~3 min CI before colliding at `git push`. `cancel-in-progress: false` because we never want to interrupt an in-flight publish.
+
+### D11 — Tag-protection ruleset bypass requirement (clarified per both reviewers)
+
+The original TRN-2006 §D8 said "configure tag protection" without specifying bypass mechanics. Both reviewers caught that without explicit bypass for the workflow's identity, the one-click path's `git push origin "$TAG"` would 403.
+
+**Required configuration** (one-time, per repo):
+
+1. Settings → Rules → Rulesets → New tag ruleset
+2. Target tags: `Include by pattern: v[0-9]+.[0-9]+.[0-9]+`
+3. Rules: Restrict creations + Restrict updates + Restrict deletions
+4. Bypass list MUST include EITHER:
+   - **Repository admin** role (Always) — covers maintainers, AND
+   - **GitHub Actions** integration / `github-actions[bot]` actor — covers Path A workflow tag push
+
+Without #4, Path A (`workflow_dispatch` empty `tag_name`) will fail at the tag-push step with HTTP 403. Path B (CLI tag push by maintainer) and Path C (retry existing tag, no push) are unaffected.
+
+### D12 — Context-injection hardening (per Gemini)
+
+All `${{ github.* }}` and `${{ github.event.* }}` references inside `run:` blocks are passed via `env:` mapping rather than inlined into shell strings. While these are GitHub-controlled metadata (not user input), this matches GitHub's documented best practice and reduces audit-flag noise. Affected steps: `Verify dispatched from main` (GITHUB_REF), `Resolve and validate tag` (INPUT_TAG / EVENT_NAME / REF_NAME), `Verify tag is on main` / `Create + push tag` / `Publish GitHub Release` (TAG).
+
+`gh release create` also gets explicit `--repo "$GITHUB_REPOSITORY"` to avoid implicit-context surprises.
 
 ---
 
@@ -109,12 +149,12 @@ No change. Same `GITHUB_TOKEN`, same `contents: write` on the release job. Tag p
 
 ## Implementation Plan
 
-1. Modify `.github/workflows/release.yml` per D1–D7
-2. Add T10 test section to `tests/test_release_workflow.sh`
+1. Modify `.github/workflows/release.yml` per D1–D12 (initial draft D1–D8; D9–D12 added after multi-model review)
+2. Add T10 + T11 test sections to `tests/test_release_workflow.sh`
 3. `make verify-built` + `make test` + `make lint` all green
 4. Rewrite TRN-1004 SOP to lead with one-click, retain tag-push and retry as alternatives
 5. Update TRN-0000 + CHANGELOG
-6. Open PR — first end-to-end validation comes when you (post-merge) click Run workflow on this very change
+6. Open PR — first end-to-end validation comes when you (post-merge) configure the bypass ruleset (D11) and click Run workflow on a future Release PR
 
 ---
 
@@ -122,6 +162,7 @@ No change. Same `GITHUB_TOKEN`, same `contents: write` on the release job. Tag p
 
 - [x] Skip PRP per user — issue body + design section sufficient (consistent with TRN-2005 / TRN-2006 routing)
 - [x] User approved design (2026-04-26): main-only guard, skip-PRP, direct CHG
+- [x] Multi-model review post-implementation (Codex + Gemini, both FAIL on initial draft) — blockers folded into D9–D12 + 17 new T11 assertions; user approved follow-up fixes 2026-04-26
 
 ---
 
@@ -129,7 +170,9 @@ No change. Same `GITHUB_TOKEN`, same `contents: write` on the release job. Tag p
 
 | Date | Action | Result |
 |------|--------|--------|
-| 2026-04-26 | CHG written | Ready for implementation |
+| 2026-04-26 | CHG written, initial implementation (D1–D8) | Ready for review |
+| 2026-04-26 | Multi-model review (Codex + Gemini) | FAIL — 4 blockers folded into D9–D12 |
+| 2026-04-26 | Restructured into 2-job verify/publish split, added concurrency, env-mapping, ruleset bypass docs | Ready for merge once tag ruleset configured per D11 |
 
 ---
 
@@ -137,4 +180,5 @@ No change. Same `GITHUB_TOKEN`, same `contents: write` on the release job. Tag p
 
 | Date | Change | By |
 |------|--------|-----|
-| 2026-04-26 | Initial version | Claude Opus 4.7 |
+| 2026-04-26 | Initial version (D1–D8) | Claude Opus 4.7 |
+| 2026-04-26 | Add D9 (2-job split) + D10 (concurrency) + D11 (ruleset bypass) + D12 (env-mapping) per multi-model review | Claude Opus 4.7 |

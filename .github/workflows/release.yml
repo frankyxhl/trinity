@@ -17,18 +17,34 @@ on:
 permissions:
   contents: read
 
+# At most one release flow at a time. Two simultaneous dispatches for the
+# same tag would race at push; cancel-in-progress: false because we do not
+# want to interrupt an already-running publish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  # Read-only verification job. Holds NO write permission so any third-party
+  # action loaded here (setup-uv, upload-artifact, etc.) cannot push tags or
+  # mutate releases. Outputs feed the publish job.
+  verify:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      one_click: ${{ steps.tag.outputs.one_click }}
     steps:
       - name: Verify dispatched from main (one-click path only)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name == ''
+        env:
+          GITHUB_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "::error::One-click release must be triggered from main, got ${{ github.ref }}"
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::One-click release must be triggered from main, got $GITHUB_REF"
             exit 1
           fi
           echo "Dispatched from main — one-click path"
@@ -43,17 +59,19 @@ jobs:
         id: tag
         env:
           INPUT_TAG: ${{ github.event.inputs.tag_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           ONE_CLICK=0
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -z "$INPUT_TAG" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$INPUT_TAG" ]; then
             VERSION_FILE=$(tr -d '[:space:]' < VERSION)
             TAG="v$VERSION_FILE"
             ONE_CLICK=1
           elif [ -n "$INPUT_TAG" ]; then
             TAG="$INPUT_TAG"
           else
-            TAG="${{ github.ref_name }}"
+            TAG="$REF_NAME"
           fi
 
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -139,13 +157,35 @@ jobs:
           path: release-notes.md
           retention-days: 30
 
+  # Write-permission job. Runs only after verify is fully green. No third-party
+  # actions other than first-party `actions/checkout` and `actions/download-artifact`.
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main HEAD (one-click path only — needed for git tag)
+        if: needs.verify.outputs.one_click == '1'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: refs/heads/main
+
+      - name: Download release notes artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: release-notes-${{ needs.verify.outputs.tag }}
+
       - name: Create + push tag (one-click path only)
-        if: steps.tag.outputs.one_click == '1'
+        if: needs.verify.outputs.one_click == '1'
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ needs.verify.outputs.tag }}
         run: |
           set -euo pipefail
+          # Race re-check: another workflow may have pushed the tag between
+          # verify's pre-flight and now (concurrency: group: release should
+          # serialize, but defense in depth).
           if git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null | grep -q "refs/tags/$TAG$"; then
             echo "::error::Tag $TAG appeared on remote after pre-flight (race with another workflow)"; exit 1
           fi
@@ -156,14 +196,15 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ needs.verify.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Release $TAG already exists. Delete it manually if you intend to recreate."
             exit 1
           fi
           gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --notes-file release-notes.md
           echo "Published $TAG"

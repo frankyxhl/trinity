@@ -13,6 +13,7 @@
 # T8 Tag/VERSION matcher — strips leading v + trims whitespace correctly
 # T9 Makefile invariants — release target removed, release-prep present, no BSD-sed in CI path
 # T10 One-click release path — tag_name optional, main-only guard, derive-from-VERSION logic
+# T11 Multi-model review fixes — concurrency key, 2-job verify/publish split, no env-injection in run
 
 set -e
 
@@ -105,7 +106,8 @@ echo "== TRN-2006: release-on-tag workflow tests =="
 echo "-- T1: workflow file structure"
 check "workflow file exists"   test -f "$WORKFLOW"
 check "yaml: name field"       grep -q '^name: Release' "$WORKFLOW"
-check "yaml: jobs.release"     grep -q '^  release:' "$WORKFLOW"
+check "yaml: jobs.verify"      grep -q '^  verify:' "$WORKFLOW"
+check "yaml: jobs.publish"     grep -q '^  publish:' "$WORKFLOW"
 
 echo "-- T2: triggers"
 check "trigger: push.tags block"            grep -qE '^\s*tags:' "$WORKFLOW"
@@ -113,16 +115,26 @@ check "trigger: strict semver glob"         grep -qF "'v[0-9]+.[0-9]+.[0-9]+'" "
 check "trigger: workflow_dispatch present"  grep -q 'workflow_dispatch:' "$WORKFLOW"
 check "trigger: tag_name input"             grep -q 'tag_name:' "$WORKFLOW"
 
-echo "-- T3: permissions (least privilege)"
-# Global contents: read should appear at top-level (no leading 4-space indent).
+echo "-- T3: permissions (least privilege, 2-job split)"
+# Global contents: read at top-level.
 awk '/^permissions:/{f=1; next} /^[a-zA-Z]/{f=0} f' "$WORKFLOW" \
   | grep -q '^  contents: read$' && global_read=0 || global_read=1
 check "global contents: read"  test "$global_read" = "0"
 
-# Job-level contents: write inside jobs.release.permissions.
-awk '/^  release:/{r=1} r && /^    permissions:/{p=1; next} p && /^      contents: write$/{print; exit}' "$WORKFLOW" \
-  | grep -q '^      contents: write$' && job_write=0 || job_write=1
-check "job contents: write"    test "$job_write" = "0"
+# Verify job permission: contents: read (no write — third-party actions cannot tag/release).
+awk '/^  verify:/{r=1; next} r && /^  [a-zA-Z]/{exit} r && /^    permissions:/{p=1; next} p && /^      contents:/{print; exit}' "$WORKFLOW" \
+  | grep -q '^      contents: read$' && verify_read=0 || verify_read=1
+check "verify job: contents: read"  test "$verify_read" = "0"
+
+# Publish job permission: contents: write (only this job can mutate).
+awk '/^  publish:/{r=1; next} r && /^  [a-zA-Z]/{exit} r && /^    permissions:/{p=1; next} p && /^      contents:/{print; exit}' "$WORKFLOW" \
+  | grep -q '^      contents: write$' && publish_write=0 || publish_write=1
+check "publish job: contents: write"  test "$publish_write" = "0"
+
+# Verify job MUST NOT have contents: write anywhere in its block.
+awk '/^  verify:/{r=1; next} r && /^  [a-zA-Z]/{exit} r' "$WORKFLOW" \
+  | grep -q 'contents: write' && verify_no_write=1 || verify_no_write=0
+check_neg "verify job has no contents: write"  test "$verify_no_write" = "1"
 
 echo "-- T4: required steps in workflow"
 for step in "Verify dispatched from main" "Resolve and validate tag" "Verify tag is on main" "Setup uv" "Install dev dependencies" "Verify build" "Test" "Lint" "Extract release notes" "Create + push tag" "Publish GitHub Release"; do
@@ -201,6 +213,34 @@ check_neg "Makefile: release target removed"  grep -qE '^release:' Makefile
 check "Makefile: release-prep present"    grep -qE '^release-prep:' Makefile
 check "Makefile: setup uses uv→pip"       grep -q 'command -v uv' Makefile
 
+echo "-- T11: multi-model review fixes (concurrency, 2-job split, env-mapping)"
+# Concurrency key prevents two release runs at once.
+check "concurrency: group key present"        grep -qE '^concurrency:$' "$WORKFLOW"
+check "concurrency: group value"              grep -qE '^\s*group:\s*release\s*$' "$WORKFLOW"
+check "concurrency: cancel-in-progress false" grep -qE '^\s*cancel-in-progress:\s*false\s*$' "$WORKFLOW"
+
+# 2-job structure: publish needs verify.
+check "publish job needs verify"              grep -qE '^\s*needs:\s*verify\s*$' "$WORKFLOW"
+# Verify job's outputs are wired (tag, version, one_click).
+check "verify outputs: tag"                   bash -c "awk '/^  verify:/{r=1} r && /^    outputs:/{o=1} o && /^      tag:/{print;exit}' '$WORKFLOW' | grep -q 'tag:'"
+check "verify outputs: version"               bash -c "awk '/^  verify:/{r=1} r && /^    outputs:/{o=1} o && /^      version:/{print;exit}' '$WORKFLOW' | grep -q 'version:'"
+check "verify outputs: one_click"             bash -c "awk '/^  verify:/{r=1} r && /^    outputs:/{o=1} o && /^      one_click:/{print;exit}' '$WORKFLOW' | grep -q 'one_click:'"
+
+# Publish job consumes outputs via needs.verify.outputs.*
+check "publish references needs.verify"       grep -q 'needs.verify.outputs' "$WORKFLOW"
+
+# Env-mapping hardening: github.ref / event_name / ref_name should be passed via env, not inlined in run scripts.
+# Specifically check that the resolve step uses INPUT_TAG / EVENT_NAME / REF_NAME env vars.
+check "resolve step: INPUT_TAG env"           grep -qE '^\s+INPUT_TAG:' "$WORKFLOW"
+check "resolve step: EVENT_NAME env"          grep -qE '^\s+EVENT_NAME:' "$WORKFLOW"
+check "resolve step: REF_NAME env"            grep -qE '^\s+REF_NAME:' "$WORKFLOW"
+
+# Main-only guard uses GITHUB_REF env (not inlined ${{ github.ref }} in shell).
+check "main-only guard: GITHUB_REF env"       bash -c "awk '/Verify dispatched from main/{f=1; next} f && /env:/{e=1; next} e && /GITHUB_REF:/{print; exit}' '$WORKFLOW' | grep -q 'GITHUB_REF:'"
+
+# gh release create scoped via --repo flag (defense in depth, no implicit context).
+check "gh release create uses --repo flag"    grep -qE '\-\-repo "\$GITHUB_REPOSITORY"' "$WORKFLOW"
+
 echo "-- T10: one-click release path"
 # tag_name's required attribute must be false (was true in TRN-2006).
 awk '/tag_name:/{f=1; next} f && /required:/{print; exit}' "$WORKFLOW" | grep -q 'required: false' \
@@ -216,9 +256,9 @@ check "resolve: derives TAG from VERSION"     grep -qF 'TAG="v$VERSION_FILE"' "$
 # Pre-flight: tag must NOT exist on remote in one-click path.
 check "resolve: pre-flight tag-exists check"  grep -qF 'Did you forget to bump VERSION' "$WORKFLOW"
 # Tag-on-main verification skipped in one-click path (tag doesn't exist yet).
-check "verify-tag-on-main skip in one-click"  bash -c "grep -A1 'Verify tag is on main' '$WORKFLOW' | grep -qF \"steps.tag.outputs.one_click != '1'\""
+check "verify-tag-on-main skip in one-click"  bash -c "grep -A1 'Verify tag is on main' '$WORKFLOW' | grep -qF \"steps.tag.outputs.one_click != '1'\" || grep -A1 'Verify tag is on main' '$WORKFLOW' | grep -qF \"steps.tag.outputs.one_click != '1'\""
 # Create + push tag step is conditional on one-click path.
-check "create-tag step gated to one-click"    bash -c "grep -A1 'Create + push tag' '$WORKFLOW' | grep -qF \"steps.tag.outputs.one_click == '1'\""
+check "create-tag step gated to one-click"    bash -c "grep -A1 'Create + push tag' '$WORKFLOW' | grep -qF \"needs.verify.outputs.one_click == '1'\""
 check "create-tag step pushes to origin"      grep -qF 'git push origin "$TAG"' "$WORKFLOW"
 
 echo
