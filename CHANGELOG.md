@@ -1,6 +1,23 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `.github/workflows/release.yml`: tag-push triggers automated GitHub Release publish (TRN-2006). Strict semver glob `v[0-9]+.[0-9]+.[0-9]+` for trigger; `workflow_dispatch` with `tag_name` input for manual retry. Defense-in-depth tag/VERSION validation, tag-must-be-on-main check, CHANGELOG section extraction (fail on empty), least-privilege permissions (global `contents: read`, only the publish job gets `contents: write`). No third-party publish actions — direct `gh release create` only.
+- `make release-prep`: local-only target replacing `make release`. Runs verify-built/test/lint, stages 4 metadata files, commits `Release vX.Y.Z`, creates local tag. Does NOT push, does NOT publish. CI handles the publish on tag push.
+- `tests/test_release_workflow.sh`: 52 assertions covering workflow structure, semver regex, CHANGELOG awk extractor (4 fixture cases: full / last / missing / header-only), tag↔VERSION matcher (whitespace-trim + leading-`v` handling), Makefile invariants. Wired into `make test`.
+
+### Changed
+- `make setup`: uv → pip fallback. Local devs and macOS keep using uv (faster); CI installs uv via `astral-sh/setup-uv@v5`. If neither, falls back to stdlib `python3 -m venv` + `pip`.
+- TRN-1003 step 4: now references `make release-prep` instead of `make release`. Adds explicit warning that `make bump` uses BSD `sed -i ''` and must NEVER run in CI.
+- TRN-1004: full rewrite for the new flow (PR-merge → `release-prep` → tag push → CI publishes). Documents `workflow_dispatch` as the only sanctioned retry path.
+- TRN-1000 decision tree path 4 wording.
+
+### Removed
+- `make release`: deleted (not deprecated). Calling it now prints `make: *** No rule to make target 'release'` — intended footgun-prevention.
+
+### Notes for users
+- **One-time setup required**: protect the `v[0-9]+.[0-9]+.[0-9]+` tag pattern in repo settings → Rules → Rulesets, restricting create/update/delete to maintainers. Without this, anyone with write access can publish a release by pushing a tag.
+- The release workflow uses the workflow-issued `GITHUB_TOKEN` only — no PAT, no OIDC, no secrets. Supply chain is `actions/checkout@v4` + `astral-sh/setup-uv@v5` + `actions/upload-artifact@v4` + direct `gh` calls.
 
 ## [1.6.0] - 2026-04-26
 ### Changed

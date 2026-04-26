@@ -58,7 +58,7 @@ Start: what kind of task is this?
    └── TRN-1003 (Version Bump SOP) — update CHANGELOG + make bump (unstaged)
 
 4. Cutting a release?
-   └── TRN-1004 (Release SOP) — make release (reads VERSION from file)
+   └── TRN-1004 (Release SOP) — make release-prep (local) + push tag (CI publishes via TRN-2006)
 
 5. Installing Trinity locally?
    └── TRN-1005 (Install SOP) — copy SKILL.md + scripts/ + providers/ to ~/.claude/
@@ -98,3 +98,4 @@ This is a routing SOP — no procedural steps. See the Project Decision Tree abo
 | Date | Change | By |
 |------|--------|-----|
 | 2026-03-21 | Initial version | Frank + Claude Code |
+| 2026-04-26 | Decision tree path 4: release flow now `release-prep` + CI (TRN-2006) | Claude Opus 4.7 |
