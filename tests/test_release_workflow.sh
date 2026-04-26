@@ -247,6 +247,12 @@ check "publish: PAT preflight uses secret"    bash -c "grep -A3 'Verify RELEASE_
 check "publish: checkout uses PAT token"      bash -c "awk '/Checkout main HEAD with PAT/{f=1} f && /token:/{print;exit}' '$WORKFLOW' | grep -qF 'secrets.RELEASE_TAG_PAT'"
 check "publish: PAT-checkout gated to one-click"  bash -c "grep -A1 'Checkout main HEAD with PAT' '$WORKFLOW' | grep -qF \"needs.verify.outputs.one_click == '1'\""
 
+# Duplicate-trigger skip in tag-push path (D13 — PAT-pushed tag re-triggers workflow).
+# When release exists AND event_name == 'push', exit 0 (clean) instead of fail.
+check "publish: EVENT_NAME env in publish step"   bash -c "awk '/Publish GitHub Release/{f=1; next} f && /env:/{e=1; next} e && /EVENT_NAME:/{print; exit}' '$WORKFLOW' | grep -q 'EVENT_NAME:'"
+check "publish: tag-push duplicate skip branch"   grep -qF 'Tag-push trigger is the duplicate' "$WORKFLOW"
+check "publish: workflow_dispatch retry still fails on existing release"  grep -qF 'Delete it manually if you intend to recreate' "$WORKFLOW"
+
 echo "-- T10: one-click release path"
 # tag_name's required attribute must be false (was true in TRN-2006).
 awk '/tag_name:/{f=1; next} f && /required:/{print; exit}' "$WORKFLOW" | grep -q 'required: false' \

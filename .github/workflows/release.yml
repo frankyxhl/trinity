@@ -218,9 +218,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.verify.outputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Designed exit: when Path A pushes a tag via RELEASE_TAG_PAT,
+            # the PAT-driven push triggers this same workflow again via
+            # `on.push.tags`. The duplicate run reaches here, finds the
+            # release already published by the original Path A run, and
+            # exits cleanly instead of failing — keeps the Actions tab
+            # clear of "false-positive" red checks.
+            if [ "$EVENT_NAME" = "push" ]; then
+              echo "Release $TAG already exists. Tag-push trigger is the duplicate from a Path A run that already published. Skipping cleanly."
+              exit 0
+            fi
             echo "::error::Release $TAG already exists. Delete it manually if you intend to recreate."
             exit 1
           fi
