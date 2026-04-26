@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- `README.md`: refresh stale version examples (`Trinity 1.4.0` → `2.0.1`, `TRINITY_VERSION=1.1.0` → `2.0.1`) and document the new `bin/` wrappers shipped in v2.0.0. The "What was installed" table now lists `~/.claude/skills/trinity/bin/{deepseek,openrouter}`. The "Or install manually" block was actively misleading on v2.0.0 — it omitted the `mkdir -p .../bin/`, `cp providers/bin/*`, and `chmod +x` steps, so anyone copying it ended up with broken DeepSeek/OpenRouter providers (no wrapper script to invoke). The manual `trinity.json` example also picks up the `-m gpt-5.5` codex pin (TRN-2005, shipped in v1.6.0) that was never reflected.
 
 ## [2.0.1] - 2026-04-26
 ### Fixed
