@@ -63,14 +63,24 @@ Start: what kind of task is this?
 5. Installing Trinity locally?
    └── TRN-1005 (Install SOP) — copy SKILL.md + scripts/ + providers/ to ~/.claude/
 
-6. New feature / design work?
+6. Pinning / updating a provider model ID? (e.g. deepseek-v4-pro → deepseek-v4-pro[1m])
+   └── TRN-1006 (Provider Model IDs SOP) — bracket-suffix convention,
+       where each provider's model ID lives, update steps + shell-quoting guard rails
+
+7. Auditing the repo / running an evolve cycle / pre-release tightening?
+   └── TRN-1801 (Evolve Trinity SOP) — 6-step Signal → Candidate → Eval → Impl → Review → PR
+       → Uses TRN-1800 weights and signal sources (PRJ override of COR-1800)
+       → Trigger: "run evolve", "audit trinity", before any minor/major release,
+                  or > 2 months since last evolve cycle
+
+8. New feature / design work?
    └── COR-1102 (PRP) → COR-1602 strict review → COR-1101 (CHG)
 
-7. Bug / incident?
+9. Bug / incident?
    └── INC → COR-1101 (CHG)
 
-8. Code change (any)?
-   └── COR-1500 (TDD) overlay always applies
+10. Code change (any)?
+    └── COR-1500 (TDD) overlay always applies
 ```
 
 ---
@@ -99,3 +109,4 @@ This is a routing SOP — no procedural steps. See the Project Decision Tree abo
 |------|--------|-----|
 | 2026-03-21 | Initial version | Frank + Claude Code |
 | 2026-04-26 | Decision tree path 4: release flow now `release-prep` + CI (TRN-2006) | Claude Opus 4.7 |
+| 2026-04-26 | Decision tree: add path 6 (TRN-1006 model-ID pinning) and path 7 (TRN-1801 evolve cycle); shift feature/incident/TDD paths to 8/9/10 | Claude Opus 4.7 |
