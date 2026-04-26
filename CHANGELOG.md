@@ -1,9 +1,16 @@
 # Changelog
 
 ## [Unreleased]
+
+## [2.0.3] - 2026-04-26
 ### Added
 - `rules/TRN-1800-REF-Evolution-Philosophy.md` — PRJ-layer override of COR-1800 for the trinity repo. Defines trinity-specific behaviour baseline (the union of `make test` / `make verify-built` / `make lint` / `install.sh` share-readiness against tmp HOME / Linux CI parity / dispatch sample), and overrides COR-1800's code-evolution and document-evolution weight tables plus the signal-source table with trinity-specific axes (cross-platform parity, generated-vs-source build via `_base/`, `Makefile`↔`install.sh` provider-parity, model-ID drift vs vendor docs).
 - `rules/TRN-1801-SOP-Evolve-Trinity.md` — concrete evolve loop wired to TRN-1800. Six-step Signal → Candidate → Evaluation → Implementation → Review → PR cycle; signal-collection commands are runnable shell snippets (build drift, provider parity, BSD/GNU shell traps, model-ID drift, install.sh smoke against `mktemp -d`, CHANGELOG `[Unreleased]` lag, SOP↔code drift, `af validate`); surface taxonomy distinguishes single-purpose files vs multi-section docs vs symmetric multi-file refactors (the two recognised symmetric classes are `_base/*.md` → 5-provider cascade and the two Anthropic-compat `bin/` wrappers); guard rails explicitly call out the v2.0.0 stat-order class of macOS-only-test-passes-but-Linux-CI-fails bug. Mirrors the CLD-1800/1801 shape used in the `~/.claude/` repo.
+- `rules/TRN-1000-SOP-Workflow-Routing-PRJ.md` decision tree: paths 6 (TRN-1006 model-ID pinning) and 7 (TRN-1801 evolve cycle) added with explicit trigger phrases ("run evolve", "audit trinity", "bump model"); existing feature/incident/TDD paths shifted to 8/9/10. Future sessions reach the new SOPs from a cold start via `af read TRN-1000`.
+
+### Fixed
+- `rules/TRN-1801-SOP-Evolve-Trinity.md` §1 parity-diff command produced false positives — Makefile uses TAB indent + `$(HOME)` while install.sh uses 4-space indent + `${HOME}`, so a literal `diff` reported every line as drift even when parity was fine. Now normalised via a `_norm` shell function (`sed -E 's/^[[:space:]]+//; s/\$\(HOME\)/${HOME}/g'`) before sort. Caught by DeepSeek in Round-1 of the 3-model strict review on the docs.
+- `rules/TRN-1000-SOP-Workflow-Routing-PRJ.md` metadata: `Last updated` and `Last reviewed` were stuck at 2026-03-21 despite multiple 2026-04-26 edits to the decision tree. Bumped to current date. Caught by Codex in the same review.
 ### Changed
 - `providers/bin/deepseek`: pin `ANTHROPIC_MODEL` to `deepseek-v4-pro[1m]` (1M-context tier) instead of the bare `deepseek-v4-pro` (default-context tier). The `[1m]` suffix is a literal model-ID convention for the 1M-context variant — same shape as Anthropic's `claude-opus-4-7[1m]` — NOT an ANSI escape. Regression assertion in `tests/test_anthropic_compat_wrappers.py::test_t1_deepseek_env_key_sets_anthropic_env_and_passes_argv` guards future copy-paste from accidentally stripping the suffix. `ANTHROPIC_SMALL_FAST_MODEL` stays at `deepseek-v4-flash` (small-fast tier rarely needs 1M context).
 - New SOP `rules/TRN-1006-SOP-Provider-Model-IDs.md` documenting the `[1m]` suffix convention, where each provider's model ID is pinned (native-CLI providers vs Anthropic-compat wrappers), and the update workflow with shell-quoting guard rails.
