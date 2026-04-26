@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- `Makefile` `bump` target: replace BSD-only `sed -i ''` with portable `perl -i -pe` for both `__version__` (in `scripts/__init__.py`) and `REQUIRED_VERSION` (in `SKILL.md`) rewrites. The prior form failed on Linux because GNU sed treats `''` as the input file path — a Linux maintainer running `make bump` would have hit the same trap class as the v2.0.0 stat-order incident. Found by the first run of the TRN-1801 evolve cycle (signal: cross-platform shell trap grep). Pre-existing version pins were already in sync (VERSION=2.0.3 / `__version__=2.0.3` / `REQUIRED_VERSION=2.0.3`), so this is preventive, not a fix-after-incident. New `tests/test_make_bump.sh` adds two regression cases — T1 verifies `perl -i -pe` rewrites both pin files and preserves unrelated lines; T2 is a static guard that fails if anyone re-introduces `sed -i ''` in the bump target. Wired into `make test`.
+- `rules/TRN-1006-SOP-Provider-Model-IDs.md`: backfill canonical SOP structure — add `Last reviewed` metadata, `## When to Use`, `## When NOT to Use`, and rename `## Steps — Updating a Model ID` to `## Steps` with a one-line preamble (the suffix tripped `af validate`'s exact-match section check). Brings the SOP added in v2.0.3 to the same shape as TRN-1801 / TRN-1000.
+- Metadata backfill across 8 PRJ docs flagged by `af validate`: `TRN-1004-SOP-Release.md` and `TRN-1005-SOP-Install.md` now carry `Last reviewed: 2026-04-26`; `TRN-2003/2004/2005/2006/2007/2009-CHG-*.md` now carry both `Last updated` (matching their original `Date`) and `Last reviewed: 2026-04-26`. Drops `af validate` issue count from 43 → 25.
+- `rules/TRN-1003-SOP-Version-Bump.md` line 24: replace stale "BSD `sed -i ''` syntax" note with the new portable `perl -i -pe` form and a pointer to `tests/test_make_bump.sh`. Caught by Codex in the §5 Reviewer A gate on the diff — active-SOP drift would have left a future contributor reading "never invoke `make bump` from CI" while the actual implementation was already cross-platform. Added `Last reviewed` while touching the metadata.
+
+### Notes
+- This is the first run of the TRN-1801 evolve cycle. Two-reviewer gate met (Codex + DeepSeek; both reviewed the candidate slate against TRN-1800 weights and converged on Option 2 constrained: C2 + C4 + C1-with-regression-test). Skipped C3 (TRN-1001/1002/1003/1004 structural-section retrofit) — atomicity rule splits it into 16 sub-candidates, deferred for a future cycle.
+
 ## [2.0.3] - 2026-04-26
 ### Added
 - `rules/TRN-1800-REF-Evolution-Philosophy.md` — PRJ-layer override of COR-1800 for the trinity repo. Defines trinity-specific behaviour baseline (the union of `make test` / `make verify-built` / `make lint` / `install.sh` share-readiness against tmp HOME / Linux CI parity / dispatch sample), and overrides COR-1800's code-evolution and document-evolution weight tables plus the signal-source table with trinity-specific axes (cross-platform parity, generated-vs-source build via `_base/`, `Makefile`↔`install.sh` provider-parity, model-ID drift vs vendor docs).

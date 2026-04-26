@@ -26,6 +26,7 @@ test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 rel
 	.venv/bin/pytest tests/ -v
 	bash tests/test_build_providers.sh
 	bash tests/test_release_workflow.sh
+	bash tests/test_make_bump.sh
 
 lint:           ## Check and format code (TRN-1002)
 	.venv/bin/ruff check scripts/ tests/
@@ -68,8 +69,8 @@ bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z
 		(echo "Invalid semver: $(VERSION)"; exit 1)
 	$(MAKE) build
 	@echo "$(VERSION)" > VERSION
-	@sed -i '' 's/__version__ = ".*"/__version__ = "$(VERSION)"/' scripts/__init__.py
-	@sed -i '' 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="$(VERSION)"/' SKILL.md
+	@perl -i -pe 's/__version__ = ".*"/__version__ = "$(VERSION)"/' scripts/__init__.py
+	@perl -i -pe 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="$(VERSION)"/' SKILL.md
 	@echo "Bumped to $(VERSION)"
 
 release-prep:   ## Stage release-metadata commit + local tag (TRN-1004): no push, CI publishes
