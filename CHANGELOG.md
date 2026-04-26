@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- `.github/workflows/release.yml` `Publish GitHub Release` step: when a `push.tags` event finds a release already published (Path A duplicate-trigger or Path B re-run), the step exits cleanly (exit 0) instead of failing with "Release already exists". Surfaced on the v1.8.0 end-to-end run — TRN-2007 D11's PAT path re-triggers the workflow on every Path A push (PAT-pushed tags fire workflows; GITHUB_TOKEN-pushed ones don't, which the original review missed). The `workflow_dispatch` retry path still fails loud on existing release (operator explicitly asked to re-publish; tell them it's already done). Trade-off documented inline: a maintainer admin-bypass force-push to a tag with a stale release will silently skip publish — the tag-protection ruleset's "Restrict updates" rule narrows the risk window. Multi-model review on the initial fix (Codex PASS / Gemini FAIL on force-push concern) → log message neutralized + 5 T11 assertions covering control-flow placement, not just string presence.
 
 ## [1.8.0] - 2026-04-26
 ### Added

@@ -218,9 +218,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.verify.outputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # When the trigger is `push.tags` and a release already exists for
+            # this tag, exit cleanly. Two scenarios reach here legitimately:
+            #   1. The duplicate run from a Path A workflow_dispatch that
+            #      already published (RELEASE_TAG_PAT push re-triggers
+            #      `on.push.tags`).
+            #   2. A maintainer Path B re-run where the release was already
+            #      created out-of-band.
+            # Trade-off: if a maintainer force-pushes a tag (overwriting an
+            # earlier tag whose release still exists), this exit-0 silently
+            # skips publishing — but the tag-protection ruleset's "Restrict
+            # updates" rule already prevents force-push for non-bypass actors,
+            # narrowing the risk window to admin-bypass force-push (a clearly
+            # intentional and rare action).
+            # `workflow_dispatch` retry path keeps fail-loud (the operator
+            # explicitly asked to re-publish; tell them it's already done).
+            if [ "$EVENT_NAME" = "push" ]; then
+              echo "Release $TAG already exists; tag-push event with prior release — exiting cleanly."
+              exit 0
+            fi
             echo "::error::Release $TAG already exists. Delete it manually if you intend to recreate."
             exit 1
           fi

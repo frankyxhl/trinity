@@ -247,6 +247,16 @@ check "publish: PAT preflight uses secret"    bash -c "grep -A3 'Verify RELEASE_
 check "publish: checkout uses PAT token"      bash -c "awk '/Checkout main HEAD with PAT/{f=1} f && /token:/{print;exit}' '$WORKFLOW' | grep -qF 'secrets.RELEASE_TAG_PAT'"
 check "publish: PAT-checkout gated to one-click"  bash -c "grep -A1 'Checkout main HEAD with PAT' '$WORKFLOW' | grep -qF \"needs.verify.outputs.one_click == '1'\""
 
+# Duplicate-trigger skip in tag-push path (D13 — PAT-pushed tag re-triggers workflow).
+# When release exists AND event_name == 'push', exit 0 (clean) instead of fail.
+check "publish: EVENT_NAME env in publish step"   bash -c "awk '/Publish GitHub Release/{f=1; next} f && /env:/{e=1; next} e && /EVENT_NAME:/{print; exit}' '$WORKFLOW' | grep -q 'EVENT_NAME:'"
+check "publish: literal EVENT_NAME == push check"  grep -qF '[ "$EVENT_NAME" = "push" ]' "$WORKFLOW"
+check "publish: workflow_dispatch retry still fails on existing release"  grep -qF 'Delete it manually if you intend to recreate' "$WORKFLOW"
+# Verify exit 0 (clean skip) lives INSIDE the EVENT_NAME == push branch (not at top level of run script).
+check "publish: exit 0 inside EVENT_NAME push branch"  bash -c "awk '/\\[ \"\\\$EVENT_NAME\" = \"push\" \\]/{f=1; next} f && /^[[:space:]]*fi[[:space:]]*\$/{exit} f && /exit 0/{print; found=1; exit} END{exit !found}' '$WORKFLOW'"
+# Verify the EVENT_NAME branch is itself nested inside the `gh release view` existing-release block.
+check "publish: EVENT_NAME branch nested under gh release view"  bash -c "awk '/gh release view.*GITHUB_REPOSITORY/{f=1; next} f && /\\[ \"\\\$EVENT_NAME\" = \"push\" \\]/{print; exit}' '$WORKFLOW' | grep -q 'EVENT_NAME'"
+
 echo "-- T10: one-click release path"
 # tag_name's required attribute must be false (was true in TRN-2006).
 awk '/tag_name:/{f=1; next} f && /required:/{print; exit}' "$WORKFLOW" | grep -q 'required: false' \
