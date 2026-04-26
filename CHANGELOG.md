@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Changed
+- `.github/workflows/release.yml`: bump action pins to Node 24 majors — `actions/checkout@v4`→`@v6`, `actions/upload-artifact@v4`→`@v5`, `astral-sh/setup-uv@v5`→`@v6`. Resolves Node 20 deprecation annotation surfaced on the v1.7.0 release run. setup-uv@v8 was skipped because it removed floating major tags (`@v8` no longer resolves) — staying on `@v6` keeps the workflow low-maintenance. `tests/test_release_workflow.sh` assertions updated.
 
 ## [1.7.0] - 2026-04-26
 ### Added

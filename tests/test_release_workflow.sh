@@ -131,8 +131,9 @@ done
 echo "-- T5: no third-party publish actions"
 check_neg "no softprops/action-gh-release" grep -q 'softprops/action-gh-release' "$WORKFLOW"
 check     "uses gh release create"         grep -q 'gh release create' "$WORKFLOW"
-check     "checkout pinned to v4"          grep -q 'actions/checkout@v4' "$WORKFLOW"
-check     "setup-uv pinned to v5"          grep -q 'astral-sh/setup-uv@v5' "$WORKFLOW"
+check     "checkout pinned to v6"          grep -q 'actions/checkout@v6' "$WORKFLOW"
+check     "upload-artifact pinned to v5"   grep -q 'actions/upload-artifact@v5' "$WORKFLOW"
+check     "setup-uv pinned to v6"          grep -q 'astral-sh/setup-uv@v6' "$WORKFLOW"
 
 echo "-- T6: semver regex acceptance"
 check "accepts v1.2.3"        valid_semver_tag "v1.2.3"
