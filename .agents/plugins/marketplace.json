@@ -1,0 +1,20 @@
+{
+  "name": "trinity-local",
+  "interface": {
+    "displayName": "Trinity Local"
+  },
+  "plugins": [
+    {
+      "name": "trinity",
+      "source": {
+        "source": "local",
+        "path": "./plugins/trinity"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Engineering"
+    }
+  ]
+}
