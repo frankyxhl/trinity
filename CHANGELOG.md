@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-04-29
+
 ### Added
 - Codex compatibility packaging: repo-local skill at `.agents/skills/trinity/SKILL.md`, local plugin manifest at `plugins/trinity/.codex-plugin/plugin.json`, bundled plugin skill at `plugins/trinity/skills/trinity/SKILL.md`, and repo marketplace entry at `.agents/plugins/marketplace.json`. Added `tests/test_codex_compat.py` to validate the import surfaces and README smoke-check documentation while preserving the existing Claude Code install path.
 

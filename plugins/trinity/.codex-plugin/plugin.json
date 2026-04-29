@@ -1,6 +1,6 @@
 {
   "name": "trinity",
-  "version": "2.0.5",
+  "version": "3.0.0",
   "description": "Codex plugin packaging for Trinity multi-model orchestration compatibility.",
   "author": {
     "name": "Frank"
