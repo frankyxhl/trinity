@@ -1,0 +1,39 @@
+{
+  "name": "trinity",
+  "version": "3.0.0",
+  "description": "Codex plugin packaging for Trinity multi-model orchestration compatibility.",
+  "author": {
+    "name": "Frank"
+  },
+  "homepage": "https://github.com/frankyxhl/trinity",
+  "repository": "https://github.com/frankyxhl/trinity",
+  "license": "MIT",
+  "keywords": [
+    "trinity",
+    "codex",
+    "orchestration",
+    "multi-model",
+    "agents"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Trinity",
+    "shortDescription": "Use Trinity from Codex",
+    "longDescription": "Codex adapter and plugin package for Trinity multi-model orchestration while preserving the existing Claude Code integration.",
+    "developerName": "Frank",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/frankyxhl/trinity",
+    "defaultPrompt": [
+      "$trinity status",
+      "$trinity help",
+      "$trinity codex \"review this change\""
+    ],
+    "brandColor": "#0F766E",
+    "screenshots": []
+  }
+}

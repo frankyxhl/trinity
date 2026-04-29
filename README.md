@@ -14,6 +14,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
   - [Step 1: Install the skill](#step-1-install-the-skill)
   - [Step 2: Install providers](#step-2-install-providers)
   - [Step 3: Configure global defaults (optional)](#step-3-configure-global-defaults-optional)
+- [Codex Compatibility](#codex-compatibility)
 - [Command Reference](#command-reference)
 - [Usage Guide](#usage-guide)
   - [Single dispatch](#single-dispatch)
@@ -44,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh |
 This downloads all skill files to `~/.claude/` and registers the five default providers (glm, codex, gemini, openrouter, deepseek) in `~/.claude/trinity.json`. Expected output ends with:
 
 ```
-Trinity 2.0.1 installed to ~/.claude/
+Trinity 3.0.0 installed to ~/.claude/
 ```
 
 If the command fails, check stderr for `trinity-install: failed downloading <file>` — that tells you exactly which file 404'd.
@@ -102,7 +103,7 @@ curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh |
 This downloads all skill files directly to `~/.claude/` — no git clone required. To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=2.0.1 bash
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=3.0.0 bash
 ```
 
 **Or, if you have the repo cloned:**
@@ -188,6 +189,44 @@ Then create `~/.claude/trinity.json`:
 ### Step 3: Configure global defaults (optional)
 
 Edit `~/.claude/trinity.json` to set your preferred heartbeat interval and timeout thresholds. Per-project overrides go in `.claude/trinity.json` at the project root.
+
+---
+
+## Codex Compatibility
+
+Trinity also ships a Codex adapter without changing the Claude Code install path.
+
+**Codex repo-local skill**
+
+The repo-local Codex skill lives at:
+
+```text
+.agents/skills/trinity/SKILL.md
+```
+
+To smoke test it, restart or start Codex from this repository, then open `/skills` or invoke `$trinity`. Expected result: `trinity` is visible/loadable as a Codex skill.
+
+**Codex plugin**
+
+The local plugin package lives at:
+
+```text
+plugins/trinity/.codex-plugin/plugin.json
+plugins/trinity/skills/trinity/SKILL.md
+.agents/plugins/marketplace.json
+```
+
+To smoke test it, restart Codex, open `/plugins`, select the repo marketplace, and confirm the `trinity` plugin appears. After installing the plugin, its bundled skill should be available.
+
+**Claude Code regression check**
+
+Claude Code still uses the existing install path. After `make install` or `install.sh`, restart Claude Code and run:
+
+```text
+/trinity status
+```
+
+Expected result: the command is recognized and registered providers are listed. Provider CLIs that are not installed or authenticated may warn, but Trinity itself must load.
 
 ---
 
