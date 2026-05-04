@@ -28,6 +28,23 @@ $HOME/.claude/skills/trinity/bin/claude-code -p
 The wrapper is mandatory. It must isolate Claude Code state and apply a
 mechanical recursion guard before invoking `claude`.
 
+## Model and Effort Policy
+
+Default model and effort must be explicit:
+
+- **Default model:** `claude-opus-4-7`
+- **Default effort:** `xhigh`
+- **Allowed effort values:** `low`, `medium`, `high`, `xhigh`, `max`
+- **Override mechanism:** support `TRINITY_CLAUDE_CODE_MODEL` and
+  `TRINITY_CLAUDE_CODE_EFFORT` environment variables in the wrapper. Provider
+  instructions may also parse `EFFORT=<level>` from the task prompt and export
+  `TRINITY_CLAUDE_CODE_EFFORT` before calling the wrapper.
+
+Rationale: official Claude Code CLI docs list `low`, `medium`, `high`, `xhigh`,
+and `max` as effort options. Official Anthropic effort guidance recommends
+starting Claude Opus 4.7 coding and agentic work at `xhigh`, and reserving
+`max` for genuinely frontier problems where evals show headroom.
+
 ---
 
 ## Why
@@ -90,14 +107,19 @@ just another external CLI.
 6. Add a mocked wrapper/CLI test that stubs `claude` and verifies the wrapper:
    sets `TRINITY_DISABLE_DISPATCH=1`, sets isolated `CLAUDE_CONFIG_DIR`, sets
    `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, passes
-   `--disable-slash-commands`, preserves `-p`/`--resume` argv, and does not
-   require a real Claude Code network call.
+   `--disable-slash-commands`, passes `--model claude-opus-4-7 --effort xhigh`
+   by default, accepts `TRINITY_CLAUDE_CODE_MODEL` and
+   `TRINITY_CLAUDE_CODE_EFFORT=max` overrides, rejects invalid effort values,
+   preserves `-p`/`--resume` argv, and does not require a real Claude Code
+   network call.
 7. Add root `SKILL.md` coverage, or an equivalent textual regression test,
    proving the startup check refuses dispatch when
    `TRINITY_DISABLE_DISPATCH=1`.
 8. GREEN: create `providers/bin/claude-code` as a POSIX wrapper. It should call:
    ```sh
-   exec claude --permission-mode bypassPermissions --disable-slash-commands --model opus "$@"
+   MODEL="${TRINITY_CLAUDE_CODE_MODEL:-claude-opus-4-7}"
+   EFFORT="${TRINITY_CLAUDE_CODE_EFFORT:-xhigh}"
+   exec claude --permission-mode bypassPermissions --disable-slash-commands --model "$MODEL" --effort "$EFFORT" "$@"
    ```
    with the required environment variables from Impact Analysis.
 9. GREEN: create `providers/claude-code.delta.md` using the TRN-2004 shared
@@ -125,6 +147,8 @@ Expected evidence before marking complete:
 - `.venv/bin/pytest tests/test_config.py -q`
 - focused wrapper test for `providers/bin/claude-code` with a fake `claude`
   executable
+- model/effort regression evidence showing default `claude-opus-4-7` + `xhigh`,
+  accepted `max` override, and rejected invalid effort override
 - regression evidence that root `SKILL.md` refuses `/trinity` dispatch when
   `TRINITY_DISABLE_DISPATCH=1`
 - `bash tests/test_build_providers.sh`
@@ -161,6 +185,7 @@ tests pass, because it may consume Claude Code quota.
 |------|--------|--------|
 | 2026-05-04 | Created CHG draft with canonical provider name and TDD plan | Proposed |
 | 2026-05-04 | Reviewed with Trinity GLM, Gemini, and DeepSeek | REQUEST_CHANGES: require mechanical recursion guard, Claude config isolation, explicit CLI signature, hardcoded provider inventory, and version-bump guidance |
+| 2026-05-04 | Checked official Claude Code CLI and Anthropic effort docs | Default to `claude-opus-4-7` + `xhigh`; allow `max` as explicit override |
 
 ---
 
@@ -170,3 +195,4 @@ tests pass, because it may consume Claude Code quota.
 |------|--------|----|
 | 2026-05-04 | Initial CHG for Claude Code provider | Codex |
 | 2026-05-04 | Revised after Trinity provider review | Codex |
+| 2026-05-04 | Added explicit model and effort policy | Codex |
