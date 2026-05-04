@@ -84,3 +84,13 @@ def test_readme_documents_claude_and_codex_load_smoke_checks():
     assert "make install-codex" in text
     assert "trinity review --providers glm,gemini,deepseek" in text
     assert ".agents/trinity.codex.json" in text
+    assert "| `fast-review` | `glm`, `deepseek` | none |" in text
+    assert "Until preset resolution is implemented" in text
+
+
+def test_codex_skill_documents_preset_config_as_seed_only():
+    text = REPO_SKILL.read_text()
+
+    assert "`fast-review` expands to `glm` and `deepseek`" in text
+    assert "configuration seeds only" in text
+    assert "--providers` or `review.default_providers`" in text

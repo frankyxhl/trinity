@@ -34,6 +34,11 @@ trinity review --pr 21 --providers glm,deepseek
 The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
 `.agents/trinity.codex.json`. It calls provider CLIs directly, saves raw outputs,
 and writes a deterministic synthesis markdown under `.trinity/reviews/`.
+The config seeds future review presets: `review` expands to `glm`, `gemini`,
+and `deepseek`; `fast-review` expands to `glm` and `deepseek`; `deep-review`
+expands to `glm`, `gemini`, and `deepseek`. These are configuration seeds only
+until preset resolution is implemented, so current reviews still use
+`--providers` or `review.default_providers`.
 `trinity doctor` and `trinity review --check-providers` validate provider config,
 command lookup, executable permissions, and timeout values without making network
 calls. Use the default review mode for dirty working-tree changes, `--base` /
