@@ -8,5 +8,6 @@ __pycache__/
 dist/
 .team/
 .trinity/
+.claude/
 .omx/
 .worktrees/
