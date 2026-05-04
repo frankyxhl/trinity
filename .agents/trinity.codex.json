@@ -45,7 +45,7 @@
     "fast-review": {
       "providers": [
         "glm",
-        "gemini"
+        "deepseek"
       ],
       "task_type": "review"
     },

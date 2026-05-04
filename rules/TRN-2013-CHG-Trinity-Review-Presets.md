@@ -69,7 +69,7 @@ Example:
       "task_type": "review"
     },
     "fast-review": {
-      "providers": ["gemini", "glm"],
+      "providers": ["glm", "deepseek"],
       "task_type": "review"
     },
     "deep-review": {
