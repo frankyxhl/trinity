@@ -63,6 +63,7 @@ Expected evidence before marking complete:
 | 2026-05-04 | Implemented Codex config, `scripts/codex.py`, `bin/trinity`, and `make install-codex` | Focused Codex tests pass |
 | 2026-05-04 | Ran full repo verification | `make test`, `make lint`, and `af validate --root .` pass |
 | 2026-05-04 | Installed adapters on this machine | `make install-codex`, `trinity --version`, `make install`, and Claude `session.py --version` pass |
+| 2026-05-04 | Addressed PR #16 review comment about argv length | Provider calls now pass a short prompt-file handoff; large-diff regression test added |
 
 ---
 

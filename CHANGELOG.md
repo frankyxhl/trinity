@@ -8,6 +8,7 @@
 
 ### Fixed
 - Backfilled validator-required sections and change-history tables in older TRN docs (`TRN-1001` through `TRN-1005`, `TRN-2002`, `TRN-2003`), bringing `af validate --root .` to 0 issues.
+- Codex review provider calls now use a short prompt-file handoff instead of passing the full rendered review prompt as argv, avoiding OS argument-length failures on large diffs.
 
 ## [3.0.0] - 2026-04-29
 

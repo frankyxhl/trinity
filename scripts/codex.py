@@ -252,9 +252,19 @@ def provider_command(provider, provider_config):
     return shlex.split(expanded)
 
 
-def run_provider(provider, provider_config, prompt, review_dir, root):
+def build_prompt_handoff(prompt_path):
+    return (
+        "Read the complete Trinity review prompt from the file below, then perform "
+        "the requested code review.\n\n"
+        f"Prompt file: {prompt_path}"
+    )
+
+
+def run_provider(provider, provider_config, prompt_path, review_dir, root):
     raw_path = review_dir / "raw" / f"{provider}.txt"
-    cmd = provider_command(provider, provider_config) + [prompt]
+    cmd = provider_command(provider, provider_config) + [
+        build_prompt_handoff(prompt_path)
+    ]
     timeout = int(provider_config.get("timeout", 360))
     started = dt.datetime.now().isoformat(timespec="seconds")
     try:
@@ -336,7 +346,8 @@ def cmd_review(args):
         out_base = root / out_base
     review_dir = make_review_dir(out_base, args.scope)
     prompt = render_prompt(config, root, args.scope)
-    (review_dir / "prompt.md").write_text(prompt)
+    prompt_path = review_dir / "prompt.md"
+    prompt_path.write_text(prompt)
 
     results = []
     provider_configs = config.get("providers", {})
@@ -344,7 +355,13 @@ def cmd_review(args):
         if provider not in provider_configs:
             raise SystemExit(f"trinity-codex: unknown provider: {provider}")
         results.append(
-            run_provider(provider, provider_configs[provider], prompt, review_dir, root)
+            run_provider(
+                provider,
+                provider_configs[provider],
+                prompt_path,
+                review_dir,
+                root,
+            )
         )
     metadata = {
         "scope": args.scope,

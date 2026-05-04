@@ -91,12 +91,19 @@ def test_codex_review_collects_tracked_and_untracked_changes(tmp_path):
     for provider in ["glm", "gemini", "deepseek"]:
         script = fake_bin / provider
         script.write_text(
-            "#!/bin/sh\n"
-            "prompt=''\n"
-            'for arg in "$@"; do prompt="$arg"; done\n'
-            'printf \'provider=%s\\n\' "$(basename "$0")"\n'
-            "printf '%s' \"$prompt\" | grep -q 'after tracked change' && echo tracked-ok\n"
-            "printf '%s' \"$prompt\" | grep -q 'new untracked evidence' && echo untracked-ok\n"
+            "#!/usr/bin/env python3\n"
+            "import pathlib, re, sys\n"
+            "prompt_arg = sys.argv[-1]\n"
+            "print(f'provider={pathlib.Path(sys.argv[0]).name}')\n"
+            "print(f'argv_len={len(prompt_arg)}')\n"
+            "assert 'after tracked change' not in prompt_arg\n"
+            "match = re.search(r'Prompt file: (.+)', prompt_arg)\n"
+            "assert match, prompt_arg\n"
+            "prompt = pathlib.Path(match.group(1).strip()).read_text()\n"
+            "if 'after tracked change' in prompt:\n"
+            "    print('tracked-ok')\n"
+            "if 'new untracked evidence' in prompt:\n"
+            "    print('untracked-ok')\n"
         )
         script.chmod(0o755)
 
@@ -146,6 +153,69 @@ def test_codex_review_collects_tracked_and_untracked_changes(tmp_path):
     synthesis = (review_dir / "synthesis.md").read_text()
     assert "Trinity Review Synthesis" in synthesis
     assert "raw/glm.txt" in synthesis
+
+
+def test_codex_review_uses_short_prompt_file_handoff_for_large_diffs(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=repo, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    tracked = repo / "large.txt"
+    tracked.write_text("before\n")
+    subprocess.run(["git", "add", "large.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True)
+    tracked.write_text("large-change\n" + ("x" * 70000) + "\n")
+
+    fake = tmp_path / "provider"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, re, sys\n"
+        "prompt_arg = sys.argv[-1]\n"
+        "print(f'argv_len={len(prompt_arg)}')\n"
+        "assert len(prompt_arg) < 500\n"
+        "assert 'large-change' not in prompt_arg\n"
+        "match = re.search(r'Prompt file: (.+)', prompt_arg)\n"
+        "assert match, prompt_arg\n"
+        "prompt = pathlib.Path(match.group(1).strip()).read_text()\n"
+        "assert 'large-change' in prompt\n"
+        "print('large-prompt-file-ok')\n"
+    )
+    fake.chmod(0o755)
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake), "timeout": 10}},
+                "review": {
+                    "prompt_template": "{diff}\n\n{files}\n",
+                    "default_providers": ["glm"],
+                },
+            }
+        )
+    )
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--providers",
+            "glm",
+            "--scope",
+            ".",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    raw = (Path(out) / "raw" / "glm.txt").read_text()
+    assert "large-prompt-file-ok" in raw
 
 
 def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path):
