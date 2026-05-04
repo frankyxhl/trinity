@@ -196,6 +196,39 @@ Edit `~/.claude/trinity.json` to set your preferred heartbeat interval and timeo
 
 Trinity also ships a Codex adapter without changing the Claude Code install path.
 
+**Install the Codex adapter**
+
+From a cloned repo:
+
+```bash
+make install-codex
+```
+
+This installs:
+
+| Location | Contents |
+|----------|----------|
+| `~/.codex/skills/trinity/SKILL.md` | Codex-specific Trinity skill |
+| `~/.codex/skills/trinity/scripts/` | Shared Trinity scripts plus Codex wrapper script |
+| `~/.codex/skills/trinity/trinity.codex.json` | Bundled default Codex config |
+| `~/.codex/trinity.json` | User-level Codex provider config |
+| `~/.local/bin/trinity` | Terminal wrapper for Codex-native commands |
+
+The committed default config lives at `.agents/trinity.codex.json`. It registers
+`glm`, `gemini`, and `deepseek` for direct CLI review calls and records each
+provider's command, resume support flag, timeout, and review prompt template.
+
+**Run a Codex-native review**
+
+```bash
+trinity review --providers glm,gemini,deepseek --scope spikes/hardline
+```
+
+The review wrapper collects tracked and untracked git changes, adds changed file
+snapshots to the prompt, calls each provider CLI directly, stores raw provider
+outputs, and writes a deterministic `synthesis.md` under `.trinity/reviews/`.
+This path does not require Claude Code worker-agent files.
+
 **Codex repo-local skill**
 
 The repo-local Codex skill lives at:

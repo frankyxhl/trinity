@@ -172,3 +172,12 @@ Tests are shell-level (`bash install.sh`) using `TRINITY_BASE_URL` to redirect d
 | Partial install if user Ctrl-C mid-run | Low | Idempotent — re-run overwrites partial files |
 | `install.sh` file list drifts from `make install` | Medium | Both must be updated together when adding files; no automated sync check exists — accepted trade-off for simplicity |
 | Interrupted curl writes truncated file to dest | Low | Idempotent — re-run overwrites; not a silent corruption risk since scripts fail loudly if truncated |
+
+---
+
+## Change History
+
+| Date | Change | By |
+|------|--------|----|
+| 2026-05-04 | Backfill Change History table for `af validate` | Codex |
+| 2026-03-21 | Initial approved proposal for remote install script | Claude Code |

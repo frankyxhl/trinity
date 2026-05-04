@@ -1,8 +1,8 @@
 # SOP-1003: Version Bump — Trinity
 
 **Applies to:** trinity/ package
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
+**Last updated:** 2026-05-04
+**Last reviewed:** 2026-05-04
 **Status:** Active
 
 ---
@@ -10,6 +10,26 @@
 ## What Is It?
 
 Human preparation step before `make release-prep` (TRN-1004). Updates CHANGELOG and bumps version in all files.
+
+---
+
+## Why
+
+Version metadata lives in multiple files (`VERSION`, `scripts/__init__.py`, `SKILL.md`, and `CHANGELOG.md`). This SOP keeps them synchronized before release automation creates the release commit and tag.
+
+---
+
+## When to Use
+
+- Preparing a release after feature or fix work has merged
+- Updating the changelog section for a new version
+- Aligning version pins before `make release-prep`
+
+## When NOT to Use
+
+- During feature implementation before code and tests are committed
+- For draft PRs that are not release preparation
+- To publish a release; use TRN-1004 after this SOP
 
 ---
 
@@ -28,10 +48,21 @@ The release workflow (TRN-2006) still does not call `make bump` — release-time
 
 ---
 
+## Examples
+
+```bash
+git status --short
+make bump VERSION=3.1.0
+git diff -- CHANGELOG.md VERSION scripts/__init__.py SKILL.md
+```
+
+---
+
 ## Change History
 
 | Date | Change | By |
 |------|--------|-----|
+| 2026-05-04 | Backfill Why/When/Examples sections for `af validate` | Codex |
 | 2026-03-21 | Initial version | Claude Code |
 | 2026-04-03 | Strengthen Step 0: explicit commit-first requirement | Claude Code |
 | 2026-04-25 | Note `make build` runs as part of `make bump` (TRN-2004) | Claude Opus 4.7 |

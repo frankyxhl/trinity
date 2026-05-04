@@ -1,8 +1,8 @@
 # REF-0000: Document Index
 
 **Applies to:** TRN project
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
+**Last updated:** 2026-05-04
+**Last reviewed:** 2026-05-04
 **Status:** Active
 
 ---
@@ -27,6 +27,8 @@
 | 2007 | CHG | One-click release via workflow_dispatch |
 | 2008 | PRP | Remove Zsh Dependency from Trinity Providers |
 | 2009 | CHG | Remove Zsh Dependency from Trinity Providers |
+| 2010 | PRP | Codex Review Adapter |
+| 2011 | CHG | Codex Review Adapter |
 
 ---
 
@@ -43,3 +45,4 @@
 | 2026-04-26 | Add TRN-2009 | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-1006 (Provider Model IDs SOP) | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-1800 + TRN-1801 (Evolution philosophy override + Evolve SOP, mirroring CLD-1800/1801 for trinity) | Claude Opus 4.7 |
+| 2026-05-04 | Add TRN-2010 and TRN-2011 for Codex Review Adapter | Codex |

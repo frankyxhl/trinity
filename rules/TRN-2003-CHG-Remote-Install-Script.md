@@ -32,3 +32,12 @@
 | Update TRN-1005 | ✅ | Added remote install path |
 | Update README.md | ✅ | curl one-liner as primary install method |
 | git commit + push | — | |
+
+---
+
+## Change History
+
+| Date | Change | By |
+|------|--------|----|
+| 2026-05-04 | Backfill Change History table for `af validate` | Codex |
+| 2026-03-21 | Initial change record for remote install script | Claude Code |

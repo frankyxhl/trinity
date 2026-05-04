@@ -37,6 +37,9 @@ def test_repo_local_codex_skill_is_importable_and_codex_specific():
     assert "Agent(" not in text
     assert "Claude Code" in text
     assert "Codex" in text
+    assert "trinity review" in text
+    assert ".agents/trinity.codex.json" in text
+    assert "Claude-specific background worker" in text
 
 
 def test_plugin_manifest_points_to_bundled_skill():
@@ -78,3 +81,6 @@ def test_readme_documents_claude_and_codex_load_smoke_checks():
     assert "/plugins" in text
     assert "/trinity status" in text
     assert "Claude Code" in text
+    assert "make install-codex" in text
+    assert "trinity review --providers glm,gemini,deepseek" in text
+    assert ".agents/trinity.codex.json" in text

@@ -1,8 +1,8 @@
 # SOP-1004: Release — Trinity
 
 **Applies to:** trinity/ package
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
+**Last updated:** 2026-05-04
+**Last reviewed:** 2026-05-04
 **Status:** Active
 
 ---
@@ -13,6 +13,26 @@ Cut a GitHub release. The release pipeline lives entirely in `.github/workflows/
 
 ---
 
+## Why
+
+Trinity releases are tag-driven and publish through GitHub Actions. This SOP keeps local preparation, tag creation, CI verification, and publish retry behavior consistent.
+
+---
+
+## When to Use
+
+- Publishing a new version after TRN-1003 is complete
+- Retrying a failed release workflow for an existing tag
+- Choosing between one-click UI release and manual tag push
+
+## When NOT to Use
+
+- Before version metadata and changelog updates are complete
+- For draft PR validation; use TRN-1001 and TRN-1002 instead
+- For emergency local tags that bypass CI
+
+---
+
 ## Prerequisites
 
 - All feature code and tests committed (`git status` clean)
@@ -20,6 +40,12 @@ Cut a GitHub release. The release pipeline lives entirely in `.github/workflows/
 - `providers/*.md` is up-to-date with `*.delta.md` + `_base/` partials (TRN-2004) — `make verify-built` exits 0
 - One-time setup: tag-protection ruleset (see TRN-2007 §D11). Pattern `v[0-9]*.[0-9]*.[0-9]*` (fnmatch — GitHub Rulesets do NOT support regex `+`). Bypass list MUST include **Repository admin** with `Always` mode (covers Path B and the PAT-driven Path A push).
 - One-time setup: `RELEASE_TAG_PAT` repo secret (fine-grained PAT, repo-scoped, `Contents: Read and write`). Required for Path A on personal repos because the GitHub Actions integration cannot be added to a personal-repo ruleset bypass list. See TRN-2007 §D11 for the creation + rotation runbook. Path B and Path C work without this secret.
+
+---
+
+## Steps
+
+Choose exactly one release path below. Path A is preferred for normal releases.
 
 ---
 
@@ -83,10 +109,21 @@ Same pre-flight runs. Workflow fails cleanly with "Release vX.Y.Z already exists
 
 ---
 
+## Examples
+
+```bash
+git fetch origin
+git tag v3.1.0 origin/main
+git push origin v3.1.0
+```
+
+---
+
 ## Change History
 
 | Date | Change | By |
 |------|--------|-----|
+| 2026-05-04 | Backfill Why/When/Steps/Examples sections for `af validate` | Codex |
 | 2026-03-21 | Initial version | Claude Code |
 | 2026-04-03 | Add explicit prerequisite: commit code before release | Claude Code |
 | 2026-04-25 | Add `make verify-built` prerequisite + step (TRN-2004) | Claude Opus 4.7 |
