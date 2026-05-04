@@ -8,6 +8,7 @@
 - `trinity doctor` and `trinity review --check-providers` preflight Codex review providers for config shape, command lookup, executable permissions, and timeout values before review dispatch.
 - `trinity review --base <base> --head <head>` and `trinity review --pr <number>` add committed branch / GitHub PR review modes for Codex-native Trinity review.
 - Codex config now seeds `review`, `fast-review`, and `deep-review` preset definitions plus `r`/`fr`/`dr` aliases, and `make install-codex` preserves those sections in `~/.codex/trinity.json`.
+- `trinity review --preset <name>` and `trinity doctor --preset <name>` now resolve review presets and aliases, use `review.default_preset` by default, preserve `review.default_providers` as the compatibility fallback, and record skipped optional providers in review metadata.
 
 ### Fixed
 - Backfilled validator-required sections and change-history tables in older TRN docs (`TRN-1001` through `TRN-1005`, `TRN-2002`, `TRN-2003`), bringing `af validate --root .` to 0 issues.

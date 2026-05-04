@@ -26,19 +26,25 @@ For Codex-native code review from the terminal, use the installed wrapper:
 
 ```bash
 trinity doctor --providers glm,gemini,deepseek
+trinity doctor --preset fast-review
 trinity review --providers glm,gemini,deepseek --scope <path-or-label>
+trinity review --preset fast-review --scope <path-or-label>
+trinity review --preset dr --scope <path-or-label>
 trinity review --base main --head HEAD --providers glm,deepseek
-trinity review --pr 21 --providers glm,deepseek
+trinity review --pr 21 --preset deep-review
 ```
 
 The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
 `.agents/trinity.codex.json`. It calls provider CLIs directly, saves raw outputs,
 and writes a deterministic synthesis markdown under `.trinity/reviews/`.
-The config seeds future review presets: `review` expands to `glm`, `gemini`,
-and `deepseek`; `fast-review` expands to `glm` and `deepseek`; `deep-review`
-expands to `glm`, `gemini`, and `deepseek`. These are configuration seeds only
-until preset resolution is implemented, so current reviews still use
-`--providers` or `review.default_providers`.
+The review preset resolver selects providers from explicit `--providers`,
+explicit `--preset`, `review.default_preset`, then legacy
+`review.default_providers`. `review` expands to `glm`, `gemini`, and
+`deepseek`; `fast-review` expands to `glm` and `deepseek`; `deep-review`
+expands to `glm`, `gemini`, and `deepseek`. Aliases `r`, `fr`, and `dr` resolve
+to those preset names. Optional providers are skipped with stderr warnings when
+they lack config or a CLI, and skipped providers are recorded in
+`metadata.json`.
 `trinity doctor` and `trinity review --check-providers` validate provider config,
 command lookup, executable permissions, and timeout values without making network
 calls. Use the default review mode for dirty working-tree changes, `--base` /

@@ -13,6 +13,7 @@ PLUGIN_MANIFEST = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
 PLUGIN_SKILL = PLUGIN_ROOT / "skills" / "trinity" / "SKILL.md"
 MARKETPLACE = ROOT / ".agents" / "plugins" / "marketplace.json"
 README = ROOT / "README.md"
+ROOT_SKILL = ROOT / "SKILL.md"
 
 
 def _frontmatter_value(text, key):
@@ -83,14 +84,28 @@ def test_readme_documents_claude_and_codex_load_smoke_checks():
     assert "Claude Code" in text
     assert "make install-codex" in text
     assert "trinity review --providers glm,gemini,deepseek" in text
+    assert "trinity doctor --preset fast-review" in text
+    assert "trinity review --preset fast-review" in text
+    assert "trinity review --pr 21 --preset deep-review" in text
     assert ".agents/trinity.codex.json" in text
     assert "| `fast-review` | `glm`, `deepseek` | none |" in text
-    assert "Until preset resolution is implemented" in text
+    assert "explicit `--providers`, explicit `--preset`" in text
 
 
-def test_codex_skill_documents_preset_config_as_seed_only():
+def test_codex_skill_documents_preset_resolution():
     text = REPO_SKILL.read_text()
 
+    assert "trinity doctor --preset fast-review" in text
+    assert "trinity review --preset fast-review" in text
     assert "`fast-review` expands to `glm` and `deepseek`" in text
-    assert "configuration seeds only" in text
-    assert "--providers` or `review.default_providers`" in text
+    assert "review.default_preset" in text
+    assert "skipped providers are recorded" in text
+
+
+def test_claude_skill_documents_review_presets():
+    text = ROOT_SKILL.read_text()
+
+    assert '/trinity fast-review "task"' in text
+    assert "| `fast-review` | `glm`, `deepseek` | none |" in text
+    assert "Configured presets" in text
+    assert "Preset/provider collisions are invalid" in text

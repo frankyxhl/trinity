@@ -218,12 +218,12 @@ This installs:
 The committed default config lives at `.agents/trinity.codex.json`. It registers
 `glm`, `gemini`, and `deepseek` for direct CLI review calls and records each
 provider's command, resume support flag, timeout, and review prompt template.
-It also seeds future review preset config under `presets` (`review`,
-`fast-review`, `deep-review`) plus short aliases under `preset_aliases`.
-Until preset resolution is implemented, `trinity review` still selects
-providers from `--providers` or `review.default_providers`.
+It also configures review presets under `presets` (`review`, `fast-review`,
+`deep-review`) plus short aliases under `preset_aliases`. `trinity review`
+selects providers in this order: explicit `--providers`, explicit `--preset`,
+`review.default_preset`, then legacy `review.default_providers`.
 
-Seeded preset config:
+Default preset config:
 
 | Preset | Required providers | Optional providers |
 |--------|--------------------|--------------------|
@@ -239,7 +239,9 @@ locally accepted `droid` model alias.
 
 ```bash
 trinity doctor --providers glm,gemini,deepseek
+trinity doctor --preset fast-review
 trinity review --check-providers --providers glm,gemini,deepseek
+trinity review --check-providers --preset dr
 ```
 
 Health checks validate the selected provider config, command lookup,
@@ -251,8 +253,10 @@ can still occur during the actual review.
 
 ```bash
 trinity review --providers glm,gemini,deepseek --scope spikes/hardline
+trinity review --preset fast-review --scope spikes/hardline
+trinity review --preset dr --scope .
 trinity review --base main --head HEAD --providers glm,deepseek
-trinity review --pr 21 --providers glm,deepseek
+trinity review --pr 21 --preset deep-review
 ```
 
 Without `--pr` or `--base/--head`, the review wrapper collects tracked and
@@ -263,8 +267,10 @@ patch and metadata, then snapshots changed files from the PR head commit when
 that commit is locally available. All modes call each provider CLI directly,
 store raw provider outputs, and write a deterministic `synthesis.md` under
 `.trinity/reviews/`. Selected providers are preflighted before output
-directories are created. This path does not require Claude Code worker-agent
-files.
+directories are created. If a preset has optional providers that are not
+configured or have no CLI, they are skipped with a stderr warning and recorded
+in `metadata.json`; required providers still fail preflight when unavailable.
+This path does not require Claude Code worker-agent files.
 
 **Codex repo-local skill**
 

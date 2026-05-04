@@ -22,6 +22,8 @@ DEFAULT_CONFIG_CANDIDATES = [
     SCRIPT_ROOT / ".agents" / "trinity.codex.json",
 ]
 DEFAULT_CONFIG_SECTIONS = ("providers", "review", "presets", "preset_aliases")
+PRESET_TASK_TYPES = {"tdd", "review", "prp", "general"}
+PRESET_ALIAS_RESERVED_WORDS = {"init-config", "doctor", "review", "help"}
 
 
 def _load_version():
@@ -101,14 +103,178 @@ def write_default_config(path):
     return target
 
 
-def split_providers(value, config):
-    if value:
-        providers = [item.strip() for item in value.split(",") if item.strip()]
-    else:
-        providers = config.get("review", {}).get("default_providers", [])
+def split_provider_csv(value):
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def config_section(config, key):
+    value = config.get(key, {}) or {}
+    if not isinstance(value, dict):
+        raise SystemExit(f"trinity: {key} must be an object")
+    return value
+
+
+def review_section(config):
+    return config_section(config, "review")
+
+
+def provider_configs_section(config):
+    return config_section(config, "providers")
+
+
+def provider_config_missing_cli_reason(provider_configs, provider):
+    provider_config = provider_configs.get(provider)
+    if provider_config is None:
+        return "missing config"
+    if not isinstance(provider_config, dict):
+        return "missing cli"
+    cli = provider_config.get("cli")
+    if not isinstance(cli, str) or not cli.strip():
+        return "missing cli"
+    return None
+
+
+def validate_preset_aliases(config, presets, aliases):
+    provider_configs = provider_configs_section(config)
+    for alias, target in aliases.items():
+        if alias in PRESET_ALIAS_RESERVED_WORDS:
+            raise SystemExit(
+                f"trinity: preset alias '{alias}' collides with subcommand"
+            )
+        if alias in provider_configs:
+            raise SystemExit(f"trinity: preset alias '{alias}' collides with provider")
+        if alias in presets:
+            raise SystemExit(f"trinity: preset alias '{alias}' collides with preset")
+        if target in aliases:
+            raise SystemExit(f"trinity: preset alias '{alias}' points to another alias")
+        if target not in presets:
+            raise SystemExit(
+                f"trinity: preset alias '{alias}' targets unknown preset '{target}'"
+            )
+
+
+def resolve_preset_name(config, requested, source):
+    presets = config_section(config, "presets")
+    aliases = config_section(config, "preset_aliases")
+    validate_preset_aliases(config, presets, aliases)
+
+    resolved = aliases.get(requested, requested)
+    if resolved not in presets:
+        if source == "default":
+            raise SystemExit(f"trinity: review.default_preset '{requested}' not found")
+        raise SystemExit(f"trinity: unknown preset '{requested}'")
+    if resolved in provider_configs_section(config):
+        raise SystemExit(f"trinity: '{resolved}' is both provider and preset")
+    return resolved, presets[resolved]
+
+
+def append_unique(items, value):
+    if value not in items:
+        items.append(value)
+
+
+def resolve_preset_providers(config, requested, source):
+    resolved, preset = resolve_preset_name(config, requested, source)
+    if not isinstance(preset, dict):
+        raise SystemExit(f"trinity: preset '{resolved}' must be an object")
+
+    task_type = preset.get("task_type")
+    if task_type is not None and task_type not in PRESET_TASK_TYPES:
+        raise SystemExit(
+            f"trinity: preset '{resolved}' has invalid task_type '{task_type}'"
+        )
+
+    required = preset.get("providers", [])
+    optional = preset.get("optional_providers", [])
+    if not isinstance(required, list):
+        raise SystemExit(f"trinity: preset '{resolved}' providers must be a list")
+    if not isinstance(optional, list):
+        raise SystemExit(
+            f"trinity: preset '{resolved}' optional_providers must be a list"
+        )
+    required = [
+        item.strip() for item in required if isinstance(item, str) and item.strip()
+    ]
+    optional = [
+        item.strip() for item in optional if isinstance(item, str) and item.strip()
+    ]
+    if not required:
+        raise SystemExit(f"trinity: preset '{resolved}' has no providers")
+
+    provider_configs = provider_configs_section(config)
+    providers = []
+    for provider in required:
+        append_unique(providers, provider)
+
+    skipped = []
+    warnings = []
+    for provider in optional:
+        reason = provider_config_missing_cli_reason(provider_configs, provider)
+        if reason:
+            skipped.append({"provider": provider, "reason": reason})
+            warnings.append(
+                f"trinity: optional provider '{provider}' skipped: {reason}"
+            )
+            continue
+        append_unique(providers, provider)
+
+    return (
+        providers,
+        {
+            "requested": requested,
+            "resolved": resolved,
+            "source": source,
+            "task_type": task_type,
+            "skipped_optional_providers": skipped,
+        },
+        warnings,
+    )
+
+
+def resolve_review_providers(args, config):
+    if args.providers:
+        providers = split_provider_csv(args.providers)
+        if not providers:
+            raise SystemExit("trinity-codex: no providers selected")
+        warnings = []
+        if args.preset:
+            warnings.append(
+                f"trinity: --providers supplied; ignoring --preset '{args.preset}'"
+            )
+        return (
+            providers,
+            {
+                "requested": args.preset,
+                "resolved": None,
+                "source": "providers",
+                "task_type": None,
+                "skipped_optional_providers": [],
+            },
+            warnings,
+        )
+
+    review_config = review_section(config)
+    if args.preset:
+        return resolve_preset_providers(config, args.preset, "explicit")
+
+    default_preset = review_config.get("default_preset")
+    if default_preset:
+        return resolve_preset_providers(config, default_preset, "default")
+
+    providers = review_config.get("default_providers", [])
     if not providers:
         raise SystemExit("trinity-codex: no providers selected")
-    return providers
+    return (
+        providers,
+        {
+            "requested": None,
+            "resolved": None,
+            "source": "default_providers",
+            "task_type": None,
+            "skipped_optional_providers": [],
+        },
+        [],
+    )
 
 
 def parse_provider_command(provider, provider_config):
@@ -702,7 +868,11 @@ def write_synthesis(review_dir, scope, results):
 def cmd_review(args):
     root = resolve_root(args.root)
     config = load_config(args.config)
-    providers = split_providers(args.providers, config)
+    providers, preset_metadata, resolver_warnings = resolve_review_providers(
+        args, config
+    )
+    for warning in resolver_warnings:
+        print(warning, file=sys.stderr)
     provider_configs = config.get("providers", {})
     health = provider_health_results(config, providers, root)
     if args.check_providers:
@@ -739,6 +909,7 @@ def cmd_review(args):
         "scope": args.scope,
         "root": str(root),
         "providers": providers,
+        "preset": preset_metadata,
         "input": review_input["metadata"],
         "results": results,
     }
@@ -753,7 +924,9 @@ def cmd_review(args):
 def cmd_doctor(args):
     root = resolve_health_root(args.root)
     config = load_config(args.config)
-    providers = split_providers(args.providers, config)
+    providers, _, resolver_warnings = resolve_review_providers(args, config)
+    for warning in resolver_warnings:
+        print(warning, file=sys.stderr)
     health = provider_health_results(config, providers, root)
     print(format_health_results(health))
     return 0 if health_results_ok(health) else 1
@@ -771,11 +944,13 @@ def build_parser():
     doctor.add_argument("--root", default=".")
     doctor.add_argument("--config", default=str(DEFAULT_CONFIG))
     doctor.add_argument("--providers")
+    doctor.add_argument("--preset")
 
     review = subparsers.add_parser("review")
     review.add_argument("--root", default=".")
     review.add_argument("--config", default=str(DEFAULT_CONFIG))
     review.add_argument("--providers")
+    review.add_argument("--preset")
     review.add_argument("--scope", default=".")
     review.add_argument("--out-dir")
     review.add_argument("--check-providers", action="store_true")

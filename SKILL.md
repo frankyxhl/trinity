@@ -36,6 +36,9 @@ If scripts pass the version check, proceed normally.
 /trinity <provider>[:<instance>] "task"          # single dispatch
 /trinity <p1>[:<i>] "t1" <p2> "t2"              # multi-provider parallel
 /trinity <provider>*N "task"                     # N parallel same-provider
+/trinity review "task"                           # preset dispatch
+/trinity fast-review "task"                      # preset dispatch
+/trinity deep-review "task"                      # preset dispatch
 /trinity plan <p1> "t1" <p2> "t2"               # plan with diagram, confirm, execute
 /trinity plan "high-level description"           # auto-decompose, confirm, execute
 /trinity install <provider>                      # install + register provider
@@ -47,9 +50,9 @@ If scripts pass the version check, proceed normally.
 
 ## Provider Discovery
 
-On every dispatch, resolve available providers:
-1. Load `~/.claude/trinity.json` → `providers` map (global)
-2. Load `.claude/trinity.json` → `providers` map (project); project entries win on conflict
+On every dispatch, resolve available providers and presets:
+1. Load `~/.claude/trinity.json` → `providers`, `presets`, and `preset_aliases` (global)
+2. Load `.claude/trinity.json` → project overlay; project entries win on conflict
 3. Verify each provider has a matching agent file: `~/.claude/agents/trinity-<name>.md` or `.claude/agents/trinity-<name>.md`
 
 A provider is **usable** only when it has both a config entry AND an agent file.
@@ -62,6 +65,8 @@ A provider is **usable** only when it has both a config entry AND an agent file.
 **Merge semantics:**
 - `providers`: merged by key; project entry wins on same key. Global providers not overridden remain available.
 - `defaults`: shallow merge; project value overrides global for each key. Keys absent in project inherit from global.
+- `presets`: merged by key; project preset replaces the whole global preset object with that name.
+- `preset_aliases`: merged by key; project alias wins on same alias.
 - `sessions`: project-only; never in global config.
 
 **Global** `~/.claude/trinity.json`:
@@ -108,9 +113,31 @@ Field notes:
 - `stopped`: `true` when stopped. Distinguishes ⏸️ stopped from ❌ failed.
 - `task_type`: one of `tdd`, `review`, `prp`, `general`. Used for timeout thresholds.
 
+## Review Presets
+
+Preset dispatch expands one keyword into a configured provider set:
+
+| Preset | Required providers | Optional providers |
+|--------|--------------------|--------------------|
+| `review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
+| `fast-review` | `glm`, `deepseek` | none |
+| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
+
+Aliases `r`, `fr`, and `dr` resolve to `review`, `fast-review`, and `deep-review`.
+Optional providers are used only when discovery marks them usable; otherwise
+show a warning and continue with the required providers.
+
 ## Execution Rules
 
-### Dispatch mode (provider detected)
+### Dispatch mode (preset or provider detected)
+
+Parse dispatch in this order:
+1. Built-in subcommands: `status`, `clear`, `plan`, `heartbeat`, `install`, `help`.
+2. Preset or alias name: expand providers and dispatch the same task to each.
+3. Provider syntax: `provider`, `provider:instance`, or `provider*N`.
+
+If a token is both a provider and a preset/alias, fail with an ambiguity error
+instead of guessing.
 
 For EACH (provider, task) pair in the arguments:
 
@@ -236,6 +263,15 @@ Run provider discovery. Display two sections:
 
 **Registered providers:**
 ```
+
+**Configured presets:**
+```
+| Preset      | Providers               | Optional           | Aliases |
+|-------------|-------------------------|--------------------|---------|
+| review      | glm, gemini, deepseek   | codex, claude-code | r       |
+| fast-review | glm, deepseek           |                    | fr      |
+| deep-review | glm, gemini, deepseek   | codex, claude-code | dr      |
+```
 | Provider | Status    | CLI                              |
 |----------|-----------|----------------------------------|
 | glm      | ✅ usable  | droid exec --model glm-5         |
@@ -348,7 +384,9 @@ Synchronous. Read `~/.claude/skills/trinity/README.md` and output its full conte
 
 ## Reserved Words
 
-`status`, `clear`, `plan`, `heartbeat`, `install`, and `help` are subcommands, NOT provider names.
+`status`, `clear`, `plan`, `heartbeat`, `install`, and `help` are subcommands, NOT provider or preset names.
+Preset/provider collisions are invalid and must be reported as ambiguous.
+Alias names must not collide with subcommands, providers, or preset names.
 
 ## Examples
 

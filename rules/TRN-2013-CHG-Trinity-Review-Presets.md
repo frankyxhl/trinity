@@ -1,9 +1,9 @@
 # CHG-2013: Trinity Review Presets
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-04
-**Last reviewed:** 2026-05-04
-**Status:** Proposed
+**Last updated:** 2026-05-05
+**Last reviewed:** 2026-05-05
+**Status:** In Progress
 **Date:** 2026-05-04
 **Requested by:** Frank
 **Implementer:** Codex
@@ -36,11 +36,11 @@ trinity review --preset deep-review --scope rules/TRN-2013-CHG-Trinity-Review-Pr
 `trinity review --scope .` should continue to work and use the configured
 default preset when available.
 
-Current state as of 2026-05-05: PR #23 seeded the preset config only. The
-resolver is not implemented yet, so `trinity review --preset ...` and
-`/trinity fast-review ...` are target syntax, not supported commands. Current
-Codex review runs must still pass `--providers` explicitly or rely on
-`review.default_providers`.
+Current implementation scope as of 2026-05-05: Codex terminal review and doctor
+support `--preset ...`, preset aliases, `review.default_preset`, optional
+provider skip warnings, and legacy `review.default_providers` fallback. Claude
+Code `/trinity <preset> "task"` is documented in the root skill instructions and
+still depends on Claude Code following those instructions at runtime.
 
 ---
 
@@ -288,9 +288,9 @@ Expected evidence before marking complete:
 
 ## Approval
 
-- [ ] Approved for implementation
-- [ ] Implemented
-- [ ] Verified locally
+- [x] Approved for implementation
+- [x] Implemented
+- [x] Verified locally
 - [ ] PR opened
 
 ---
@@ -305,7 +305,11 @@ Expected evidence before marking complete:
 | 2026-05-04 | Re-reviewed with GLM, Gemini, and DeepSeek wrapper config | GLM/DeepSeek requested explicit `--providers` + `--preset` warning, all-unusable error, `/trinity review` wording, Reserved Words update, and task_type precedence; Gemini hit quota |
 | 2026-05-04 | COR-1602 strict review round on PR #20 | DeepSeek scored 9.3 PASS with metadata-order advisory; GLM saw no PR diff due committed-branch review wrapper limitation |
 | 2026-05-04 | COR-1602 strict review round 2 with explicit PR diff | GLM scored 9.2 PASS; DeepSeek scored 8.5 FIX for under-specified textual tests, rollback verification, missing REFACTOR step, and bare `/trinity review` behavior |
-| 2026-05-04 | Seeded preset config files | Added `review`, `fast-review`, `deep-review`, and `r`/`fr`/`dr` config seeds; preset resolution remains pending under this CHG |
+| 2026-05-04 | Seeded preset config files | Added `review`, `fast-review`, `deep-review`, and `r`/`fr`/`dr` config seeds; preset resolution remained pending under this CHG |
+| 2026-05-05 | Implemented Codex preset resolver | Added `trinity review --preset`, `trinity doctor --preset`, alias resolution, default-preset priority, optional-provider skip metadata, and legacy fallback |
+| 2026-05-05 | Verified locally | `make test`, `make lint`, `af validate --root .`, `make install-codex`, `trinity doctor --preset fast-review`, and `trinity review --check-providers --preset fast-review` passed |
+| 2026-05-05 | Reviewed with Trinity GLM and DeepSeek | Round 1 PASS from both; DeepSeek advisory on `doctor` preset support was implemented |
+| 2026-05-05 | Re-reviewed with Trinity GLM and DeepSeek | Round 2 PASS from both; DeepSeek cleanup advisory to remove unused `split_providers()` was implemented |
 
 ---
 
@@ -320,3 +324,5 @@ Expected evidence before marking complete:
 | 2026-05-04 | Reordered CHG metadata and added migration note after COR-1602 review | Codex |
 | 2026-05-04 | Added rollback test, explicit textual test mechanism, REFACTOR step, and empty-task behavior after COR-1602 round 2 | Codex |
 | 2026-05-04 | Recorded preset config seed as a partial setup step before resolver implementation | Codex |
+| 2026-05-05 | Implemented Codex terminal preset resolver and updated Claude/Codex docs | Codex |
+| 2026-05-05 | Added doctor preset support and removed dead resolver code after Trinity review | Codex |
