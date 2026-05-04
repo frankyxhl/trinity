@@ -62,6 +62,68 @@ def simple_review_config(config, provider):
     )
 
 
+def simple_repo(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    tracked = repo / "review.txt"
+    tracked.write_text("before\n")
+    commit_all(repo, "init")
+    tracked.write_text("before\nafter\n")
+    return repo
+
+
+def write_named_fake_providers(fake_bin, providers):
+    fake_bin.mkdir()
+    for provider in providers:
+        script = fake_bin / provider
+        script.write_text(
+            "#!/usr/bin/env python3\n"
+            "import pathlib, re, sys\n"
+            "provider = pathlib.Path(sys.argv[0]).name\n"
+            "print(f'provider={provider}')\n"
+            "match = re.search(r'Prompt file: (.+)', sys.argv[-1])\n"
+            "assert match, sys.argv[-1]\n"
+            "prompt = pathlib.Path(match.group(1).strip()).read_text()\n"
+            "if 'after' in prompt:\n"
+            "    print('prompt-ok')\n"
+        )
+        script.chmod(0o755)
+
+
+def preset_review_config(config, fake_bin):
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "glm": {"cli": str(fake_bin / "glm"), "timeout": 10},
+                    "deepseek": {"cli": str(fake_bin / "deepseek"), "timeout": 10},
+                    "codex": {"cli": str(fake_bin / "codex"), "timeout": 10},
+                },
+                "review": {
+                    "prompt_template": "Scope: {scope}\n\n{diff}\n\n{files}\n",
+                    "default_providers": ["glm"],
+                    "default_preset": "fast-review",
+                },
+                "presets": {
+                    "fast-review": {
+                        "providers": ["glm", "deepseek"],
+                        "task_type": "review",
+                    },
+                    "deep-review": {
+                        "providers": ["deepseek"],
+                        "optional_providers": ["codex", "missing"],
+                        "task_type": "review",
+                    },
+                },
+                "preset_aliases": {
+                    "fr": "fast-review",
+                    "dr": "deep-review",
+                },
+            }
+        )
+    )
+
+
 def test_codex_default_config_has_direct_review_providers():
     data = json.loads(CODEX_CONFIG.read_text())
 
@@ -207,6 +269,427 @@ def test_codex_review_collects_tracked_and_untracked_changes(tmp_path):
     synthesis = (review_dir / "synthesis.md").read_text()
     assert "Trinity Review Synthesis" in synthesis
     assert "raw/glm.txt" in synthesis
+
+
+def test_codex_review_explicit_preset_expands_required_and_optional_providers(
+    tmp_path,
+):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek", "codex"])
+    config = tmp_path / "codex.json"
+    preset_review_config(config, fake_bin)
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--preset",
+            "deep-review",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    assert "optional provider 'missing' skipped: missing config" in err
+    review_dir = Path(out)
+    assert not (review_dir / "raw" / "glm.txt").exists()
+    for provider in ["deepseek", "codex"]:
+        raw = (review_dir / "raw" / f"{provider}.txt").read_text()
+        assert f"provider={provider}" in raw
+        assert "prompt-ok" in raw
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["providers"] == ["deepseek", "codex"]
+    assert metadata["preset"] == {
+        "requested": "deep-review",
+        "resolved": "deep-review",
+        "source": "explicit",
+        "task_type": "review",
+        "skipped_optional_providers": [
+            {"provider": "missing", "reason": "missing config"}
+        ],
+    }
+
+
+def test_codex_review_preset_alias_resolves(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek", "codex"])
+    config = tmp_path / "codex.json"
+    preset_review_config(config, fake_bin)
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--preset",
+            "fr",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    assert (review_dir / "raw" / "glm.txt").exists()
+    assert (review_dir / "raw" / "deepseek.txt").exists()
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["providers"] == ["glm", "deepseek"]
+    assert metadata["preset"]["requested"] == "fr"
+    assert metadata["preset"]["resolved"] == "fast-review"
+    assert metadata["preset"]["source"] == "explicit"
+
+
+def test_codex_review_default_preset_wins_over_default_providers(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek", "codex"])
+    config = tmp_path / "codex.json"
+    preset_review_config(config, fake_bin)
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    assert (review_dir / "raw" / "glm.txt").exists()
+    assert (review_dir / "raw" / "deepseek.txt").exists()
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["providers"] == ["glm", "deepseek"]
+    assert metadata["preset"]["resolved"] == "fast-review"
+    assert metadata["preset"]["source"] == "default"
+
+
+def test_codex_review_providers_override_preset_with_warning(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek", "codex"])
+    config = tmp_path / "codex.json"
+    preset_review_config(config, fake_bin)
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--providers",
+            "glm",
+            "--preset",
+            "deep-review",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    assert "--providers supplied; ignoring --preset 'deep-review'" in err
+    review_dir = Path(out)
+    assert (review_dir / "raw" / "glm.txt").exists()
+    assert not (review_dir / "raw" / "deepseek.txt").exists()
+    assert not (review_dir / "raw" / "codex.txt").exists()
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["providers"] == ["glm"]
+    assert metadata["preset"]["source"] == "providers"
+
+
+def test_codex_review_legacy_default_providers_still_work_without_presets(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake_bin / "glm"), "timeout": 10}},
+                "review": {
+                    "prompt_template": "{diff}\n\n{files}\n",
+                    "default_providers": ["glm"],
+                },
+            }
+        )
+    )
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    metadata = json.loads((Path(out) / "metadata.json").read_text())
+    assert metadata["providers"] == ["glm"]
+    assert metadata["preset"]["source"] == "default_providers"
+    assert metadata["preset"]["resolved"] is None
+
+
+def test_codex_review_unknown_preset_fails_before_review_dir(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek", "codex"])
+    config = tmp_path / "codex.json"
+    preset_review_config(config, fake_bin)
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--preset",
+            "missing",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: unknown preset 'missing'" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_invalid_preset_alias_fails_before_review_dir(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake_bin / "glm"), "timeout": 10}},
+                "review": {"default_preset": "review"},
+                "presets": {"review": {"providers": ["glm"]}},
+                "preset_aliases": {"r": "fr", "fr": "review"},
+            }
+        )
+    )
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--preset",
+            "r",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: preset alias 'r' points to another alias" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_invalid_task_type_fails_before_review_dir(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake_bin / "glm"), "timeout": 10}},
+                "review": {"default_preset": "review"},
+                "presets": {"review": {"providers": ["glm"], "task_type": "security"}},
+            }
+        )
+    )
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: preset 'review' has invalid task_type 'security'" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_missing_default_preset_fails_before_review_dir(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake_bin / "glm"), "timeout": 10}},
+                "review": {"default_preset": "missing"},
+                "presets": {"review": {"providers": ["glm"]}},
+            }
+        )
+    )
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: review.default_preset 'missing' not found" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_empty_preset_fails_before_review_dir(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake_bin / "glm"), "timeout": 10}},
+                "review": {"default_preset": "review"},
+                "presets": {"review": {"providers": []}},
+            }
+        )
+    )
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: preset 'review' has no providers" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_alias_collision_fails_before_review_dir(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake_bin / "glm"), "timeout": 10}},
+                "review": {"default_preset": "review"},
+                "presets": {"review": {"providers": ["glm"]}},
+                "preset_aliases": {"glm": "review"},
+            }
+        )
+    )
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: preset alias 'glm' collides with provider" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_optional_provider_with_empty_cli_is_skipped(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "glm": {"cli": str(fake_bin / "glm"), "timeout": 10},
+                    "codex": {"cli": " ", "timeout": 10},
+                },
+                "review": {"default_preset": "review"},
+                "presets": {
+                    "review": {
+                        "providers": ["glm"],
+                        "optional_providers": ["codex"],
+                    }
+                },
+            }
+        )
+    )
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    assert "optional provider 'codex' skipped: missing cli" in err
+    metadata = json.loads((Path(out) / "metadata.json").read_text())
+    assert metadata["providers"] == ["glm"]
+    assert metadata["preset"]["skipped_optional_providers"] == [
+        {"provider": "codex", "reason": "missing cli"}
+    ]
 
 
 def test_codex_review_uses_short_prompt_file_handoff_for_large_diffs(tmp_path):
@@ -630,6 +1113,63 @@ def test_codex_doctor_passes_healthy_provider(tmp_path):
 
     assert rc == 0, err
     assert f"healthy: OK - {fake} (timeout 10s)" in out
+
+
+def test_codex_doctor_uses_default_preset_when_no_providers_supplied(tmp_path):
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "glm": {"cli": str(fake_bin / "glm"), "timeout": 10},
+                    "deepseek": {"cli": str(fake_bin / "deepseek"), "timeout": 10},
+                },
+                "review": {
+                    "default_preset": "fast-review",
+                    "default_providers": [],
+                },
+                "presets": {
+                    "fast-review": {
+                        "providers": ["glm", "deepseek"],
+                        "task_type": "review",
+                    }
+                },
+            }
+        )
+    )
+
+    rc, out, err = run_codex(["doctor", "--config", str(config)])
+
+    assert rc == 0, err
+    assert f"glm: OK - {fake_bin / 'glm'} (timeout 10s)" in out
+    assert f"deepseek: OK - {fake_bin / 'deepseek'} (timeout 10s)" in out
+
+
+def test_codex_doctor_accepts_preset_alias(tmp_path):
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "glm": {"cli": str(fake_bin / "glm"), "timeout": 10},
+                    "deepseek": {"cli": str(fake_bin / "deepseek"), "timeout": 10},
+                },
+                "review": {"default_providers": []},
+                "presets": {"fast-review": {"providers": ["glm", "deepseek"]}},
+                "preset_aliases": {"fr": "fast-review"},
+            }
+        )
+    )
+
+    rc, out, err = run_codex(["doctor", "--config", str(config), "--preset", "fr"])
+
+    assert rc == 0, err
+    assert f"glm: OK - {fake_bin / 'glm'} (timeout 10s)" in out
+    assert f"deepseek: OK - {fake_bin / 'deepseek'} (timeout 10s)" in out
 
 
 def test_codex_doctor_resolves_relative_provider_cli_from_git_root(tmp_path):

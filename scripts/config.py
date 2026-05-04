@@ -52,6 +52,9 @@ def merge_configs(global_data, project_data):
                 missing project key inherits from global;
                 project null overrides global;
                 project array replaces global array entirely
+    - presets: dict merge, project key wins on conflict; preset objects are
+               replaced as atomic values
+    - preset_aliases: dict merge, project key wins on conflict
     - sessions: project-only; global sessions key is ignored
     """
     result = {}
@@ -71,6 +74,20 @@ def merge_configs(global_data, project_data):
         for k, v in project_defaults.items():
             merged_defaults[k] = v  # project value wins, including None
         result["defaults"] = merged_defaults
+
+    # presets: dict merge, project wins by preset name
+    global_presets = global_data.get("presets", {}) or {}
+    project_presets = project_data.get("presets", {}) or {}
+    merged_presets = {**global_presets, **project_presets}
+    if merged_presets:
+        result["presets"] = merged_presets
+
+    # preset_aliases: dict merge, project wins by alias
+    global_preset_aliases = global_data.get("preset_aliases", {}) or {}
+    project_preset_aliases = project_data.get("preset_aliases", {}) or {}
+    merged_preset_aliases = {**global_preset_aliases, **project_preset_aliases}
+    if merged_preset_aliases:
+        result["preset_aliases"] = merged_preset_aliases
 
     # sessions: project-only (never include global sessions)
     project_sessions = project_data.get("sessions")

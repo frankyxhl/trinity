@@ -211,6 +211,76 @@ def test_defaults_project_array_replaces_global_array(tmp_path):
     assert result["defaults"]["tags"] == ["c"]
 
 
+def test_presets_project_key_wins_shallowly(tmp_path):
+    global_config = tmp_path / "global" / "trinity.json"
+    write_config(
+        global_config,
+        {
+            "presets": {
+                "review": {
+                    "providers": ["gemini", "glm"],
+                    "optional_providers": ["codex"],
+                    "task_type": "review",
+                },
+                "deep-review": {"providers": ["glm", "gemini", "deepseek"]},
+            }
+        },
+    )
+    project_dir = tmp_path / "project"
+    project_trinity = project_dir / ".claude" / "trinity.json"
+    write_config(project_trinity, {"presets": {"review": {"providers": ["glm"]}}})
+
+    rc, out, err = run(
+        [
+            "merge",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+
+    assert rc == 0
+    result = json.loads(out)
+    assert result["presets"]["review"] == {"providers": ["glm"]}
+    assert result["presets"]["deep-review"] == {
+        "providers": ["glm", "gemini", "deepseek"]
+    }
+
+
+def test_preset_aliases_project_key_wins(tmp_path):
+    global_config = tmp_path / "global" / "trinity.json"
+    write_config(
+        global_config,
+        {
+            "preset_aliases": {
+                "r": "review",
+                "fr": "fast-review",
+            }
+        },
+    )
+    project_dir = tmp_path / "project"
+    project_trinity = project_dir / ".claude" / "trinity.json"
+    write_config(project_trinity, {"preset_aliases": {"fr": "project-fast"}})
+
+    rc, out, err = run(
+        [
+            "merge",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+
+    assert rc == 0
+    result = json.loads(out)
+    assert result["preset_aliases"] == {
+        "r": "review",
+        "fr": "project-fast",
+    }
+
+
 def test_invalid_json_in_global_exits_1(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     global_config.parent.mkdir(parents=True, exist_ok=True)
