@@ -238,13 +238,20 @@ can still occur during the actual review.
 
 ```bash
 trinity review --providers glm,gemini,deepseek --scope spikes/hardline
+trinity review --base main --head HEAD --providers glm,deepseek
+trinity review --pr 21 --providers glm,deepseek
 ```
 
-The review wrapper collects tracked and untracked git changes, adds changed file
-snapshots to the prompt, calls each provider CLI directly, stores raw provider
-outputs, and writes a deterministic `synthesis.md` under `.trinity/reviews/`.
-Selected providers are preflighted before output directories are created. This
-path does not require Claude Code worker-agent files.
+Without `--pr` or `--base/--head`, the review wrapper collects tracked and
+untracked working-tree changes. With `--base/--head`, it reviews committed
+branch changes from `git diff base...head` and snapshots changed files from the
+head commit. With `--pr`, it uses `gh pr view` / `gh pr diff` for the GitHub PR
+patch and metadata, then snapshots changed files from the PR head commit when
+that commit is locally available. All modes call each provider CLI directly,
+store raw provider outputs, and write a deterministic `synthesis.md` under
+`.trinity/reviews/`. Selected providers are preflighted before output
+directories are created. This path does not require Claude Code worker-agent
+files.
 
 **Codex repo-local skill**
 
