@@ -291,7 +291,7 @@ Expected evidence before marking complete:
 - [x] Approved for implementation
 - [x] Implemented
 - [x] Verified locally
-- [ ] PR opened
+- [x] PR opened
 
 ---
 
@@ -310,6 +310,7 @@ Expected evidence before marking complete:
 | 2026-05-05 | Verified locally | `make test`, `make lint`, `af validate --root .`, `make install-codex`, `trinity doctor --preset fast-review`, and `trinity review --check-providers --preset fast-review` passed |
 | 2026-05-05 | Reviewed with Trinity GLM and DeepSeek | Round 1 PASS from both; DeepSeek advisory on `doctor` preset support was implemented |
 | 2026-05-05 | Re-reviewed with Trinity GLM and DeepSeek | Round 2 PASS from both; DeepSeek cleanup advisory to remove unused `split_providers()` was implemented |
+| 2026-05-05 | Opened PR #25 | Ready for review |
 
 ---
 
