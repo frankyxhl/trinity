@@ -21,6 +21,7 @@ DEFAULT_CONFIG_CANDIDATES = [
     SCRIPT_ROOT / "trinity.codex.json",
     SCRIPT_ROOT / ".agents" / "trinity.codex.json",
 ]
+DEFAULT_CONFIG_SECTIONS = ("providers", "review", "presets", "preset_aliases")
 
 
 def _load_version():
@@ -93,8 +94,9 @@ def write_default_config(path):
     else:
         current = {}
 
-    current["providers"] = source["providers"]
-    current["review"] = source["review"]
+    for section in DEFAULT_CONFIG_SECTIONS:
+        if section in source:
+            current[section] = source[section]
     target.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
     return target
 

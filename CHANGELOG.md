@@ -7,6 +7,7 @@
 - `rules/TRN-2010-PRP-Codex-Review-Adapter.md` and `rules/TRN-2011-CHG-Codex-Review-Adapter.md` document the approved design and implementation record. New tests cover Codex config/install/review behavior plus Claude Code compatibility.
 - `trinity doctor` and `trinity review --check-providers` preflight Codex review providers for config shape, command lookup, executable permissions, and timeout values before review dispatch.
 - `trinity review --base <base> --head <head>` and `trinity review --pr <number>` add committed branch / GitHub PR review modes for Codex-native Trinity review.
+- Codex config now seeds `review`, `fast-review`, and `deep-review` preset definitions plus `r`/`fr`/`dr` aliases, and `make install-codex` preserves those sections in `~/.codex/trinity.json`.
 
 ### Fixed
 - Backfilled validator-required sections and change-history tables in older TRN docs (`TRN-1001` through `TRN-1005`, `TRN-2002`, `TRN-2003`), bringing `af validate --root .` to 0 issues.

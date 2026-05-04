@@ -299,6 +299,7 @@ Expected evidence before marking complete:
 | 2026-05-04 | Re-reviewed with GLM, Gemini, and DeepSeek wrapper config | GLM/DeepSeek requested explicit `--providers` + `--preset` warning, all-unusable error, `/trinity review` wording, Reserved Words update, and task_type precedence; Gemini hit quota |
 | 2026-05-04 | COR-1602 strict review round on PR #20 | DeepSeek scored 9.3 PASS with metadata-order advisory; GLM saw no PR diff due committed-branch review wrapper limitation |
 | 2026-05-04 | COR-1602 strict review round 2 with explicit PR diff | GLM scored 9.2 PASS; DeepSeek scored 8.5 FIX for under-specified textual tests, rollback verification, missing REFACTOR step, and bare `/trinity review` behavior |
+| 2026-05-04 | Seeded preset config files | Added `review`, `fast-review`, `deep-review`, and `r`/`fr`/`dr` config seeds; preset resolution remains pending under this CHG |
 
 ---
 
@@ -312,3 +313,4 @@ Expected evidence before marking complete:
 | 2026-05-04 | Revised after final GLM/DeepSeek review pass | Codex |
 | 2026-05-04 | Reordered CHG metadata and added migration note after COR-1602 review | Codex |
 | 2026-05-04 | Added rollback test, explicit textual test mechanism, REFACTOR step, and empty-task behavior after COR-1602 round 2 | Codex |
+| 2026-05-04 | Recorded preset config seed as a partial setup step before resolver implementation | Codex |

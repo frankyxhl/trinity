@@ -84,8 +84,28 @@ def test_codex_default_config_has_direct_review_providers():
         "timeout": 600,
     }
     assert data["review"]["default_providers"] == ["glm", "gemini", "deepseek"]
+    assert data["review"]["default_preset"] == "review"
     assert "{diff}" in data["review"]["prompt_template"]
     assert "{files}" in data["review"]["prompt_template"]
+    assert data["presets"]["review"] == {
+        "providers": ["glm", "gemini", "deepseek"],
+        "optional_providers": ["codex", "claude-code"],
+        "task_type": "review",
+    }
+    assert data["presets"]["fast-review"] == {
+        "providers": ["glm", "gemini"],
+        "task_type": "review",
+    }
+    assert data["presets"]["deep-review"] == {
+        "providers": ["glm", "gemini", "deepseek"],
+        "optional_providers": ["codex", "claude-code"],
+        "task_type": "review",
+    }
+    assert data["preset_aliases"] == {
+        "r": "review",
+        "fr": "fast-review",
+        "dr": "deep-review",
+    }
 
 
 def test_claude_code_install_path_remains_unchanged():
@@ -698,6 +718,14 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     assert installed_config["providers"]["deepseek"]["cli"] == (
         "~/.codex/skills/trinity/bin/deepseek -p"
     )
+    assert installed_config["review"]["default_preset"] == "review"
+    assert installed_config["presets"]["fast-review"]["providers"] == ["glm", "gemini"]
+    assert installed_config["presets"]["deep-review"]["providers"] == [
+        "glm",
+        "gemini",
+        "deepseek",
+    ]
+    assert installed_config["preset_aliases"]["dr"] == "deep-review"
     assert deepseek_wrapper.exists()
     assert os.access(deepseek_wrapper, os.X_OK)
     assert (home / ".codex" / "skills" / "trinity" / "scripts" / "codex.py").exists()
