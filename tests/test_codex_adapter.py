@@ -28,6 +28,40 @@ def run_codex(args, cwd=None, env=None):
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
+def init_repo(repo):
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=repo, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+
+
+def commit_all(repo, message):
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", message], cwd=repo, check=True)
+
+
+def write_fake_provider(path, marker="provider-ok"):
+    path.write_text(f"#!/bin/sh\necho {marker}\n")
+    path.chmod(0o755)
+
+
+def simple_review_config(config, provider):
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(provider), "timeout": 10}},
+                "review": {
+                    "prompt_template": "Scope: {scope}\n\n{diff}\n\n{files}\n",
+                    "default_providers": ["glm"],
+                },
+            }
+        )
+    )
+
+
 def test_codex_default_config_has_direct_review_providers():
     data = json.loads(CODEX_CONFIG.read_text())
 
@@ -216,6 +250,304 @@ def test_codex_review_uses_short_prompt_file_handoff_for_large_diffs(tmp_path):
     assert rc == 0, err
     raw = (Path(out) / "raw" / "glm.txt").read_text()
     assert "large-prompt-file-ok" in raw
+
+
+def test_codex_review_base_head_collects_committed_diff_and_head_snapshots(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    tracked = repo / "review.txt"
+    tracked.write_text("base version\n")
+    commit_all(repo, "base")
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=repo, check=True)
+    tracked.write_text("feature committed version\n")
+    commit_all(repo, "feature change")
+    tracked.write_text("dirty local version must not leak\n")
+    (repo / "untracked.txt").write_text("untracked local must not leak\n")
+
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--base",
+            "main",
+            "--head",
+            "feature",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    prompt = (review_dir / "prompt.md").read_text()
+    assert "feature committed version" in prompt
+    assert "base version" in prompt
+    assert "dirty local version must not leak" not in prompt
+    assert "untracked local must not leak" not in prompt
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["input"] == {
+        "mode": "base-head",
+        "base": "main",
+        "head": "feature",
+        "pr": None,
+        "scope": ".",
+        "changed_paths": ["review.txt"],
+        "snapshot_source": "git:feature",
+    }
+
+
+def test_codex_review_base_head_fails_before_review_dir_for_bad_ref(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    (repo / "review.txt").write_text("base version\n")
+    commit_all(repo, "base")
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--base",
+            "main",
+            "--head",
+            "missing-head",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "unable to collect git diff for main...missing-head" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_base_head_requires_base_and_head_together(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    (repo / "review.txt").write_text("base version\n")
+    commit_all(repo, "base")
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--base",
+            "main",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity-codex: --base and --head must be used together" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_pr_uses_gh_diff_view_and_head_snapshots(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    tracked = repo / "review.txt"
+    tracked.write_text("base version\n")
+    commit_all(repo, "base")
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=repo, check=True)
+    tracked.write_text("pr head snapshot\n")
+    commit_all(repo, "feature change")
+    head_oid = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    gh = fake_bin / "gh"
+    gh.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:3] == ['pr', 'diff', '123']:\n"
+        "    print('diff --git a/review.txt b/review.txt')\n"
+        "    print('+from mocked gh pr diff')\n"
+        "elif args[:3] == ['pr', 'view', '123']:\n"
+        "    print(json.dumps({\n"
+        "        'number': 123,\n"
+        "        'url': 'https://github.example/pr/123',\n"
+        "        'baseRefName': 'main',\n"
+        "        'headRefName': 'feature',\n"
+        f"        'headRefOid': '{head_oid}',\n"
+        "        'files': [{'path': 'review.txt', 'changeType': 'MODIFIED'}],\n"
+        "    }))\n"
+        "else:\n"
+        "    raise SystemExit(f'unexpected gh args: {args}')\n"
+    )
+    gh.chmod(0o755)
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--pr",
+            "123",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ],
+        env=env,
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    prompt = (review_dir / "prompt.md").read_text()
+    assert "from mocked gh pr diff" in prompt
+    assert "pr head snapshot" in prompt
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["input"] == {
+        "mode": "pr",
+        "base": "main",
+        "head": "feature",
+        "head_oid": head_oid,
+        "pr": 123,
+        "pr_url": "https://github.example/pr/123",
+        "scope": ".",
+        "changed_paths": ["review.txt"],
+        "snapshot_source": f"git:{head_oid}",
+    }
+
+
+def test_codex_review_pr_records_unavailable_head_snapshots(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    (repo / "review.txt").write_text("base version\n")
+    commit_all(repo, "base")
+    missing_oid = "0" * 40
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    gh = fake_bin / "gh"
+    gh.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:3] == ['pr', 'diff', '123']:\n"
+        "    print('diff --git a/review.txt b/review.txt')\n"
+        "    print('+from mocked gh pr diff')\n"
+        "elif args[:3] == ['pr', 'view', '123']:\n"
+        "    print(json.dumps({\n"
+        "        'number': 123,\n"
+        "        'url': 'https://github.example/pr/123',\n"
+        "        'baseRefName': 'main',\n"
+        "        'headRefName': 'feature',\n"
+        f"        'headRefOid': '{missing_oid}',\n"
+        "        'files': [{'path': 'review.txt', 'changeType': 'MODIFIED'}],\n"
+        "    }))\n"
+        "else:\n"
+        "    raise SystemExit(f'unexpected gh args: {args}')\n"
+    )
+    gh.chmod(0o755)
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--pr",
+            "123",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ],
+        env=env,
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    prompt = (review_dir / "prompt.md").read_text()
+    assert "from mocked gh pr diff" in prompt
+    assert "(PR head snapshots unavailable locally)" in prompt
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["input"]["snapshot_source"] == "unavailable"
+    assert metadata["input"]["changed_paths"] == ["review.txt"]
+
+
+def test_codex_review_pr_fails_before_review_dir_when_gh_fails(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    (repo / "review.txt").write_text("base\n")
+    commit_all(repo, "base")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    gh = fake_bin / "gh"
+    gh.write_text("#!/bin/sh\necho gh auth failed >&2\nexit 4\n")
+    gh.chmod(0o755)
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+    out_dir = tmp_path / "reviews"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--pr",
+            "123",
+            "--out-dir",
+            str(out_dir),
+        ],
+        env=env,
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity-codex: gh pr view 123 failed: gh auth failed" in err
+    assert not out_dir.exists()
 
 
 def test_codex_doctor_reports_provider_health_failures(tmp_path):

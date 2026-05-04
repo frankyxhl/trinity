@@ -32,6 +32,7 @@
 | 2012 | CHG | Claude Code Provider |
 | 2013 | CHG | Trinity Review Presets |
 | 2014 | CHG | Provider Health Checks and DeepSeek Review Config |
+| 2015 | CHG | PR Base Head Review Mode |
 
 ---
 
@@ -52,3 +53,4 @@
 | 2026-05-04 | Add TRN-2012 for Claude Code Provider | Codex |
 | 2026-05-04 | Add TRN-2013 for Trinity Review Presets | Codex |
 | 2026-05-04 | Add TRN-2014 Provider Health Checks and DeepSeek Review Config | Codex |
+| 2026-05-04 | Add TRN-2015 PR Base Head Review Mode | Codex |

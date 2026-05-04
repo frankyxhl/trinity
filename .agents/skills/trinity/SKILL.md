@@ -27,6 +27,8 @@ For Codex-native code review from the terminal, use the installed wrapper:
 ```bash
 trinity doctor --providers glm,gemini,deepseek
 trinity review --providers glm,gemini,deepseek --scope <path-or-label>
+trinity review --base main --head HEAD --providers glm,deepseek
+trinity review --pr 21 --providers glm,deepseek
 ```
 
 The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
@@ -34,7 +36,8 @@ The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
 and writes a deterministic synthesis markdown under `.trinity/reviews/`.
 `trinity doctor` and `trinity review --check-providers` validate provider config,
 command lookup, executable permissions, and timeout values without making network
-calls.
+calls. Use the default review mode for dirty working-tree changes, `--base` /
+`--head` for committed branch reviews, and `--pr` for GitHub PR reviews.
 
 ## Host Boundary
 

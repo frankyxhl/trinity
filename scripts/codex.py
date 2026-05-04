@@ -261,9 +261,20 @@ def git_diff(root, pathspec):
     return run_git(root, args + pathspec, allow_error=True)
 
 
+def git_diff_range(root, base, head, pathspec):
+    args = ["diff", "--no-ext-diff", "--binary", f"{base}...{head}", "--"]
+    return run_git(root, args + pathspec)
+
+
 def changed_paths(root, pathspec):
     args = ["diff", "--name-only", "--diff-filter=ACMRT", "HEAD", "--"]
     output = run_git(root, args + pathspec, allow_error=True)
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def changed_paths_range(root, base, head, pathspec):
+    args = ["diff", "--name-only", "--diff-filter=ACMRT", f"{base}...{head}", "--"]
+    output = run_git(root, args + pathspec)
     return [line for line in output.splitlines() if line.strip()]
 
 
@@ -286,6 +297,24 @@ def read_text_file(path, max_bytes=200000):
         data = path.read_bytes()
     except OSError as exc:
         return f"[unreadable: {exc}]"
+    if b"\0" in data:
+        return "[binary file omitted]"
+    if len(data) > max_bytes:
+        head = data[:max_bytes].decode("utf-8", errors="replace")
+        return head + "\n[truncated: file exceeds max snapshot bytes]\n"
+    return data.decode("utf-8", errors="replace")
+
+
+def read_text_file_at_ref(root, ref, rel, max_bytes=200000):
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{rel}"],
+        cwd=str(root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        return None
+    data = result.stdout
     if b"\0" in data:
         return "[binary file omitted]"
     if len(data) > max_bytes:
@@ -343,7 +372,30 @@ def file_snapshots(root, paths):
     return "".join(chunks)
 
 
-def render_prompt(config, root, scope):
+def file_snapshots_at_ref(root, paths, ref):
+    if not paths:
+        return "(no changed file snapshots)\n"
+
+    chunks = []
+    seen = set()
+    for rel in paths:
+        if rel in seen:
+            continue
+        seen.add(rel)
+        chunks.append(f"### {rel}\n\n")
+        content = read_text_file_at_ref(root, ref, rel)
+        if content is None:
+            chunks.append("[deleted]\n\n")
+            continue
+        chunks.append("```text\n")
+        chunks.append(content)
+        if content and not content.endswith("\n"):
+            chunks.append("\n")
+        chunks.append("```\n\n")
+    return "".join(chunks)
+
+
+def working_tree_review_input(root, scope):
     pathspec = scope_pathspec(root, scope)
     tracked_diff = git_diff(root, pathspec)
     untracked = untracked_paths(root, pathspec)
@@ -355,9 +407,174 @@ def render_prompt(config, root, scope):
     )
     paths = changed_paths(root, pathspec) + untracked
     files = file_snapshots(root, paths)
-    template = config.get("review", {}).get("prompt_template", "{diff}\n\n{files}\n")
     if not diff.strip():
         diff = "(no tracked or untracked git diff)"
+    return {
+        "diff": diff,
+        "files": files,
+        "metadata": {
+            "mode": "working-tree",
+            "base": "HEAD",
+            "head": "working-tree",
+            "pr": None,
+            "scope": scope or ".",
+            "changed_paths": paths,
+            "snapshot_source": "working-tree",
+        },
+    }
+
+
+def base_head_review_input(root, base, head, scope):
+    pathspec = scope_pathspec(root, scope)
+    try:
+        diff = git_diff_range(root, base, head, pathspec)
+        paths = changed_paths_range(root, base, head, pathspec)
+    except RuntimeError as exc:
+        raise SystemExit(
+            f"trinity-codex: unable to collect git diff for {base}...{head}: {exc}"
+        ) from exc
+    files = file_snapshots_at_ref(root, paths, head)
+    if not diff.strip():
+        diff = f"(no git diff for {base}...{head})"
+    return {
+        "diff": diff,
+        "files": files,
+        "metadata": {
+            "mode": "base-head",
+            "base": base,
+            "head": head,
+            "pr": None,
+            "scope": scope or ".",
+            "changed_paths": paths,
+            "snapshot_source": f"git:{head}",
+        },
+    }
+
+
+def run_gh(root, args, label):
+    try:
+        result = subprocess.run(
+            ["gh"] + args,
+            cwd=str(root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+        )
+    except FileNotFoundError:
+        raise SystemExit(
+            "trinity-codex: gh command not found; install/authenticate gh for --pr"
+        )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or "gh command failed"
+        raise SystemExit(f"trinity-codex: {label} failed: {detail}")
+    return result.stdout
+
+
+def gh_pr_view(root, pr_number):
+    output = run_gh(
+        root,
+        [
+            "pr",
+            "view",
+            str(pr_number),
+            "--json",
+            "number,url,baseRefName,headRefName,headRefOid,files",
+        ],
+        f"gh pr view {pr_number}",
+    )
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"trinity-codex: invalid gh pr view JSON: {exc}")
+
+
+def gh_pr_diff(root, pr_number):
+    return run_gh(
+        root,
+        ["pr", "diff", str(pr_number), "--patch", "--color", "never"],
+        f"gh pr diff {pr_number}",
+    )
+
+
+def git_commit_exists(root, ref):
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{ref}^{{commit}}"],
+        cwd=str(root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return result.returncode == 0
+
+
+def ensure_pr_head_available(root, pr_number, head_oid):
+    if not head_oid:
+        return None
+    if git_commit_exists(root, head_oid):
+        return head_oid
+    run_git(
+        root,
+        ["fetch", "--quiet", "origin", f"pull/{pr_number}/head"],
+        allow_error=True,
+    )
+    if git_commit_exists(root, head_oid):
+        return head_oid
+    return None
+
+
+def pr_changed_paths(view):
+    paths = []
+    for item in view.get("files", []) or []:
+        path = item.get("path")
+        if path:
+            paths.append(path)
+    return paths
+
+
+def pr_review_input(root, pr_number, scope):
+    view = gh_pr_view(root, pr_number)
+    diff = gh_pr_diff(root, pr_number)
+    paths = pr_changed_paths(view)
+    head_oid = view.get("headRefOid")
+    snapshot_ref = ensure_pr_head_available(root, pr_number, head_oid)
+    if snapshot_ref:
+        files = file_snapshots_at_ref(root, paths, snapshot_ref)
+        snapshot_source = f"git:{snapshot_ref}"
+    else:
+        files = "(PR head snapshots unavailable locally)\n"
+        snapshot_source = "unavailable"
+    if not diff.strip():
+        diff = f"(no GitHub PR diff for PR #{pr_number})"
+    return {
+        "diff": diff,
+        "files": files,
+        "metadata": {
+            "mode": "pr",
+            "base": view.get("baseRefName"),
+            "head": view.get("headRefName"),
+            "head_oid": head_oid,
+            "pr": int(view.get("number") or pr_number),
+            "pr_url": view.get("url"),
+            "scope": scope or ".",
+            "changed_paths": paths,
+            "snapshot_source": snapshot_source,
+        },
+    }
+
+
+def resolve_review_input(args, root):
+    if args.pr is not None:
+        return pr_review_input(root, args.pr, args.scope)
+    if args.base or args.head:
+        if not args.base or not args.head:
+            raise SystemExit("trinity-codex: --base and --head must be used together")
+        return base_head_review_input(root, args.base, args.head, args.scope)
+    return working_tree_review_input(root, args.scope)
+
+
+def render_prompt(config, root, scope, review_input):
+    diff = review_input["diff"]
+    files = review_input["files"]
+    template = config.get("review", {}).get("prompt_template", "{diff}\n\n{files}\n")
     return (
         template.replace("{scope}", scope or ".")
         .replace("{root}", str(root))
@@ -492,6 +709,7 @@ def cmd_review(args):
     if not health_results_ok(health):
         print(format_health_results(health), file=sys.stderr)
         return 1
+    review_input = resolve_review_input(args, root)
 
     out_base = args.out_dir or config.get("review", {}).get(
         "output_dir", ".trinity/reviews"
@@ -500,7 +718,7 @@ def cmd_review(args):
     if not out_base.is_absolute():
         out_base = root / out_base
     review_dir = make_review_dir(out_base, args.scope)
-    prompt = render_prompt(config, root, args.scope)
+    prompt = render_prompt(config, root, args.scope, review_input)
     prompt_path = review_dir / "prompt.md"
     prompt_path.write_text(prompt)
 
@@ -519,6 +737,7 @@ def cmd_review(args):
         "scope": args.scope,
         "root": str(root),
         "providers": providers,
+        "input": review_input["metadata"],
         "results": results,
     }
     (review_dir / "metadata.json").write_text(
@@ -539,7 +758,7 @@ def cmd_doctor(args):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog="trinity")
+    parser = argparse.ArgumentParser(prog="trinity", allow_abbrev=False)
     parser.add_argument("--version", action="store_true")
     subparsers = parser.add_subparsers(dest="command")
 
@@ -558,6 +777,9 @@ def build_parser():
     review.add_argument("--scope", default=".")
     review.add_argument("--out-dir")
     review.add_argument("--check-providers", action="store_true")
+    review.add_argument("--pr", type=int)
+    review.add_argument("--base")
+    review.add_argument("--head")
     return parser
 
 
