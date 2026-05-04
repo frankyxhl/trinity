@@ -210,6 +210,7 @@ This installs:
 |----------|----------|
 | `~/.codex/skills/trinity/SKILL.md` | Codex-specific Trinity skill |
 | `~/.codex/skills/trinity/scripts/` | Shared Trinity scripts plus Codex wrapper script |
+| `~/.codex/skills/trinity/bin/deepseek` | Codex DeepSeek Anthropic-compatible wrapper |
 | `~/.codex/skills/trinity/trinity.codex.json` | Bundled default Codex config |
 | `~/.codex/trinity.json` | User-level Codex provider config |
 | `~/.local/bin/trinity` | Terminal wrapper for Codex-native commands |
@@ -217,6 +218,21 @@ This installs:
 The committed default config lives at `.agents/trinity.codex.json`. It registers
 `glm`, `gemini`, and `deepseek` for direct CLI review calls and records each
 provider's command, resume support flag, timeout, and review prompt template.
+The Codex DeepSeek entry uses the installed
+`~/.codex/skills/trinity/bin/deepseek -p` wrapper so it does not depend on a
+locally accepted `droid` model alias.
+
+**Check provider health**
+
+```bash
+trinity doctor --providers glm,gemini,deepseek
+trinity review --check-providers --providers glm,gemini,deepseek
+```
+
+Health checks validate the selected provider config, command lookup,
+executable permissions, and timeout values before a review run starts. They do
+not call the provider or require a network request, so API-key or quota failures
+can still occur during the actual review.
 
 **Run a Codex-native review**
 
@@ -227,7 +243,8 @@ trinity review --providers glm,gemini,deepseek --scope spikes/hardline
 The review wrapper collects tracked and untracked git changes, adds changed file
 snapshots to the prompt, calls each provider CLI directly, stores raw provider
 outputs, and writes a deterministic `synthesis.md` under `.trinity/reviews/`.
-This path does not require Claude Code worker-agent files.
+Selected providers are preflighted before output directories are created. This
+path does not require Claude Code worker-agent files.
 
 **Codex repo-local skill**
 

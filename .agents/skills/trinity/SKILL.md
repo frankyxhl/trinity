@@ -25,12 +25,16 @@ Also treat `$trinity` as an explicit Codex skill invocation.
 For Codex-native code review from the terminal, use the installed wrapper:
 
 ```bash
+trinity doctor --providers glm,gemini,deepseek
 trinity review --providers glm,gemini,deepseek --scope <path-or-label>
 ```
 
 The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
 `.agents/trinity.codex.json`. It calls provider CLIs directly, saves raw outputs,
 and writes a deterministic synthesis markdown under `.trinity/reviews/`.
+`trinity doctor` and `trinity review --check-providers` validate provider config,
+command lookup, executable permissions, and timeout values without making network
+calls.
 
 ## Host Boundary
 
@@ -54,6 +58,8 @@ For Codex load verification, use these smoke checks after changes are installed 
 
 - Repo-local skill: restart/start Codex in this repository, open `/skills` or invoke `$trinity`, and confirm `trinity` is visible/loadable.
 - Plugin package: restart Codex, open `/plugins`, select the repo marketplace, and confirm the `trinity` plugin appears and exposes its bundled skill.
-- Local wrapper: run `make install-codex`, then `trinity --version` and a mocked or low-risk `trinity review --providers glm,gemini,deepseek --scope <path>`.
+- Local wrapper: run `make install-codex`, then `trinity --version`,
+  `trinity doctor --providers glm,gemini,deepseek`, and a mocked or low-risk
+  `trinity review --providers glm,gemini,deepseek --scope <path>`.
 
 For Claude Code regression verification, keep using the existing Claude checks: install Trinity, restart Claude Code, and run `/trinity status`.

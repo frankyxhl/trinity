@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -55,6 +56,15 @@ def resolve_root(root_arg):
     return Path(top).resolve()
 
 
+def resolve_health_root(root_arg):
+    root = Path(root_arg).expanduser().resolve()
+    try:
+        top = run_git(root, ["rev-parse", "--show-toplevel"]).strip()
+    except (OSError, RuntimeError):
+        return root
+    return Path(top).resolve()
+
+
 def load_json(path):
     try:
         return json.loads(path.read_text())
@@ -97,6 +107,140 @@ def split_providers(value, config):
     if not providers:
         raise SystemExit("trinity-codex: no providers selected")
     return providers
+
+
+def parse_provider_command(provider, provider_config):
+    if not isinstance(provider_config, dict):
+        raise ValueError("provider config must be an object")
+    cli = provider_config.get("cli")
+    if not isinstance(cli, str) or not cli.strip():
+        raise ValueError("missing cli")
+    expanded = os.path.expandvars(os.path.expanduser(cli))
+    try:
+        command = shlex.split(expanded)
+    except ValueError as exc:
+        raise ValueError(f"invalid cli: {exc}") from exc
+    if not command:
+        raise ValueError("missing cli")
+    return command
+
+
+def provider_timeout(provider, provider_config):
+    raw_timeout = provider_config.get("timeout", 360)
+    if isinstance(raw_timeout, bool):
+        raise ValueError(f"invalid timeout: {raw_timeout}")
+    try:
+        timeout = int(raw_timeout)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid timeout: {raw_timeout}") from exc
+    if timeout <= 0:
+        raise ValueError(f"invalid timeout: {raw_timeout}")
+    return timeout
+
+
+def command_has_path(command):
+    return os.path.sep in command or (
+        os.path.altsep is not None and os.path.altsep in command
+    )
+
+
+def executable_health(command, root):
+    executable = command[0]
+    if command_has_path(executable):
+        executable_path = Path(executable)
+        if not executable_path.is_absolute():
+            executable_path = root / executable_path
+        if not executable_path.exists():
+            return None, f"command not found: {executable_path}"
+        if executable_path.is_dir() or not os.access(executable_path, os.X_OK):
+            return str(executable_path), f"not executable: {executable_path}"
+        return str(executable_path), None
+
+    resolved = shutil.which(executable)
+    if resolved is None:
+        return None, f"command not found: {executable}"
+    return resolved, None
+
+
+def provider_health(provider, provider_config, root):
+    issues = []
+    command = None
+    executable = None
+    timeout = None
+
+    try:
+        command = parse_provider_command(provider, provider_config)
+    except ValueError as exc:
+        issues.append(str(exc))
+
+    if command:
+        executable, issue = executable_health(command, root)
+        if issue:
+            issues.append(issue)
+
+    if isinstance(provider_config, dict):
+        try:
+            timeout = provider_timeout(provider, provider_config)
+        except ValueError as exc:
+            issues.append(str(exc))
+
+    return {
+        "provider": provider,
+        "ok": not issues,
+        "executable": executable,
+        "timeout": timeout,
+        "issues": issues,
+    }
+
+
+def provider_health_results(config, providers, root):
+    provider_configs = config.get("providers", {})
+    if not isinstance(provider_configs, dict):
+        return [
+            {
+                "provider": provider,
+                "ok": False,
+                "executable": None,
+                "timeout": None,
+                "issues": ["providers config must be an object"],
+            }
+            for provider in providers
+        ]
+
+    results = []
+    for provider in providers:
+        if provider not in provider_configs:
+            results.append(
+                {
+                    "provider": provider,
+                    "ok": False,
+                    "executable": None,
+                    "timeout": None,
+                    "issues": ["unknown provider"],
+                }
+            )
+            continue
+        results.append(provider_health(provider, provider_configs[provider], root))
+    return results
+
+
+def format_health_results(results):
+    lines = []
+    for result in results:
+        provider = result["provider"]
+        if result["ok"]:
+            lines.append(
+                f"{provider}: OK - {result['executable']} "
+                f"(timeout {result['timeout']}s)"
+            )
+            continue
+        for issue in result["issues"]:
+            lines.append(f"{provider}: FAIL - {issue}")
+    return "\n".join(lines)
+
+
+def health_results_ok(results):
+    return all(result["ok"] for result in results)
 
 
 def scope_pathspec(root, scope):
@@ -245,11 +389,10 @@ def make_review_dir(out_dir, scope):
 
 
 def provider_command(provider, provider_config):
-    cli = provider_config.get("cli")
-    if not cli:
-        raise SystemExit(f"trinity-codex: provider {provider} missing cli")
-    expanded = os.path.expandvars(os.path.expanduser(cli))
-    return shlex.split(expanded)
+    try:
+        return parse_provider_command(provider, provider_config)
+    except ValueError as exc:
+        raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
 
 
 def build_prompt_handoff(prompt_path):
@@ -265,7 +408,10 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root):
     cmd = provider_command(provider, provider_config) + [
         build_prompt_handoff(prompt_path)
     ]
-    timeout = int(provider_config.get("timeout", 360))
+    try:
+        timeout = provider_timeout(provider, provider_config)
+    except ValueError as exc:
+        raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
     started = dt.datetime.now().isoformat(timespec="seconds")
     try:
         result = subprocess.run(
@@ -338,6 +484,15 @@ def cmd_review(args):
     root = resolve_root(args.root)
     config = load_config(args.config)
     providers = split_providers(args.providers, config)
+    provider_configs = config.get("providers", {})
+    health = provider_health_results(config, providers, root)
+    if args.check_providers:
+        print(format_health_results(health))
+        return 0 if health_results_ok(health) else 1
+    if not health_results_ok(health):
+        print(format_health_results(health), file=sys.stderr)
+        return 1
+
     out_base = args.out_dir or config.get("review", {}).get(
         "output_dir", ".trinity/reviews"
     )
@@ -350,10 +505,7 @@ def cmd_review(args):
     prompt_path.write_text(prompt)
 
     results = []
-    provider_configs = config.get("providers", {})
     for provider in providers:
-        if provider not in provider_configs:
-            raise SystemExit(f"trinity-codex: unknown provider: {provider}")
         results.append(
             run_provider(
                 provider,
@@ -377,6 +529,15 @@ def cmd_review(args):
     return 0 if all(item["returncode"] == 0 for item in results) else 1
 
 
+def cmd_doctor(args):
+    root = resolve_health_root(args.root)
+    config = load_config(args.config)
+    providers = split_providers(args.providers, config)
+    health = provider_health_results(config, providers, root)
+    print(format_health_results(health))
+    return 0 if health_results_ok(health) else 1
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="trinity")
     parser.add_argument("--version", action="store_true")
@@ -385,12 +546,18 @@ def build_parser():
     init_config = subparsers.add_parser("init-config")
     init_config.add_argument("--global-config", default=str(DEFAULT_CONFIG))
 
+    doctor = subparsers.add_parser("doctor")
+    doctor.add_argument("--root", default=".")
+    doctor.add_argument("--config", default=str(DEFAULT_CONFIG))
+    doctor.add_argument("--providers")
+
     review = subparsers.add_parser("review")
     review.add_argument("--root", default=".")
     review.add_argument("--config", default=str(DEFAULT_CONFIG))
     review.add_argument("--providers")
     review.add_argument("--scope", default=".")
     review.add_argument("--out-dir")
+    review.add_argument("--check-providers", action="store_true")
     return parser
 
 
@@ -406,6 +573,8 @@ def main(argv=None):
         return 0
     if args.command == "review":
         return cmd_review(args)
+    if args.command == "doctor":
+        return cmd_doctor(args)
     parser.print_help(sys.stderr)
     return 1
 

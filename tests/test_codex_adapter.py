@@ -44,9 +44,9 @@ def test_codex_default_config_has_direct_review_providers():
         "timeout": 360,
     }
     assert data["providers"]["deepseek"] == {
-        "cli": "droid exec --model deepseek-v4-pro[1m]",
+        "cli": "~/.codex/skills/trinity/bin/deepseek -p",
         "supports_resume": True,
-        "resume_arg": "-s",
+        "resume_arg": "-r",
         "timeout": 600,
     }
     assert data["review"]["default_providers"] == ["glm", "gemini", "deepseek"]
@@ -218,6 +218,130 @@ def test_codex_review_uses_short_prompt_file_handoff_for_large_diffs(tmp_path):
     assert "large-prompt-file-ok" in raw
 
 
+def test_codex_doctor_reports_provider_health_failures(tmp_path):
+    fake = tmp_path / "fake"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    not_executable = tmp_path / "not-executable"
+    not_executable.write_text("#!/bin/sh\nexit 0\n")
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "empty": {"cli": "", "timeout": 10},
+                    "missing": {"cli": "missing-trinity-provider-cmd", "timeout": 10},
+                    "not_exec": {"cli": str(not_executable), "timeout": 10},
+                    "bad_timeout": {"cli": str(fake), "timeout": 0},
+                },
+                "review": {"default_providers": []},
+            }
+        )
+    )
+
+    rc, out, err = run_codex(
+        [
+            "doctor",
+            "--config",
+            str(config),
+            "--providers",
+            "empty,missing,not_exec,bad_timeout,unknown",
+        ]
+    )
+
+    assert rc == 1
+    report = out + err
+    assert "empty: FAIL - missing cli" in report
+    assert "missing: FAIL - command not found: missing-trinity-provider-cmd" in report
+    assert f"not_exec: FAIL - not executable: {not_executable}" in report
+    assert "bad_timeout: FAIL - invalid timeout: 0" in report
+    assert "unknown: FAIL - unknown provider" in report
+
+
+def test_codex_doctor_passes_healthy_provider(tmp_path):
+    fake = tmp_path / "fake-provider"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "healthy": {"cli": f"{fake} --unused-arg", "timeout": "10"}
+                },
+                "review": {"default_providers": ["healthy"]},
+            }
+        )
+    )
+
+    rc, out, err = run_codex(["doctor", "--config", str(config)])
+
+    assert rc == 0, err
+    assert f"healthy: OK - {fake} (timeout 10s)" in out
+
+
+def test_codex_doctor_resolves_relative_provider_cli_from_git_root(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    nested = repo / "nested"
+    nested.mkdir()
+    tools = repo / "tools"
+    tools.mkdir()
+    provider = tools / "provider"
+    provider.write_text("#!/bin/sh\nexit 0\n")
+    provider.chmod(0o755)
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"relative": {"cli": "./tools/provider", "timeout": 10}},
+                "review": {"default_providers": ["relative"]},
+            }
+        )
+    )
+
+    rc, out, err = run_codex(["doctor", "--root", str(nested), "--config", str(config)])
+
+    assert rc == 0, err
+    assert f"relative: OK - {provider} (timeout 10s)" in out
+
+
+def test_codex_review_preflights_provider_health_before_creating_review(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "missing": {"cli": "missing-trinity-provider-cmd", "timeout": 10}
+                },
+                "review": {"default_providers": ["missing"]},
+            }
+        )
+    )
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "missing: FAIL - command not found: missing-trinity-provider-cmd" in err
+    assert not out_dir.exists()
+
+
 def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path):
     home = tmp_path / "home"
     env = os.environ.copy()
@@ -236,12 +360,29 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     assert (home / ".codex" / "skills" / "trinity" / "SKILL.md").read_text() == (
         CODEX_SKILL.read_text()
     )
+    deepseek_wrapper = home / ".codex" / "skills" / "trinity" / "bin" / "deepseek"
     installed_config = json.loads((home / ".codex" / "trinity.json").read_text())
     assert installed_config["providers"]["glm"]["cli"] == "droid exec --model glm-5"
     assert installed_config["providers"]["deepseek"]["cli"] == (
-        "droid exec --model deepseek-v4-pro[1m]"
+        "~/.codex/skills/trinity/bin/deepseek -p"
     )
+    assert deepseek_wrapper.exists()
+    assert os.access(deepseek_wrapper, os.X_OK)
     assert (home / ".codex" / "skills" / "trinity" / "scripts" / "codex.py").exists()
     assert (home / ".local" / "bin" / "trinity").read_text() == CODEX_BIN.read_text()
     assert os.access(home / ".local" / "bin" / "trinity", os.X_OK)
     assert not (home / ".claude").exists()
+
+    rc, out, err = run_codex(
+        [
+            "doctor",
+            "--config",
+            str(home / ".codex" / "trinity.json"),
+            "--providers",
+            "deepseek",
+        ],
+        env=env,
+    )
+
+    assert rc == 0, err
+    assert f"deepseek: OK - {deepseek_wrapper} (timeout 600s)" in out

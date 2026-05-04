@@ -5,10 +5,12 @@
 ### Added
 - Codex-native review adapter: `.agents/trinity.codex.json`, `scripts/codex.py`, `bin/trinity`, and `make install-codex` install a `trinity review --providers glm,gemini,deepseek` workflow under `~/.codex/` / `~/.local/bin`. The wrapper collects tracked plus untracked git changes, saves raw provider outputs, and writes deterministic review synthesis markdown without using Claude Code worker-agent runtime.
 - `rules/TRN-2010-PRP-Codex-Review-Adapter.md` and `rules/TRN-2011-CHG-Codex-Review-Adapter.md` document the approved design and implementation record. New tests cover Codex config/install/review behavior plus Claude Code compatibility.
+- `trinity doctor` and `trinity review --check-providers` preflight Codex review providers for config shape, command lookup, executable permissions, and timeout values before review dispatch.
 
 ### Fixed
 - Backfilled validator-required sections and change-history tables in older TRN docs (`TRN-1001` through `TRN-1005`, `TRN-2002`, `TRN-2003`), bringing `af validate --root .` to 0 issues.
 - Codex review provider calls now use a short prompt-file handoff instead of passing the full rendered review prompt as argv, avoiding OS argument-length failures on large diffs.
+- Codex DeepSeek review config now uses the installed `~/.codex/skills/trinity/bin/deepseek -p` wrapper instead of the locally rejected `droid exec --model deepseek-v4-pro[1m]` alias.
 
 ## [3.0.0] - 2026-04-29
 

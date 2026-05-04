@@ -13,9 +13,9 @@
       "timeout": 360
     },
     "deepseek": {
-      "cli": "droid exec --model deepseek-v4-pro[1m]",
+      "cli": "~/.codex/skills/trinity/bin/deepseek -p",
       "supports_resume": true,
-      "resume_arg": "-s",
+      "resume_arg": "-r",
       "timeout": 600
     }
   },
