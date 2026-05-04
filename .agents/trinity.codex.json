@@ -26,6 +26,45 @@
       "deepseek"
     ],
     "output_dir": ".trinity/reviews",
-    "prompt_template": "# Trinity Code Review\n\nScope: {scope}\nRepository: {root}\n\nReview the changes below for correctness, regressions, missing tests, compatibility risk, and unclear implementation choices. Prioritize concrete findings with file/path references. Return PASS only if no blocking issues remain.\n\n## Git Diff\n\n```diff\n{diff}\n```\n\n## Full File Snapshots\n\n{files}\n"
+    "prompt_template": "# Trinity Code Review\n\nScope: {scope}\nRepository: {root}\n\nReview the changes below for correctness, regressions, missing tests, compatibility risk, and unclear implementation choices. Prioritize concrete findings with file/path references. Return PASS only if no blocking issues remain.\n\n## Git Diff\n\n```diff\n{diff}\n```\n\n## Full File Snapshots\n\n{files}\n",
+    "default_preset": "review"
+  },
+  "presets": {
+    "review": {
+      "providers": [
+        "glm",
+        "gemini",
+        "deepseek"
+      ],
+      "optional_providers": [
+        "codex",
+        "claude-code"
+      ],
+      "task_type": "review"
+    },
+    "fast-review": {
+      "providers": [
+        "glm",
+        "deepseek"
+      ],
+      "task_type": "review"
+    },
+    "deep-review": {
+      "providers": [
+        "glm",
+        "gemini",
+        "deepseek"
+      ],
+      "optional_providers": [
+        "codex",
+        "claude-code"
+      ],
+      "task_type": "review"
+    }
+  },
+  "preset_aliases": {
+    "r": "review",
+    "fr": "fast-review",
+    "dr": "deep-review"
   }
 }
