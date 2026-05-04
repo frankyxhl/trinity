@@ -29,6 +29,7 @@
 | 2009 | CHG | Remove Zsh Dependency from Trinity Providers |
 | 2010 | PRP | Codex Review Adapter |
 | 2011 | CHG | Codex Review Adapter |
+| 2012 | CHG | Claude Code Provider |
 
 ---
 
@@ -46,3 +47,4 @@
 | 2026-04-26 | Add TRN-1006 (Provider Model IDs SOP) | Claude Opus 4.7 |
 | 2026-04-26 | Add TRN-1800 + TRN-1801 (Evolution philosophy override + Evolve SOP, mirroring CLD-1800/1801 for trinity) | Claude Opus 4.7 |
 | 2026-05-04 | Add TRN-2010 and TRN-2011 for Codex Review Adapter | Codex |
+| 2026-05-04 | Add TRN-2012 for Claude Code Provider | Codex |
