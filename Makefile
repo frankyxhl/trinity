@@ -65,12 +65,14 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 
 install-codex:  ## Install Trinity Codex adapter to ~/.codex/ and ~/.local/bin
 	@mkdir -p ~/.codex/skills/trinity/scripts
+	@mkdir -p ~/.codex/skills/trinity/bin
 	@mkdir -p ~/.local/bin
 	cp .agents/skills/trinity/SKILL.md ~/.codex/skills/trinity/SKILL.md
 	cp .agents/trinity.codex.json ~/.codex/skills/trinity/trinity.codex.json
 	cp -r scripts/. ~/.codex/skills/trinity/scripts/
+	cp providers/bin/deepseek ~/.codex/skills/trinity/bin/deepseek
 	cp bin/trinity ~/.local/bin/trinity
-	chmod +x ~/.local/bin/trinity
+	chmod +x ~/.codex/skills/trinity/bin/deepseek ~/.local/bin/trinity
 	python3 ~/.codex/skills/trinity/scripts/codex.py init-config \
 		--global-config ~/.codex/trinity.json
 	@echo "Installed Trinity Codex adapter $(CURRENT_VERSION)"
