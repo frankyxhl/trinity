@@ -719,7 +719,10 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
         "~/.codex/skills/trinity/bin/deepseek -p"
     )
     assert installed_config["review"]["default_preset"] == "review"
-    assert installed_config["presets"]["fast-review"]["providers"] == ["glm", "deepseek"]
+    assert installed_config["presets"]["fast-review"]["providers"] == [
+        "glm",
+        "deepseek",
+    ]
     assert installed_config["presets"]["deep-review"]["providers"] == [
         "glm",
         "gemini",

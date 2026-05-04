@@ -36,6 +36,12 @@ trinity review --preset deep-review --scope rules/TRN-2013-CHG-Trinity-Review-Pr
 `trinity review --scope .` should continue to work and use the configured
 default preset when available.
 
+Current state as of 2026-05-05: PR #23 seeded the preset config only. The
+resolver is not implemented yet, so `trinity review --preset ...` and
+`/trinity fast-review ...` are target syntax, not supported commands. Current
+Codex review runs must still pass `--providers` explicitly or rely on
+`review.default_providers`.
+
 ---
 
 ## Why

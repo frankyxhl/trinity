@@ -222,6 +222,15 @@ It also seeds future review preset config under `presets` (`review`,
 `fast-review`, `deep-review`) plus short aliases under `preset_aliases`.
 Until preset resolution is implemented, `trinity review` still selects
 providers from `--providers` or `review.default_providers`.
+
+Seeded preset config:
+
+| Preset | Required providers | Optional providers |
+|--------|--------------------|--------------------|
+| `review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
+| `fast-review` | `glm`, `deepseek` | none |
+| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
+
 The Codex DeepSeek entry uses the installed
 `~/.codex/skills/trinity/bin/deepseek -p` wrapper so it does not depend on a
 locally accepted `droid` model alias.
