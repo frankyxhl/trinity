@@ -1,4 +1,4 @@
-.PHONY: setup build verify-built install-hooks test lint install bump release-prep
+.PHONY: setup build verify-built install-hooks test lint install install-codex bump release-prep
 
 # Read VERSION at make invocation time
 CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
@@ -62,6 +62,18 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 		--cli "$(HOME)/.claude/skills/trinity/bin/deepseek -p" \
 		--global-config ~/.claude/trinity.json
 	@echo "Installed Trinity $(CURRENT_VERSION)"
+
+install-codex:  ## Install Trinity Codex adapter to ~/.codex/ and ~/.local/bin
+	@mkdir -p ~/.codex/skills/trinity/scripts
+	@mkdir -p ~/.local/bin
+	cp .agents/skills/trinity/SKILL.md ~/.codex/skills/trinity/SKILL.md
+	cp .agents/trinity.codex.json ~/.codex/skills/trinity/trinity.codex.json
+	cp -r scripts/. ~/.codex/skills/trinity/scripts/
+	cp bin/trinity ~/.local/bin/trinity
+	chmod +x ~/.local/bin/trinity
+	python3 ~/.codex/skills/trinity/scripts/codex.py init-config \
+		--global-config ~/.codex/trinity.json
+	@echo "Installed Trinity Codex adapter $(CURRENT_VERSION)"
 
 bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z
 	@test -n "$(VERSION)" || (echo "Usage: make bump VERSION=x.y.z"; exit 1)

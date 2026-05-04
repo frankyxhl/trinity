@@ -1,0 +1,31 @@
+{
+  "providers": {
+    "glm": {
+      "cli": "droid exec --model glm-5",
+      "supports_resume": true,
+      "resume_arg": "-s",
+      "timeout": 360
+    },
+    "gemini": {
+      "cli": "gemini --model gemini-3.1-pro-preview -p",
+      "supports_resume": true,
+      "resume_arg": "-r",
+      "timeout": 360
+    },
+    "deepseek": {
+      "cli": "droid exec --model deepseek-v4-pro[1m]",
+      "supports_resume": true,
+      "resume_arg": "-s",
+      "timeout": 600
+    }
+  },
+  "review": {
+    "default_providers": [
+      "glm",
+      "gemini",
+      "deepseek"
+    ],
+    "output_dir": ".trinity/reviews",
+    "prompt_template": "# Trinity Code Review\n\nScope: {scope}\nRepository: {root}\n\nReview the changes below for correctness, regressions, missing tests, compatibility risk, and unclear implementation choices. Prioritize concrete findings with file/path references. Return PASS only if no blocking issues remain.\n\n## Git Diff\n\n```diff\n{diff}\n```\n\n## Full File Snapshots\n\n{files}\n"
+  }
+}

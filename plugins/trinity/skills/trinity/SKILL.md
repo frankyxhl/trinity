@@ -22,11 +22,21 @@ Support the same user-facing command family as the Claude Code adapter:
 
 Also treat `$trinity` as an explicit Codex skill invocation.
 
+For Codex-native code review from the terminal, use the installed wrapper:
+
+```bash
+trinity review --providers glm,gemini,deepseek --scope <path-or-label>
+```
+
+The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
+`.agents/trinity.codex.json`. It calls provider CLIs directly, saves raw outputs,
+and writes a deterministic synthesis markdown under `.trinity/reviews/`.
+
 ## Host Boundary
 
 - The root `SKILL.md` remains the Claude Code adapter and continues to use `~/.claude/` files.
 - This Codex adapter must load successfully without requiring Claude Code worker-agent files.
-- Do not depend on Claude-specific background worker instructions when only checking skill/plugin importability.
+- Do not depend on Claude-specific background worker instructions when checking skill/plugin importability or when running `trinity review`.
 - Preserve existing Trinity provider files and installers unless the user explicitly asks to change Claude behavior.
 
 ## Codex Workflow
@@ -35,7 +45,8 @@ Also treat `$trinity` as an explicit Codex skill invocation.
 2. Inspect the repo first: `README.md`, root `SKILL.md`, `scripts/`, `providers/`, and tests as needed.
 3. For status/help/import questions, answer directly from repo files and the Codex package files.
 4. For implementation work, follow the repo's `af` routing docs and use TDD.
-5. For delegation requests, use Codex-native delegation only when the user explicitly requests background or parallel agent work and the current Codex environment exposes that capability.
+5. For code-review requests from Codex, prefer `trinity review` when the local adapter is installed; it does not require Claude-specific background worker files.
+6. For delegation requests, use Codex-native delegation only when the user explicitly requests background or parallel agent work and the current Codex environment exposes that capability.
 
 ## Verification
 
@@ -43,5 +54,6 @@ For Codex load verification, use these smoke checks after changes are installed 
 
 - Repo-local skill: restart/start Codex in this repository, open `/skills` or invoke `$trinity`, and confirm `trinity` is visible/loadable.
 - Plugin package: restart Codex, open `/plugins`, select the repo marketplace, and confirm the `trinity` plugin appears and exposes its bundled skill.
+- Local wrapper: run `make install-codex`, then `trinity --version` and a mocked or low-risk `trinity review --providers glm,gemini,deepseek --scope <path>`.
 
 For Claude Code regression verification, keep using the existing Claude checks: install Trinity, restart Claude Code, and run `/trinity status`.
