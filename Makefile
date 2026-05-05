@@ -43,11 +43,13 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	cp providers/gemini.md ~/.claude/agents/trinity-gemini.md
 	cp providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
 	cp providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
+	cp providers/claude-code.md ~/.claude/agents/trinity-claude-code.md
 	cp providers/bin/deepseek ~/.claude/skills/trinity/bin/deepseek
 	cp providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
-	chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter
+	cp providers/bin/claude-code ~/.claude/skills/trinity/bin/claude-code
+	chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code
 	python3 ~/.claude/skills/trinity/scripts/install.py register glm \
-		--cli "droid exec --model glm-5" \
+		--cli "droid exec --auto medium --model glm-5.1 --reasoning-effort high" \
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register codex \
 		--cli "codex exec --skip-git-repo-check -m gpt-5.5" \
@@ -60,6 +62,9 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register deepseek \
 		--cli "$(HOME)/.claude/skills/trinity/bin/deepseek -p" \
+		--global-config ~/.claude/trinity.json
+	python3 ~/.claude/skills/trinity/scripts/install.py register claude-code \
+		--cli "$(HOME)/.claude/skills/trinity/bin/claude-code -p" \
 		--global-config ~/.claude/trinity.json
 	@echo "Installed Trinity $(CURRENT_VERSION)"
 

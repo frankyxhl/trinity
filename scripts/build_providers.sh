@@ -24,7 +24,7 @@ if [ "${1:-}" = "--check" ]; then
 fi
 
 PROVIDERS_DIR="providers"
-DELTAS=(codex gemini glm openrouter deepseek)
+DELTAS=(codex gemini glm openrouter deepseek claude-code)
 
 # Python under bash wrapper does the @include substitution and invariant checks.
 python3 - "$PROVIDERS_DIR" "$CHECK_MODE" "${DELTAS[@]}" <<'PY'

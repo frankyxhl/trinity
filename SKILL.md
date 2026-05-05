@@ -12,6 +12,12 @@ Dispatch tasks to external LLM providers via background sub-agents. Providers ar
 ## Startup Check (run once per session before first dispatch)
 
 ```bash
+# 0. Refuse nested dispatch when Trinity is running as a claude-code provider
+if [ "${TRINITY_DISABLE_DISPATCH:-}" = "1" ]; then
+  echo "trinity: Nested Trinity dispatch is disabled in this Claude Code process (set by the claude-code provider wrapper)."
+  exit 1
+fi
+
 # 1. Verify python3 is available
 command -v python3 >/dev/null 2>&1 || {
   echo "trinity: python3 not found. Install: brew install python3"
@@ -73,7 +79,7 @@ A provider is **usable** only when it has both a config entry AND an agent file.
 ```json
 {
   "providers": {
-    "glm":    { "cli": "droid exec --model glm-5",         "installed": true },
+    "glm":    { "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high", "installed": true },
     "codex":  { "cli": "codex exec --skip-git-repo-check", "installed": true },
     "gemini": { "cli": "gemini -p",                        "installed": true }
   },
@@ -274,7 +280,7 @@ Run provider discovery. Display two sections:
 ```
 | Provider | Status    | CLI                              |
 |----------|-----------|----------------------------------|
-| glm      | ✅ usable  | droid exec --model glm-5         |
+| glm      | ✅ usable  | droid exec --auto medium --model glm-5.1 --reasoning-effort high |
 | codex    | ✅ usable  | codex exec --skip-git-repo-check |
 | gemini   | ⚠️ missing | (agent file not found)           |
 ```

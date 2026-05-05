@@ -16,9 +16,9 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-PROVIDERS=(codex gemini glm openrouter deepseek)
+PROVIDERS=(codex gemini glm openrouter deepseek claude-code)
 NATIVE=(codex gemini glm)
-WRAPPER=(openrouter deepseek)
+WRAPPER=(openrouter deepseek claude-code)
 PARTIALS=(_base/common-session.md _base/common-tail.md _base/family-wrapper.md)
 
 PASS=0
@@ -154,9 +154,10 @@ done
 # Provider-specific CLI signatures (delta content survived).
 check "codex CLI signature"      grep -q 'codex exec' providers/codex.md
 check "gemini CLI signature"     grep -q 'gemini --model' providers/gemini.md
-check "glm CLI signature"        grep -q 'droid exec --model glm-5' providers/glm.md
+check "glm CLI signature"        grep -q 'droid exec --auto medium --model glm-5.1 --reasoning-effort high' providers/glm.md
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
 check "deepseek run function"    grep -q 'run_deepseek()' providers/deepseek.md
+check "claude-code run function" grep -q 'run_claude_code()' providers/claude-code.md
 
 echo "-- T7: drift sentinels (3 bundled fixes stay applied)"
 # Fix #1 — codex reasoning effort: model_reasoning_effort, default xhigh, override parsing

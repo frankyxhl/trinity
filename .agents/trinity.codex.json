@@ -1,7 +1,7 @@
 {
   "providers": {
     "glm": {
-      "cli": "droid exec --model glm-5",
+      "cli": "droid exec --model glm-5.1 --reasoning-effort high",
       "supports_resume": true,
       "resume_arg": "-s",
       "timeout": 360

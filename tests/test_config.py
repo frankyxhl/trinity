@@ -130,6 +130,39 @@ def test_providers_project_key_wins_on_conflict(tmp_path):
     assert result["providers"]["codex"]["cli"] == "codex-global"
 
 
+def test_hyphenated_provider_keys_are_preserved_in_merge(tmp_path):
+    global_config = tmp_path / "global" / "trinity.json"
+    write_config(
+        global_config,
+        {
+            "providers": {
+                "claude-code": {
+                    "cli": "$HOME/.claude/skills/trinity/bin/claude-code -p",
+                    "installed": True,
+                }
+            }
+        },
+    )
+    project_dir = tmp_path / "project"
+    project_trinity = project_dir / ".claude" / "trinity.json"
+    write_config(
+        project_trinity,
+        {"providers": {"claude-code": {"cli": "project-claude-code -p"}}},
+    )
+    rc, out, err = run(
+        [
+            "merge",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+    assert rc == 0
+    result = json.loads(out)
+    assert result["providers"]["claude-code"]["cli"] == "project-claude-code -p"
+
+
 def test_defaults_project_wins_per_key(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     write_config(global_config, {"defaults": {"timeout": 60, "model": "global-model"}})

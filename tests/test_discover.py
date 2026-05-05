@@ -96,6 +96,41 @@ def test_config_entry_with_agent_file_is_usable(tmp_path):
     assert entry["agent"] is not None
 
 
+def test_hyphenated_provider_name_is_discovered_from_config_and_agent(tmp_path):
+    global_config = tmp_path / "global" / "trinity.json"
+    project_dir = tmp_path / "project"
+    write_config(
+        project_dir / ".claude" / "trinity.json",
+        {
+            "providers": {
+                "claude-code": {
+                    "cli": "$HOME/.claude/skills/trinity/bin/claude-code -p"
+                }
+            }
+        },
+    )
+    write_agent(project_dir, "claude-code")
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+    assert rc == 0
+    result = json.loads(out)
+    assert result == [
+        {
+            "name": "claude-code",
+            "status": "usable",
+            "cli": "$HOME/.claude/skills/trinity/bin/claude-code -p",
+            "agent": str(project_dir / ".claude" / "agents" / "trinity-claude-code.md"),
+        }
+    ]
+
+
 def test_config_entry_no_agent_file_is_missing_agent(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"
