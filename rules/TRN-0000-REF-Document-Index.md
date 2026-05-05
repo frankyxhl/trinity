@@ -34,6 +34,7 @@
 | 2014 | CHG | Provider Health Checks and DeepSeek Review Config |
 | 2015 | CHG | PR Base Head Review Mode |
 | 2016 | CHG | COR-1602 Strict Review Mode |
+| 2017 | CHG | PR Update Helper |
 
 ---
 
@@ -56,3 +57,4 @@
 | 2026-05-04 | Add TRN-2014 Provider Health Checks and DeepSeek Review Config | Codex |
 | 2026-05-04 | Add TRN-2015 PR Base Head Review Mode | Codex |
 | 2026-05-05 | Add TRN-2016 COR-1602 Strict Review Mode | Codex |
+| 2026-05-05 | Add TRN-2017 PR Update Helper | Codex |

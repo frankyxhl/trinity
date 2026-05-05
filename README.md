@@ -282,6 +282,42 @@ required findings / decision-matrix / weighted-average output schema to the
 normal review prompt. The selected SOP, rubric, threshold, and output schema
 are recorded in `metadata.json`.
 
+**Update a PR after review fixes**
+
+```bash
+make pr-update PR=26 MESSAGE="Address review feedback" DRY_RUN=1
+make pr-update PR=26 MESSAGE="Address review feedback" REVIEW="Trinity fast-review PASS"
+make pr-update PR=26 MESSAGE="Add follow-up fix" MODE=commit REVIEW="Codex connector found no major issues"
+make pr-update PR=26 MESSAGE="Post validation evidence" MODE=comment-only REVIEW="No actionable findings"
+```
+
+`make pr-update` wraps `dev/pr_update.py`. It requires no unstaged or
+untracked files, a configured upstream branch, and staged changes for
+`MODE=amend` or `MODE=commit`. The default mode is `amend`, which runs
+`git commit --amend --no-edit` and pushes with `--force-with-lease` to the
+explicit configured upstream ref. `MODE=commit` creates a new commit and uses a
+plain explicit-refspec `git push`. `MODE=comment-only` only runs validation and
+posts the PR comment. The helper runs `make test`, `make lint`, and
+`af validate --root .` before any push/comment side effects.
+When `MESSAGE` or `REVIEW` contains `$`, quote the value for your shell, for
+example `MESSAGE='Preserve $VAR literally'`; the Make wrapper passes that text
+through without re-expanding it.
+
+Always run with `DRY_RUN=1` first and inspect the command preview plus comment
+body. Do not use the helper when unrelated local files are dirty, when the PR
+head has changed unexpectedly, when you need a custom push target, or when the
+manual COR-1612/COR-1615 review-response flow requires more precise comments.
+Manual fallback:
+
+```bash
+make test
+make lint
+af validate --root .
+git commit --amend --no-edit
+git push --force-with-lease fork HEAD:codex/example-branch
+gh pr comment 26 --body-file comment.md
+```
+
 **Codex repo-local skill**
 
 The repo-local Codex skill lives at:
