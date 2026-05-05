@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-05-06
+
 ### Added
 - Codex-native review adapter: `.agents/trinity.codex.json`, `scripts/codex.py`, `bin/trinity`, and `make install-codex` install a `trinity review --providers glm,gemini,deepseek` workflow under `~/.codex/` / `~/.local/bin`. The wrapper collects tracked plus untracked git changes, saves raw provider outputs, and writes deterministic review synthesis markdown without using Claude Code worker-agent runtime.
 - `rules/TRN-2010-PRP-Codex-Review-Adapter.md` and `rules/TRN-2011-CHG-Codex-Review-Adapter.md` document the approved design and implementation record. New tests cover Codex config/install/review behavior plus Claude Code compatibility.
@@ -9,12 +11,17 @@
 - `trinity review --base <base> --head <head>` and `trinity review --pr <number>` add committed branch / GitHub PR review modes for Codex-native Trinity review.
 - Codex config now seeds `review`, `fast-review`, and `deep-review` preset definitions plus `r`/`fr`/`dr` aliases, and `make install-codex` preserves those sections in `~/.codex/trinity.json`.
 - `trinity review --preset <name>` and `trinity doctor --preset <name>` now resolve review presets and aliases, use `review.default_preset` by default, preserve `review.default_providers` as the compatibility fallback, and record skipped optional providers in review metadata.
+- Strict COR review mode: `trinity review --sop COR-1602 --rubric COR-1609` prepends COR-1609 weights, COR-1611 calibration guidance, PASS threshold, and required output schema to Codex-native reviews.
+- `make pr-update` and `dev/pr_update.py` add a guarded PR update helper that validates, amends or commits, pushes, and comments with verification evidence.
+- Codex-native review dispatch now runs selected providers concurrently up to `review.max_parallel_providers`, logs progress on stderr, cleans up provider process groups on timeout or interrupt, writes `incomplete.json` for partial reviews, and adds review-only prompt guidance.
 
 ### Fixed
 - Backfilled validator-required sections and change-history tables in older TRN docs (`TRN-1001` through `TRN-1005`, `TRN-2002`, `TRN-2003`), bringing `af validate --root .` to 0 issues.
 - Codex review provider calls now use a short prompt-file handoff instead of passing the full rendered review prompt as argv, avoiding OS argument-length failures on large diffs.
 - Codex DeepSeek review config now uses the installed `~/.codex/skills/trinity/bin/deepseek -p` wrapper instead of the locally rejected `droid exec --model deepseek-v4-pro[1m]` alias.
 - Committed PR branches can now be reviewed without relying on dirty working-tree diffs, avoiding misleading "(no tracked or untracked git diff)" review prompts after changes are already committed.
+- Duplicate Codex review provider selections are rejected before creating a review directory so one provider result cannot overwrite another.
+- Local Claude Code state is ignored so `.claude/` runtime files do not leak into project commits.
 
 ## [3.0.0] - 2026-04-29
 

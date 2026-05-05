@@ -102,6 +102,7 @@ bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z
 	@echo "$(VERSION)" > VERSION
 	@perl -i -pe 's/__version__ = ".*"/__version__ = "$(VERSION)"/' scripts/__init__.py
 	@perl -i -pe 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="$(VERSION)"/' SKILL.md
+	@perl -i -pe 's/^  "version": "[0-9]+\.[0-9]+\.[0-9]+",/  "version": "$(VERSION)",/' plugins/trinity/.codex-plugin/plugin.json
 	@echo "Bumped to $(VERSION)"
 
 release-prep:   ## Stage release-metadata commit + local tag (TRN-1004): no push, CI publishes
@@ -113,7 +114,7 @@ release-prep:   ## Stage release-metadata commit + local tag (TRN-1004): no push
 	$(MAKE) lint
 	@git diff --quiet providers/ || (echo "release-prep: providers/ has uncommitted changes — run 'make build' and commit first"; exit 1)
 	@git reset HEAD
-	@git add VERSION scripts/__init__.py CHANGELOG.md SKILL.md
+	@git add VERSION scripts/__init__.py CHANGELOG.md SKILL.md plugins/trinity/.codex-plugin/plugin.json
 	@git commit -m "Release v$(CURRENT_VERSION)"
 	@git tag "v$(CURRENT_VERSION)"
 	@echo ""
