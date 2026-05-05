@@ -47,16 +47,19 @@ _download "providers/codex.md"        "${HOME}/.claude/agents/trinity-codex.md"
 _download "providers/gemini.md"       "${HOME}/.claude/agents/trinity-gemini.md"
 _download "providers/openrouter.md"   "${HOME}/.claude/agents/trinity-openrouter.md"
 _download "providers/deepseek.md"     "${HOME}/.claude/agents/trinity-deepseek.md"
+_download "providers/claude-code.md"  "${HOME}/.claude/agents/trinity-claude-code.md"
 _download "providers/bin/deepseek"    "${HOME}/.claude/skills/trinity/bin/deepseek"
 _download "providers/bin/openrouter"  "${HOME}/.claude/skills/trinity/bin/openrouter"
+_download "providers/bin/claude-code" "${HOME}/.claude/skills/trinity/bin/claude-code"
 chmod +x "${HOME}/.claude/skills/trinity/bin/deepseek" \
-         "${HOME}/.claude/skills/trinity/bin/openrouter"
+         "${HOME}/.claude/skills/trinity/bin/openrouter" \
+         "${HOME}/.claude/skills/trinity/bin/claude-code"
 
 CURRENT_FILE=""
 
 # Register default providers in ~/.claude/trinity.json
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register glm \
-    --cli "droid exec --model glm-5" \
+    --cli "droid exec --auto medium --model glm-5.1 --reasoning-effort high" \
     --global-config "${HOME}/.claude/trinity.json"
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register codex \
     --cli "codex exec --skip-git-repo-check -m gpt-5.5" \
@@ -69,6 +72,9 @@ python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register openrouter 
     --global-config "${HOME}/.claude/trinity.json"
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register deepseek \
     --cli "${HOME}/.claude/skills/trinity/bin/deepseek -p" \
+    --global-config "${HOME}/.claude/trinity.json"
+python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register claude-code \
+    --cli "${HOME}/.claude/skills/trinity/bin/claude-code -p" \
     --global-config "${HOME}/.claude/trinity.json"
 
 # Print success with version

@@ -136,3 +136,12 @@ def test_claude_skill_documents_review_presets():
     assert "| `fast-review` | `glm`, `deepseek` | none |" in text
     assert "Configured presets" in text
     assert "Preset/provider collisions are invalid" in text
+
+
+def test_claude_skill_documents_nested_dispatch_guard():
+    text = ROOT_SKILL.read_text()
+
+    assert "TRINITY_DISABLE_DISPATCH" in text
+    assert "Nested Trinity dispatch is disabled" in text
+    assert "claude-code provider wrapper" in text
+    assert "exit 1" in text

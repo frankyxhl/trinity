@@ -1,6 +1,6 @@
 # Trinity — Multi-Model Orchestration for Claude Code
 
-Dispatch tasks to any LLM (GLM, Codex, Gemini, or your own) from within Claude Code. Providers run in the background via Claude's Agent tool. Sessions persist across turns. Health monitoring tells you if they're alive.
+Dispatch tasks to any LLM (GLM, Codex, Gemini, Claude Code, or your own) from within Claude Code. Providers run in the background via Claude's Agent tool. Sessions persist across turns. Health monitoring tells you if they're alive.
 
 The name comes from 三位一体 — not a fixed count, but a philosophy: all AIs united, working together. Whoever runs Trinity is the Leader. Any external LLM with a CLI is a Member.
 
@@ -42,7 +42,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | bash
 ```
 
-This downloads all skill files to `~/.claude/` and registers the five default providers (glm, codex, gemini, openrouter, deepseek) in `~/.claude/trinity.json`. Expected output ends with:
+This downloads all skill files to `~/.claude/` and registers the six default providers (glm, codex, gemini, openrouter, deepseek, claude-code) in `~/.claude/trinity.json`. Expected output ends with:
 
 ```
 Trinity 3.1.1 installed to ~/.claude/
@@ -62,7 +62,7 @@ Trinity's skill (`SKILL.md`) is loaded by Claude Code at startup. The install ta
 /trinity status
 ```
 
-Expected output: glm, codex, gemini, openrouter, and deepseek all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
+Expected output: glm, codex, gemini, openrouter, deepseek, and claude-code all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
 
 ### What was installed
 
@@ -75,8 +75,10 @@ Expected output: glm, codex, gemini, openrouter, and deepseek all show ✅ usabl
 | `~/.claude/agents/trinity-gemini.md` | Gemini worker agent |
 | `~/.claude/agents/trinity-openrouter.md` | OpenRouter worker agent |
 | `~/.claude/agents/trinity-deepseek.md` | DeepSeek V4 worker agent |
+| `~/.claude/agents/trinity-claude-code.md` | Claude Code worker agent |
 | `~/.claude/skills/trinity/bin/deepseek` | DeepSeek `claude --dangerously-skip-permissions` wrapper (env injection + key-file loader) |
 | `~/.claude/skills/trinity/bin/openrouter` | OpenRouter wrapper (same shape) |
+| `~/.claude/skills/trinity/bin/claude-code` | Isolated nested Claude Code wrapper (`--model sonnet --effort high`) |
 | `~/.claude/trinity.json` | Global provider registry |
 
 ---
@@ -128,9 +130,9 @@ Each install command:
 5. Runs a smoke test to verify everything works
 6. Rolls back atomically if any step fails
 
-**Wrapper-based providers** (`openrouter`, `deepseek`) don't have a package install path — they use the `claude` binary pointed at an Anthropic-compatible endpoint via small POSIX shell wrappers shipped in `providers/bin/` and installed to `~/.claude/skills/trinity/bin/`. `install.sh` and `make install` set them up automatically; no `~/.zshrc` edits required.
+**Wrapper-based providers** (`openrouter`, `deepseek`, `claude-code`) don't have a package install path — they use small POSIX shell wrappers shipped in `providers/bin/` and installed to `~/.claude/skills/trinity/bin/`. `openrouter` and `deepseek` point the `claude` binary at Anthropic-compatible endpoints. `claude-code` starts an isolated nested Claude Code process with Trinity dispatch disabled, defaulting to `--model sonnet --effort high`. `install.sh` and `make install` set them up automatically; no `~/.zshrc` edits required.
 
-Each wrapper expects an API key, in this order of precedence:
+The Anthropic-compatible wrappers expect an API key, in this order of precedence:
 1. **Environment variable** — `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY`
 2. **Key file** — `~/.secrets/<provider>_api_key` with mode `600` (or `400`); the wrapper refuses anything more permissive
 
@@ -162,11 +164,15 @@ cp trinity/providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
 # DeepSeek V4
 cp trinity/providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
 
-# Wrapper bin scripts (deepseek + openrouter)
+# Claude Code
+cp trinity/providers/claude-code.md ~/.claude/agents/trinity-claude-code.md
+
+# Wrapper bin scripts (deepseek + openrouter + claude-code)
 mkdir -p ~/.claude/skills/trinity/bin
 cp trinity/providers/bin/deepseek   ~/.claude/skills/trinity/bin/deepseek
 cp trinity/providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
-chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter
+cp trinity/providers/bin/claude-code ~/.claude/skills/trinity/bin/claude-code
+chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code
 ```
 
 Then create `~/.claude/trinity.json`:
@@ -175,9 +181,10 @@ Then create `~/.claude/trinity.json`:
   "providers": {
     "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
-    "glm":        { "cli": "droid exec --model glm-5",         "installed": true },
-    "openrouter": { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p", "installed": true },
-    "deepseek":   { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",   "installed": true }
+    "glm":        { "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high", "installed": true },
+    "openrouter":  { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p",  "installed": true },
+    "deepseek":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",    "installed": true },
+    "claude-code": { "cli": "/Users/<you>/.claude/skills/trinity/bin/claude-code -p", "installed": true }
   },
   "defaults": {
     "heartbeat_interval": 120,
@@ -234,6 +241,9 @@ Default preset config:
 The Codex DeepSeek entry uses the installed
 `~/.codex/skills/trinity/bin/deepseek -p` wrapper so it does not depend on a
 locally accepted `droid` model alias.
+The optional `claude-code` preset entry is a Claude Code worker-agent provider;
+it is skipped by Codex-native reviews unless the user explicitly adds a
+compatible CLI entry to `~/.codex/trinity.json`.
 
 **Check provider health**
 

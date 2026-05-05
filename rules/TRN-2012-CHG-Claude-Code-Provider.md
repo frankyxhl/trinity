@@ -2,8 +2,8 @@
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Date:** 2026-05-04
-**Last updated:** 2026-05-04
-**Last reviewed:** 2026-05-04
+**Last updated:** 2026-05-06
+**Last reviewed:** 2026-05-06
 **Status:** Proposed
 **Requested by:** Frank
 **Implementer:** Codex
@@ -32,18 +32,19 @@ mechanical recursion guard before invoking `claude`.
 
 Default model and effort must be explicit:
 
-- **Default model:** `claude-opus-4-7`
-- **Default effort:** `xhigh`
+- **Default model:** `sonnet`
+- **Default effort:** `high`
 - **Allowed effort values:** `low`, `medium`, `high`, `xhigh`, `max`
 - **Override mechanism:** support `TRINITY_CLAUDE_CODE_MODEL` and
   `TRINITY_CLAUDE_CODE_EFFORT` environment variables in the wrapper. Provider
   instructions may also parse `EFFORT=<level>` from the task prompt and export
   `TRINITY_CLAUDE_CODE_EFFORT` before calling the wrapper.
 
-Rationale: official Claude Code CLI docs list `low`, `medium`, `high`, `xhigh`,
-and `max` as effort options. Official Anthropic effort guidance recommends
-starting Claude Opus 4.7 coding and agentic work at `xhigh`, and reserving
-`max` for genuinely frontier problems where evals show headroom.
+Rationale: Claude Code accepts model aliases such as `sonnet`, and the Sonnet
+alias tracks the current recommended Sonnet model for coding work. Official
+Claude Code effort guidance lists `low`, `medium`, `high`, `xhigh`, and `max`
+as CLI-level effort options, but Sonnet's supported default is `high`; reserve
+`max` for explicit one-off overrides.
 
 ---
 
@@ -107,7 +108,7 @@ just another external CLI.
 6. Add a mocked wrapper/CLI test that stubs `claude` and verifies the wrapper:
    sets `TRINITY_DISABLE_DISPATCH=1`, sets isolated `CLAUDE_CONFIG_DIR`, sets
    `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, passes
-   `--disable-slash-commands`, passes `--model claude-opus-4-7 --effort xhigh`
+   `--disable-slash-commands`, passes `--model sonnet --effort high`
    by default, accepts `TRINITY_CLAUDE_CODE_MODEL` and
    `TRINITY_CLAUDE_CODE_EFFORT=max` overrides, rejects invalid effort values,
    preserves `-p`/`--resume` argv, and does not require a real Claude Code
@@ -117,8 +118,8 @@ just another external CLI.
    `TRINITY_DISABLE_DISPATCH=1`.
 8. GREEN: create `providers/bin/claude-code` as a POSIX wrapper. It should call:
    ```sh
-   MODEL="${TRINITY_CLAUDE_CODE_MODEL:-claude-opus-4-7}"
-   EFFORT="${TRINITY_CLAUDE_CODE_EFFORT:-xhigh}"
+   MODEL="${TRINITY_CLAUDE_CODE_MODEL:-sonnet}"
+   EFFORT="${TRINITY_CLAUDE_CODE_EFFORT:-high}"
    exec claude --permission-mode bypassPermissions --disable-slash-commands --model "$MODEL" --effort "$EFFORT" "$@"
    ```
    with the required environment variables from Impact Analysis.
@@ -147,7 +148,7 @@ Expected evidence before marking complete:
 - `.venv/bin/pytest tests/test_config.py -q`
 - focused wrapper test for `providers/bin/claude-code` with a fake `claude`
   executable
-- model/effort regression evidence showing default `claude-opus-4-7` + `xhigh`,
+- model/effort regression evidence showing default `sonnet` + `high`,
   accepted `max` override, and rejected invalid effort override
 - regression evidence that root `SKILL.md` refuses `/trinity` dispatch when
   `TRINITY_DISABLE_DISPATCH=1`
@@ -172,10 +173,10 @@ tests pass, because it may consume Claude Code quota.
 
 ## Approval
 
-- [ ] Approved for implementation
-- [ ] Implemented
-- [ ] Verified locally
-- [ ] PR opened
+- [x] Approved for implementation
+- [x] Implemented
+- [x] Verified locally
+- [x] PR opened
 
 ---
 
@@ -185,7 +186,14 @@ tests pass, because it may consume Claude Code quota.
 |------|--------|--------|
 | 2026-05-04 | Created CHG draft with canonical provider name and TDD plan | Proposed |
 | 2026-05-04 | Reviewed with Trinity GLM, Gemini, and DeepSeek | REQUEST_CHANGES: require mechanical recursion guard, Claude config isolation, explicit CLI signature, hardcoded provider inventory, and version-bump guidance |
-| 2026-05-04 | Checked official Claude Code CLI and Anthropic effort docs | Default to `claude-opus-4-7` + `xhigh`; allow `max` as explicit override |
+| 2026-05-04 | Checked official Claude Code CLI and Anthropic effort docs | Initially proposed `claude-opus-4-7` + `xhigh`; allow `max` as explicit override |
+| 2026-05-06 | Rechecked Claude Code model/effort docs and user preference | Revised default to `sonnet` + `high`; keep explicit `max` override |
+| 2026-05-06 | Implemented provider files, wrapper, install registration, recursion guard, docs, and TDD coverage | Focused tests, `make test`, `make lint`, `make verify-built`, fake-home `make install`, and `af validate --root .` pass |
+| 2026-05-06 | Ran real Claude Code wrapper smoke on local CLI | Blocked by local auth: `Not logged in · Please run /login` |
+| 2026-05-06 | Reviewed implementation with Trinity fast-review (GLM + DeepSeek) | PASS from both; addressed DeepSeek advisory by making the nested dispatch guard exit non-zero |
+| 2026-05-06 | Re-reviewed final head with Trinity fast-review (GLM + DeepSeek) | PASS from both; addressed advisory docs clarifications before PR |
+| 2026-05-06 | Updated GLM to `glm-5.1 --reasoning-effort high` and re-reviewed with Trinity fast-review | PASS from GLM-5.1/high and DeepSeek |
+| 2026-05-06 | Opened PR #34 | Ready for GitHub review |
 
 ---
 
@@ -196,3 +204,4 @@ tests pass, because it may consume Claude Code quota.
 | 2026-05-04 | Initial CHG for Claude Code provider | Codex |
 | 2026-05-04 | Revised after Trinity provider review | Codex |
 | 2026-05-04 | Added explicit model and effort policy | Codex |
+| 2026-05-06 | Revised default model/effort to Claude Code `sonnet` + `high` | Codex |

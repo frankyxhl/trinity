@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+- `claude-code` is now a first-class Claude Code provider. `make install` and
+  `install.sh` install `trinity-claude-code.md`, register
+  `~/.claude/skills/trinity/bin/claude-code -p`, and ship an isolated nested
+  Claude Code wrapper that disables Trinity recursion, uses separate
+  `CLAUDE_CONFIG_DIR`, disables slash commands, and defaults to
+  `--model sonnet --effort high`.
+
+### Changed
+- GLM now uses Droid Core `glm-5.1` with explicit highest supported reasoning
+  effort: `--reasoning-effort high`. Claude Code installs keep
+  `--auto medium` for normal development tasks, while Codex-native review
+  config stays read-only and only changes the model/effort flags.
+
 ## [3.1.1] - 2026-05-06
 
 ### Fixed

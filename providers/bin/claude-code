@@ -1,0 +1,23 @@
+#!/bin/sh
+# providers/bin/claude-code — isolated nested Claude Code wrapper for Trinity.
+#
+# This wrapper prevents recursive Trinity dispatch and keeps nested Claude Code
+# state separate from the orchestrator's normal ~/.claude state.
+set -eu
+
+MODEL="${TRINITY_CLAUDE_CODE_MODEL:-sonnet}"
+EFFORT="${TRINITY_CLAUDE_CODE_EFFORT:-high}"
+
+case "$EFFORT" in
+    low|medium|high|xhigh|max) ;;
+    *)
+        echo "trinity-claude-code: invalid effort '$EFFORT' (expected low|medium|high|xhigh|max)." >&2
+        exit 1
+        ;;
+esac
+
+TRINITY_DISABLE_DISPATCH="1" \
+CLAUDE_CONFIG_DIR="${HOME}/.claude-trinity-claude-code" \
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1" \
+exec claude --permission-mode bypassPermissions --disable-slash-commands \
+    --model "$MODEL" --effort "$EFFORT" "$@"

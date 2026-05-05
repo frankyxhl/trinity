@@ -1,10 +1,14 @@
 """
-Tests for providers/bin/deepseek and providers/bin/openrouter (TRN-2008/TRN-2009).
+Tests for providers/bin/deepseek, providers/bin/openrouter, and
+providers/bin/claude-code (TRN-2008/TRN-2009/TRN-2012).
 
-The wrapper scripts run `exec claude --dangerously-skip-permissions "$@"` after
-loading an API key (env DEEPSEEK_API_KEY / OPENROUTER_API_KEY wins; falls back
-to ~/.secrets/<provider>_api_key with mode 600 or 400) and injecting
-ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL etc.
+The Anthropic-compatible wrappers run
+`exec claude --dangerously-skip-permissions "$@"` after loading an API key (env
+DEEPSEEK_API_KEY / OPENROUTER_API_KEY wins; falls back to
+~/.secrets/<provider>_api_key with mode 600 or 400) and injecting
+ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL etc. The
+claude-code wrapper instead runs native Claude Code with
+`--permission-mode bypassPermissions`.
 
 Strategy: prepend a Python `claude` stub onto PATH that records argv + selected
 env vars to a JSON file before exit(0). Because the wrapper does `exec`, the
@@ -25,6 +29,7 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent
 DEEPSEEK_BIN = REPO_ROOT / "providers" / "bin" / "deepseek"
 OPENROUTER_BIN = REPO_ROOT / "providers" / "bin" / "openrouter"
+CLAUDE_CODE_BIN = REPO_ROOT / "providers" / "bin" / "claude-code"
 
 CAPTURED_ENV_KEYS = (
     "ANTHROPIC_BASE_URL",
@@ -35,6 +40,7 @@ CAPTURED_ENV_KEYS = (
     "API_TIMEOUT_MS",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
     "CLAUDE_CONFIG_DIR",
+    "TRINITY_DISABLE_DISPATCH",
 )
 
 
@@ -273,18 +279,75 @@ def test_t13_deepseek_unknown_perm_when_stat_fails(stub_env, tmp_path):
     assert not rec.exists()
 
 
+def test_t14_claude_code_default_model_effort_and_recursion_guard(stub_env):
+    env, rec = stub_env()
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    rec_data = json.loads(rec.read_text())
+    assert rec_data["argv"] == [
+        "--permission-mode",
+        "bypassPermissions",
+        "--disable-slash-commands",
+        "--model",
+        "sonnet",
+        "--effort",
+        "high",
+        "-p",
+        "hello",
+    ]
+    e = rec_data["env"]
+    assert e["TRINITY_DISABLE_DISPATCH"] == "1"
+    assert e["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert e["CLAUDE_CONFIG_DIR"].endswith(".claude-trinity-claude-code")
+
+
+def test_t14_claude_code_accepts_model_and_max_effort_overrides(stub_env):
+    env, rec = stub_env(
+        {
+            "TRINITY_CLAUDE_CODE_MODEL": "claude-sonnet-4-6",
+            "TRINITY_CLAUDE_CODE_EFFORT": "max",
+        }
+    )
+    res = _run(CLAUDE_CODE_BIN, ["--resume", "cc-sess", "-p", "continue"], env)
+    assert res.returncode == 0, res.stderr
+    assert json.loads(rec.read_text())["argv"] == [
+        "--permission-mode",
+        "bypassPermissions",
+        "--disable-slash-commands",
+        "--model",
+        "claude-sonnet-4-6",
+        "--effort",
+        "max",
+        "--resume",
+        "cc-sess",
+        "-p",
+        "continue",
+    ]
+
+
+def test_t14_claude_code_rejects_invalid_effort_before_invoking_claude(stub_env):
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_EFFORT": "ultra"})
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "invalid effort" in res.stderr
+    assert "low|medium|high|xhigh|max" in res.stderr
+    assert not rec.exists()
+
+
 # --- Sanity check on installed bits (these are the obvious RED indicators) ---
 
 
 def test_wrapper_scripts_exist_and_executable():
     assert DEEPSEEK_BIN.is_file(), f"{DEEPSEEK_BIN} missing"
     assert OPENROUTER_BIN.is_file(), f"{OPENROUTER_BIN} missing"
+    assert CLAUDE_CODE_BIN.is_file(), f"{CLAUDE_CODE_BIN} missing"
     assert os.access(DEEPSEEK_BIN, os.X_OK), f"{DEEPSEEK_BIN} not executable"
     assert os.access(OPENROUTER_BIN, os.X_OK), f"{OPENROUTER_BIN} not executable"
+    assert os.access(CLAUDE_CODE_BIN, os.X_OK), f"{CLAUDE_CODE_BIN} not executable"
 
 
 def test_wrappers_use_posix_sh_shebang():
-    for p in (DEEPSEEK_BIN, OPENROUTER_BIN):
+    for p in (DEEPSEEK_BIN, OPENROUTER_BIN, CLAUDE_CODE_BIN):
         first_line = p.read_text().splitlines()[0]
         assert first_line == "#!/bin/sh", (
             f"{p}: expected POSIX sh shebang, got {first_line!r}"

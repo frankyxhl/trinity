@@ -46,12 +46,12 @@ t1_happy_path() {
 
     if [ $RC -ne 0 ]; then _fail "T1: non-zero exit"; return; fi
 
-    # Verify trinity.json was created with all 5 providers
+    # Verify trinity.json was created with all 6 providers
     TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
     if [ ! -f "${TRINITY_JSON}" ]; then
         _fail "T1: ~/.claude/trinity.json not created"; rm -rf "${FAKE_HOME}"; return
     fi
-    for provider in glm codex gemini openrouter deepseek; do
+    for provider in glm codex gemini openrouter deepseek claude-code; do
         if ! python3 -c "import json,sys; d=json.load(open('${TRINITY_JSON}')); sys.exit(0 if '${provider}' in d.get('providers',{}) else 1)"; then
             _fail "T1: provider ${provider} missing from trinity.json"; rm -rf "${FAKE_HOME}"; return
         fi
@@ -69,13 +69,14 @@ t1_happy_path() {
         ".claude/agents/trinity-gemini.md"
         ".claude/agents/trinity-openrouter.md"
         ".claude/agents/trinity-deepseek.md"
+        ".claude/agents/trinity-claude-code.md"
     )
     for f in "${EXPECTED_FILES[@]}"; do
         if [ ! -f "${FAKE_HOME}/${f}" ]; then
             _fail "T1: missing ${f}"; rm -rf "${FAKE_HOME}"; return
         fi
     done
-    _pass "T1: happy path — all 11 files installed"
+    _pass "T1: happy path — all provider files installed"
     rm -rf "${FAKE_HOME}"
 }
 
@@ -200,8 +201,9 @@ t7_success_output_version() {
     rm -rf "${FAKE_HOME}"
 }
 
-# T9 (TRN-2008/2009): bin scripts present + executable; deepseek/openrouter
-# registered with absolute-path cli (no _cy reference).
+# T9 (TRN-2008/2009/TRN-2012): bin scripts present + executable;
+# deepseek/openrouter/claude-code registered with absolute-path cli (no _cy
+# reference).
 t9_bin_scripts_and_absolute_cli() {
     FAKE_HOME=$(mktemp -d)
     _start_server "${REPO_DIR}"
@@ -210,7 +212,7 @@ t9_bin_scripts_and_absolute_cli() {
     _stop_server
 
     BIN_DIR="${FAKE_HOME}/.claude/skills/trinity/bin"
-    for w in deepseek openrouter; do
+    for w in deepseek openrouter claude-code; do
         if [ ! -x "${BIN_DIR}/${w}" ]; then
             _fail "T9: ${BIN_DIR}/${w} missing or not executable"
             rm -rf "${FAKE_HOME}"; return
@@ -220,8 +222,10 @@ t9_bin_scripts_and_absolute_cli() {
     TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
     EXPECTED_DS="${BIN_DIR}/deepseek -p"
     EXPECTED_OR="${BIN_DIR}/openrouter -p"
+    EXPECTED_CC="${BIN_DIR}/claude-code -p"
     ACTUAL_DS=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['deepseek']['cli'])")
     ACTUAL_OR=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['openrouter']['cli'])")
+    ACTUAL_CC=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['claude-code']['cli'])")
 
     if [ "${ACTUAL_DS}" != "${EXPECTED_DS}" ]; then
         _fail "T9: deepseek cli mismatch: got '${ACTUAL_DS}' expected '${EXPECTED_DS}'"
@@ -231,6 +235,10 @@ t9_bin_scripts_and_absolute_cli() {
         _fail "T9: openrouter cli mismatch: got '${ACTUAL_OR}' expected '${EXPECTED_OR}'"
         rm -rf "${FAKE_HOME}"; return
     fi
+    if [ "${ACTUAL_CC}" != "${EXPECTED_CC}" ]; then
+        _fail "T9: claude-code cli mismatch: got '${ACTUAL_CC}' expected '${EXPECTED_CC}'"
+        rm -rf "${FAKE_HOME}"; return
+    fi
 
     # Sanity: no legacy _cy reference anywhere in trinity.json.
     if grep -q "_cy" "${TRINITY_JSON}"; then
@@ -238,7 +246,7 @@ t9_bin_scripts_and_absolute_cli() {
         rm -rf "${FAKE_HOME}"; return
     fi
 
-    _pass "T9: bin scripts installed + executable; deepseek/openrouter cli use absolute paths"
+    _pass "T9: bin scripts installed + executable; wrapper provider cli use absolute paths"
     rm -rf "${FAKE_HOME}"
 }
 
@@ -279,14 +287,14 @@ EOF
         rm -rf "${FAKE_HOME}"; return
     fi
 
-    # Other providers untouched (glm was pre-existing).
+    # GLM is migrated to the current highest-reasoning default.
     ACTUAL_GLM=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['glm']['cli'])")
-    if [ "${ACTUAL_GLM}" != "droid exec --model glm-5" ]; then
-        _fail "T11: glm registration mutated unexpectedly: '${ACTUAL_GLM}'"
+    if [ "${ACTUAL_GLM}" != "droid exec --auto medium --model glm-5.1 --reasoning-effort high" ]; then
+        _fail "T11: glm registration not migrated: '${ACTUAL_GLM}'"
         rm -rf "${FAKE_HOME}"; return
     fi
 
-    _pass "T11: legacy deepseek_cy/openrouter_cy cli overwritten with absolute paths; other providers untouched"
+    _pass "T11: legacy wrapper cli overwritten; glm migrated to current default"
     rm -rf "${FAKE_HOME}"
 }
 

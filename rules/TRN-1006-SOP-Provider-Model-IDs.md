@@ -1,8 +1,8 @@
 # SOP-1006: Provider Model IDs — Pinning and the `[1m]` Convention
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
+**Last updated:** 2026-05-06
+**Last reviewed:** 2026-05-06
 **Status:** Active
 **Related:** TRN-2005 (CHG: Pin trinity-codex to gpt-5.5), TRN-2009 (CHG: Remove zsh dependency)
 
@@ -81,11 +81,11 @@ Trinity's wrappers always double-quote the assignment (see `providers/bin/deepse
 
 Single source of truth per provider:
 
-| Provider | Model pin location | Pinned value (as of 2026-04-26) |
+| Provider | Model pin location | Pinned value (as of 2026-05-06) |
 |----------|--------------------|----------------------------------|
 | `codex` | `Makefile` `install` target + `install.sh` `register codex --cli` | `codex exec --skip-git-repo-check -m gpt-5.5` (TRN-2005) |
 | `gemini` | `providers/gemini.delta.md` `### New session` invocation | `gemini-3.1-pro-preview` |
-| `glm` | `Makefile` / `install.sh` `register glm --cli` | `droid exec --model glm-5` |
+| `glm` | `Makefile` / `install.sh` `register glm --cli`, `.agents/trinity.codex.json`, and `providers/glm.delta.md` | Claude Code install: `droid exec --auto medium --model glm-5.1 --reasoning-effort high`; Codex review: `droid exec --model glm-5.1 --reasoning-effort high` |
 | `deepseek` | `providers/bin/deepseek` env block | `ANTHROPIC_MODEL="deepseek-v4-pro[1m]"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash"` |
 | `openrouter` | `providers/bin/openrouter` env block | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
 
@@ -166,4 +166,5 @@ Tracked in `Makefile` install target and `install.sh` register call.
 
 | Date | Change | By |
 |------|--------|----|
+| 2026-05-06 | Update GLM pin location/value for GLM-5.1 plus explicit highest supported reasoning effort | Codex |
 | 2026-04-26 | Initial version — bracket-suffix convention, pin locations, update steps | Claude Opus 4.7 |
