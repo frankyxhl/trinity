@@ -2,10 +2,10 @@
 # tests/test_make_bump.sh — Regression test for cross-platform `make bump` (TRN-1801 cycle 1, evolve C1)
 #
 # The `bump` target rewrites __version__ in scripts/__init__.py, REQUIRED_VERSION
-# in SKILL.md, and the Codex plugin manifest version. Prior to this test, the target
-# used `sed -i ''` which is BSD-only — on Linux, `''` is interpreted as the input file
-# and the command fails. The fix is `perl -i -pe`, which is portable across macOS
-# (BSD) and Linux (GNU).
+# in SKILL.md, the Codex plugin manifest version, and README install-version
+# examples. Prior to this test, the target used `sed -i ''` which is BSD-only —
+# on Linux, `''` is interpreted as the input file and the command fails. The fix
+# is `perl -i -pe`, which is portable across macOS (BSD) and Linux (GNU).
 #
 # This test guards against silent regression to the BSD-only form, and verifies the
 # substitution semantics on a fixture file.
@@ -22,9 +22,9 @@ FAIL=0
 _pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 _fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
-# T1: portable in-place rewrite of __version__, REQUIRED_VERSION, and plugin
-# manifest version succeeds and preserves unrelated lines, on whichever OS the
-# test runs.
+# T1: portable in-place rewrite of __version__, REQUIRED_VERSION, plugin manifest
+# version, and README install-version examples succeeds and preserves unrelated
+# lines, on whichever OS the test runs.
 t1_portable_in_place_rewrite() {
     TMP=$(mktemp -d)
     cat > "${TMP}/init.py" <<'EOF'
@@ -43,10 +43,17 @@ EOF
   "description": "keep me"
 }
 EOF
+    cat > "${TMP}/README.md" <<'EOF'
+Trinity 0.0.0 installed to ~/.claude/
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=0.0.0 bash
+keep me
+EOF
 
     perl -i -pe 's/__version__ = ".*"/__version__ = "9.9.9"/' "${TMP}/init.py"
     perl -i -pe 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="9.9.9"/' "${TMP}/skill.md"
     perl -i -pe 's/^  "version": "[0-9]+\.[0-9]+\.[0-9]+",/  "version": "9.9.9",/' "${TMP}/plugin.json"
+    perl -i -pe 's#Trinity [0-9]+\.[0-9]+\.[0-9]+ installed to ~/\.claude/#Trinity 9.9.9 installed to ~/.claude/#' "${TMP}/README.md"
+    perl -i -pe 's/TRINITY_VERSION=[0-9]+\.[0-9]+\.[0-9]+/TRINITY_VERSION=9.9.9/' "${TMP}/README.md"
 
     grep -qx '__version__ = "9.9.9"' "${TMP}/init.py" \
         || { _fail "T1: __version__ not rewritten"; rm -rf "${TMP}"; return; }
@@ -60,6 +67,12 @@ EOF
         || { _fail "T1: plugin manifest version not rewritten"; rm -rf "${TMP}"; return; }
     grep -qx '  "description": "keep me"' "${TMP}/plugin.json" \
         || { _fail "T1: unrelated line in plugin.json lost"; rm -rf "${TMP}"; return; }
+    grep -qx 'Trinity 9.9.9 installed to ~/.claude/' "${TMP}/README.md" \
+        || { _fail "T1: README install output version not rewritten"; rm -rf "${TMP}"; return; }
+    grep -qx 'curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=9.9.9 bash' "${TMP}/README.md" \
+        || { _fail "T1: README TRINITY_VERSION example not rewritten"; rm -rf "${TMP}"; return; }
+    grep -qx 'keep me' "${TMP}/README.md" \
+        || { _fail "T1: unrelated line in README.md lost"; rm -rf "${TMP}"; return; }
 
     _pass "T1: perl -i -pe rewrites all version pins and preserves unrelated lines"
     rm -rf "${TMP}"
