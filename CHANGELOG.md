@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- README install-version examples now match `VERSION=3.1.0`, and the release metadata gate covers README examples via `make bump`, `make release-prep`, and tests.
+
 ## [3.1.0] - 2026-05-06
 
 ### Added

@@ -1,8 +1,8 @@
 # SOP-1004: Release — Trinity
 
 **Applies to:** trinity/ package
-**Last updated:** 2026-05-04
-**Last reviewed:** 2026-05-04
+**Last updated:** 2026-05-06
+**Last reviewed:** 2026-05-06
 **Status:** Active
 
 ---
@@ -36,7 +36,7 @@ Trinity releases are tag-driven and publish through GitHub Actions. This SOP kee
 ## Prerequisites
 
 - All feature code and tests committed (`git status` clean)
-- TRN-1003 completed on `main`: `CHANGELOG.md` has a non-empty `## [X.Y.Z]` section, `VERSION` / `scripts/__init__.py` / `SKILL.md` reflect `X.Y.Z`. (Easiest path: a "Release vX.Y.Z" PR with these 4 files, merged to main.)
+- TRN-1003 completed on `main`: `CHANGELOG.md` has a non-empty `## [X.Y.Z]` section, `VERSION` / `scripts/__init__.py` / `SKILL.md` / `plugins/trinity/.codex-plugin/plugin.json` / README install-version examples reflect `X.Y.Z`. (Easiest path: a "Release vX.Y.Z" PR with these metadata files, merged to main.)
 - `providers/*.md` is up-to-date with `*.delta.md` + `_base/` partials (TRN-2004) — `make verify-built` exits 0
 - One-time setup: tag-protection ruleset (see TRN-2007 §D11). Pattern `v[0-9]*.[0-9]*.[0-9]*` (fnmatch — GitHub Rulesets do NOT support regex `+`). Bypass list MUST include **Repository admin** with `Always` mode (covers Path B and the PAT-driven Path A push).
 - One-time setup: `RELEASE_TAG_PAT` repo secret (fine-grained PAT, repo-scoped, `Contents: Read and write`). Required for Path A on personal repos because the GitHub Actions integration cannot be added to a personal-repo ruleset bypass list. See TRN-2007 §D11 for the creation + rotation runbook. Path B and Path C work without this secret.
@@ -105,7 +105,7 @@ Same pre-flight runs. Workflow fails cleanly with "Release vX.Y.Z already exists
 
 - `make release` no longer exists (TRN-2006). Calling it prints `make: *** No rule to make target 'release'` — intended footgun-prevention.
 - All paths converge at the same publish step. The pre-flight checks (semver regex, tag↔VERSION, tag-on-main, CHANGELOG section non-empty) run identically regardless of entry point.
-- Workflow uses the auto-issued `GITHUB_TOKEN` only — no PAT, no OIDC, no secrets. Tag pushes still go through repository tag-protection rulesets.
+- Workflow uses `GITHUB_TOKEN` for release creation. Path A also requires the repo secret `RELEASE_TAG_PAT` for the one-click tag push because personal-repo tag rulesets cannot add GitHub Actions to the bypass list.
 
 ---
 
@@ -129,3 +129,4 @@ git push origin v3.1.0
 | 2026-04-25 | Add `make verify-built` prerequisite + step (TRN-2004) | Claude Opus 4.7 |
 | 2026-04-26 | Full rewrite: `make release` → `make release-prep` + CI publish (TRN-2006) | Claude Opus 4.7 |
 | 2026-04-26 | Add Path A (one-click), restructure into A/B/C paths (TRN-2007) | Claude Opus 4.7 |
+| 2026-05-06 | Add README install-version examples and Codex plugin manifest to the release metadata prerequisite; correct Path A token note. | Codex |

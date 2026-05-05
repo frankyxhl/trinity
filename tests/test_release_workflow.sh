@@ -214,6 +214,7 @@ check_neg "Makefile: release target removed"  grep -qE '^release:' Makefile
 check "Makefile: release-prep present"    grep -qE '^release-prep:' Makefile
 check "Makefile: setup uses uv→pip"       grep -q 'command -v uv' Makefile
 check "Makefile: release-prep stages plugin manifest" grep -qF 'plugins/trinity/.codex-plugin/plugin.json' Makefile
+check "Makefile: release-prep stages README" grep -qF 'README.md' Makefile
 
 echo "-- T11: multi-model review fixes (concurrency, 2-job split, env-mapping)"
 # Concurrency key prevents two release runs at once.

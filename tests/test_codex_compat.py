@@ -1,6 +1,7 @@
 """Tests for Codex skill/plugin compatibility packaging."""
 
 import json
+import re
 from pathlib import Path
 
 
@@ -95,6 +96,22 @@ def test_readme_documents_claude_and_codex_load_smoke_checks():
     assert ".agents/trinity.codex.json" in text
     assert "| `fast-review` | `glm`, `deepseek` | none |" in text
     assert "explicit `--providers`, explicit `--preset`" in text
+
+
+def test_readme_version_examples_match_version():
+    text = README.read_text()
+
+    install_output_versions = re.findall(
+        r"Trinity ([0-9]+\.[0-9]+\.[0-9]+) installed to ~/.claude/",
+        text,
+    )
+    pinned_install_versions = re.findall(
+        r"TRINITY_VERSION=([0-9]+\.[0-9]+\.[0-9]+)",
+        text,
+    )
+
+    assert install_output_versions == [VERSION]
+    assert pinned_install_versions == [VERSION]
 
 
 def test_codex_skill_documents_preset_resolution():
