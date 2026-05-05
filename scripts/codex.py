@@ -2,6 +2,7 @@
 """Codex-native Trinity command wrapper."""
 
 import argparse
+import concurrent.futures
 import datetime as dt
 import difflib
 import importlib.util
@@ -11,8 +12,11 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -32,6 +36,13 @@ STRICT_REVIEW_OUTPUT_SCHEMA = [
 STRICT_REVIEW_DECISION_RULE = (
     "PASS when weighted_average >= 9.0 and no blocking findings remain; otherwise FIX."
 )
+REVIEW_ONLY_INSTRUCTION = (
+    "## Review-Only Mode\n\n"
+    "Do not run tests, shell commands, network calls, or mutate files unless the "
+    "instructions in this review prompt explicitly ask you to. Base findings only "
+    "on the provided diff, file snapshots, and review context.\n"
+)
+PROCESS_GROUP_KILL_GRACE_SECONDS = 5
 STRICT_REVIEW_TEMPLATES = {
     ("COR-1602", "COR-1609"): {
         "pass_threshold": 9.0,
@@ -203,6 +214,20 @@ def append_unique(items, value):
         items.append(value)
 
 
+def reject_duplicate_providers(providers):
+    seen = set()
+    duplicates = []
+    for provider in providers:
+        if provider in seen and provider not in duplicates:
+            duplicates.append(provider)
+        seen.add(provider)
+    if duplicates:
+        raise SystemExit(
+            "trinity: duplicate provider selected: " + ", ".join(duplicates)
+        )
+    return providers
+
+
 def resolve_preset_providers(config, requested, source):
     resolved, preset = resolve_preset_name(config, requested, source)
     if not isinstance(preset, dict):
@@ -266,6 +291,7 @@ def resolve_review_providers(args, config):
         providers = split_provider_csv(args.providers)
         if not providers:
             raise SystemExit("trinity-codex: no providers selected")
+        reject_duplicate_providers(providers)
         warnings = []
         if args.preset:
             warnings.append(
@@ -294,6 +320,7 @@ def resolve_review_providers(args, config):
     providers = review_config.get("default_providers", [])
     if not providers:
         raise SystemExit("trinity-codex: no providers selected")
+    reject_duplicate_providers(providers)
     return (
         providers,
         {
@@ -868,9 +895,11 @@ def render_prompt(config, root, scope, review_input, strict_review=None):
         .replace("{files}", files)
     )
     if strict_review is None:
-        return prompt
+        return REVIEW_ONLY_INSTRUCTION + "\n" + prompt
     return (
         render_strict_review_instructions(strict_review)
+        + "\n"
+        + REVIEW_ONLY_INSTRUCTION
         + "\n## Review Artifact\n\n"
         + prompt
     )
@@ -913,7 +942,143 @@ def build_prompt_handoff(prompt_path):
     )
 
 
-def run_provider(provider, provider_config, prompt_path, review_dir, root):
+def progress(message):
+    print(f"trinity: {message}", file=sys.stderr, flush=True)
+
+
+def timestamp():
+    return dt.datetime.now().isoformat(timespec="seconds")
+
+
+def elapsed_seconds(started):
+    return max(0, int(time.monotonic() - started))
+
+
+class ActiveProcessRegistry:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._items = {}
+        self._started = set()
+
+    def add(self, provider, popen, started_at):
+        with self._lock:
+            self._started.add(provider)
+            self._items[provider] = {
+                "provider": provider,
+                "pid": popen.pid,
+                "popen": popen,
+                "started_at": started_at,
+            }
+
+    def remove(self, provider, popen):
+        with self._lock:
+            current = self._items.get(provider)
+            if current is not None and current["popen"] is popen:
+                self._items.pop(provider, None)
+
+    def snapshot(self):
+        with self._lock:
+            return list(self._items.values())
+
+    def started_providers(self):
+        with self._lock:
+            return set(self._started)
+
+
+class ReviewInterrupted(Exception):
+    def __init__(self, cleanup, started_providers):
+        super().__init__("review interrupted")
+        self.cleanup = cleanup
+        self.started_providers = started_providers
+
+
+class ReviewOrchestrationError(Exception):
+    def __init__(self, message, cleanup, started_providers):
+        super().__init__(message)
+        self.cleanup = cleanup
+        self.started_providers = started_providers
+
+
+def process_group_id(popen):
+    try:
+        return os.getpgid(popen.pid)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        return "permission_denied"
+
+
+def signal_process_group(popen, sig):
+    pgid = process_group_id(popen)
+    if pgid is None:
+        return "already_exited"
+    if pgid == "permission_denied":
+        return pgid
+    try:
+        os.killpg(pgid, sig)
+        return "signaled"
+    except ProcessLookupError:
+        return "already_exited"
+    except PermissionError:
+        return "permission_denied"
+
+
+def terminate_process_group(popen, grace_seconds=PROCESS_GROUP_KILL_GRACE_SECONDS):
+    if popen.poll() is not None:
+        return "already_exited"
+    term_status = signal_process_group(popen, signal.SIGTERM)
+    if term_status == "already_exited":
+        return term_status
+    if term_status != "signaled":
+        return term_status
+    try:
+        popen.wait(timeout=grace_seconds)
+        return "terminated"
+    except subprocess.TimeoutExpired:
+        kill_status = signal_process_group(popen, signal.SIGKILL)
+        if kill_status == "already_exited":
+            return kill_status
+        if kill_status != "signaled":
+            return kill_status
+        try:
+            popen.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:
+            return "kill_timeout"
+        return "killed"
+
+
+def cleanup_active_processes(registry):
+    cleanup = {}
+    for item in registry.snapshot():
+        cleanup[item["provider"]] = {
+            "pid": item["pid"],
+            "result": terminate_process_group(item["popen"]),
+        }
+    return cleanup
+
+
+def raw_output(stdout, stderr):
+    output = stdout or ""
+    if stderr:
+        output += "\n[stderr]\n" + stderr
+    return output
+
+
+def timeout_partial_output(exc, stdout=None, stderr=None):
+    def normalize(value):
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return value
+
+    return raw_output(
+        normalize(stdout) or normalize(exc.stdout),
+        normalize(stderr) or normalize(exc.stderr),
+    )
+
+
+def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
     raw_path = review_dir / "raw" / f"{provider}.txt"
     cmd = provider_command(provider, provider_config) + [
         build_prompt_handoff(prompt_path)
@@ -922,45 +1087,197 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root):
         timeout = provider_timeout(provider, provider_config)
     except ValueError as exc:
         raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
-    started = dt.datetime.now().isoformat(timespec="seconds")
+    started = timestamp()
+    started_monotonic = time.monotonic()
+    progress(f"starting provider {provider} timeout={timeout}s")
+    popen = None
     try:
-        result = subprocess.run(
+        popen = subprocess.Popen(
             cmd,
             cwd=str(root),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True,
-            timeout=timeout,
+            text=True,
+            start_new_session=True,
         )
-        output = result.stdout
-        if result.stderr:
-            output += "\n[stderr]\n" + result.stderr
-        raw_path.write_text(output)
+        registry.add(provider, popen, started)
+        stdout, stderr = popen.communicate(timeout=timeout)
+        raw_path.write_text(raw_output(stdout, stderr))
+        finished = timestamp()
+        progress(
+            f"provider {provider} finished returncode={popen.returncode} "
+            f"elapsed={elapsed_seconds(started_monotonic)}s"
+        )
         return {
             "provider": provider,
-            "returncode": result.returncode,
+            "returncode": popen.returncode,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
-            "finished_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "finished_at": finished,
         }
     except FileNotFoundError as exc:
         raw_path.write_text(f"ERROR: command not found: {exc}\n")
+        progress(
+            f"provider {provider} failed returncode=127 "
+            f"elapsed={elapsed_seconds(started_monotonic)}s"
+        )
         return {
             "provider": provider,
             "returncode": 127,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
-            "finished_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "finished_at": timestamp(),
         }
     except subprocess.TimeoutExpired as exc:
-        raw_path.write_text(f"ERROR: timeout after {timeout}s\n{exc}\n")
+        cleanup_result = terminate_process_group(popen)
+        stdout = None
+        stderr = None
+        try:
+            stdout, stderr = popen.communicate(timeout=1)
+        except (subprocess.TimeoutExpired, ValueError):
+            pass
+        partial = timeout_partial_output(exc, stdout, stderr)
+        output = f"ERROR: timeout after {timeout}s\n{exc}\n"
+        if partial:
+            output += "\n[partial output]\n" + partial
+        raw_path.write_text(output)
+        progress(
+            f"provider {provider} timed out returncode=124 "
+            f"cleanup={cleanup_result} elapsed={elapsed_seconds(started_monotonic)}s"
+        )
         return {
             "provider": provider,
             "returncode": 124,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
-            "finished_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "finished_at": timestamp(),
         }
+    except Exception:
+        if popen is not None and popen.poll() is None:
+            terminate_process_group(popen)
+        raise
+    finally:
+        if popen is not None:
+            registry.remove(provider, popen)
+
+
+def review_parallelism(config, providers):
+    review_config = review_section(config)
+    raw_value = review_config.get("max_parallel_providers")
+    if raw_value is None:
+        return len(providers)
+    if isinstance(raw_value, bool) or not isinstance(raw_value, int):
+        raise SystemExit(
+            "trinity: review.max_parallel_providers must be an integer "
+            f"between 1 and {len(providers)}"
+        )
+    if raw_value < 1 or raw_value > len(providers):
+        raise SystemExit(
+            f"trinity: review.max_parallel_providers must be between 1 and {len(providers)}"
+        )
+    return raw_value
+
+
+def run_providers(
+    max_workers,
+    providers,
+    provider_configs,
+    prompt_path,
+    review_dir,
+    root,
+):
+    registry = ActiveProcessRegistry()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    provider_iter = iter(providers)
+    futures = {}
+    results = {}
+
+    def submit_provider(provider):
+        future = executor.submit(
+            run_provider,
+            provider,
+            provider_configs[provider],
+            prompt_path,
+            review_dir,
+            root,
+            registry,
+        )
+        futures[future] = provider
+
+    try:
+        for provider in provider_iter:
+            submit_provider(provider)
+            if len(futures) >= max_workers:
+                break
+        while futures:
+            done, _ = concurrent.futures.wait(
+                futures, return_when=concurrent.futures.FIRST_COMPLETED
+            )
+            for future in done:
+                provider = futures.pop(future)
+                results[provider] = future.result()
+                try:
+                    submit_provider(next(provider_iter))
+                except StopIteration:
+                    pass
+    except KeyboardInterrupt as exc:
+        for future in futures:
+            future.cancel()
+        started_providers = registry.started_providers()
+        cleanup = cleanup_active_processes(registry)
+        executor.shutdown(wait=False)
+        raise ReviewInterrupted(cleanup, started_providers) from exc
+    except Exception as exc:
+        for future in futures:
+            future.cancel()
+        started_providers = registry.started_providers()
+        cleanup = cleanup_active_processes(registry)
+        executor.shutdown(wait=False)
+        raise ReviewOrchestrationError(str(exc), cleanup, started_providers) from exc
+    else:
+        executor.shutdown(wait=True)
+    return [results[provider] for provider in providers]
+
+
+def ordered_subset(providers, selected):
+    selected = set(selected)
+    ordered = [provider for provider in providers if provider in selected]
+    ordered.extend(sorted(selected.difference(providers)))
+    return ordered
+
+
+def ordered_cleanup(providers, cleanup):
+    payload = {
+        provider: cleanup[provider] for provider in providers if provider in cleanup
+    }
+    for provider in sorted(set(cleanup).difference(payload)):
+        payload[provider] = cleanup[provider]
+    return payload
+
+
+def write_incomplete(
+    review_dir,
+    status,
+    providers,
+    started_providers,
+    cleanup,
+    message=None,
+):
+    cleanup_payload = ordered_cleanup(providers, cleanup)
+    payload = {
+        "status": status,
+        "timestamp": timestamp(),
+        "review_dir": str(review_dir),
+        "providers_selected": providers,
+        "providers_started": ordered_subset(providers, started_providers),
+        "providers_running_at_cleanup": ordered_subset(providers, cleanup),
+        "cleanup": cleanup_payload,
+    }
+    if message:
+        payload["message"] = message
+    (review_dir / "incomplete.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    )
 
 
 def write_synthesis(review_dir, scope, results):
@@ -987,10 +1304,11 @@ def write_synthesis(review_dir, scope, results):
         ]
     )
     path = review_dir / "synthesis.md"
-    path.write_text("\n".join(lines))
+    path.write_text("\n".join(lines) + "\n")
 
 
 def cmd_review(args):
+    progress("preparing review prompt")
     root = resolve_root(args.root)
     config = load_config(args.config)
     providers, preset_metadata, resolver_warnings = resolve_review_providers(
@@ -1007,6 +1325,7 @@ def cmd_review(args):
     if not health_results_ok(health):
         print(format_health_results(health), file=sys.stderr)
         return 1
+    max_workers = review_parallelism(config, providers)
     review_input = resolve_review_input(args, root)
 
     out_base = args.out_dir or config.get("review", {}).get(
@@ -1016,37 +1335,72 @@ def cmd_review(args):
     if not out_base.is_absolute():
         out_base = root / out_base
     review_dir = make_review_dir(out_base, args.scope)
-    prompt = render_prompt(config, root, args.scope, review_input, strict_review)
-    prompt_path = review_dir / "prompt.md"
-    prompt_path.write_text(prompt)
 
-    results = []
-    for provider in providers:
-        results.append(
-            run_provider(
-                provider,
-                provider_configs[provider],
-                prompt_path,
-                review_dir,
-                root,
-            )
+    try:
+        prompt = render_prompt(config, root, args.scope, review_input, strict_review)
+        prompt_path = review_dir / "prompt.md"
+        progress("writing prompt")
+        prompt_path.write_text(prompt)
+        results = run_providers(
+            max_workers,
+            providers,
+            provider_configs,
+            prompt_path,
+            review_dir,
+            root,
         )
-    metadata = {
-        "scope": args.scope,
-        "root": str(root),
-        "providers": providers,
-        "preset": preset_metadata,
-        "input": review_input["metadata"],
-        "results": results,
-    }
-    if strict_review is not None:
-        metadata["strict_review"] = {
-            key: value for key, value in strict_review.items() if key != "template"
+        metadata = {
+            "scope": args.scope,
+            "root": str(root),
+            "providers": providers,
+            "preset": preset_metadata,
+            "input": review_input["metadata"],
+            "results": results,
         }
-    (review_dir / "metadata.json").write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
-    )
-    write_synthesis(review_dir, args.scope, results)
+        if strict_review is not None:
+            metadata["strict_review"] = {
+                key: value for key, value in strict_review.items() if key != "template"
+            }
+        progress("writing metadata")
+        (review_dir / "metadata.json").write_text(
+            json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
+        )
+        progress("writing synthesis")
+        write_synthesis(review_dir, args.scope, results)
+    except KeyboardInterrupt:
+        started_providers = providers if "results" in locals() else []
+        write_incomplete(review_dir, "interrupted", providers, started_providers, {})
+        print(review_dir)
+        return 130
+    except ReviewInterrupted as exc:
+        write_incomplete(
+            review_dir,
+            "interrupted",
+            providers,
+            exc.started_providers,
+            exc.cleanup,
+        )
+        print(review_dir)
+        return 130
+    except ReviewOrchestrationError as exc:
+        write_incomplete(
+            review_dir,
+            "failed",
+            providers,
+            exc.started_providers,
+            exc.cleanup,
+            str(exc),
+        )
+        print(review_dir)
+        return 1
+    except Exception as exc:
+        started_providers = providers if "results" in locals() else []
+        write_incomplete(
+            review_dir, "failed", providers, started_providers, {}, str(exc)
+        )
+        print(review_dir)
+        return 1
+
     print(review_dir)
     return 0 if all(item["returncode"] == 0 for item in results) else 1
 

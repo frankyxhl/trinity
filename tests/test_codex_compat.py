@@ -89,6 +89,9 @@ def test_readme_documents_claude_and_codex_load_smoke_checks():
     assert "trinity review --pr 21 --preset deep-review" in text
     assert "trinity review --sop COR-1602 --rubric COR-1609" in text
     assert "Strict COR review mode" in text
+    assert "review.max_parallel_providers" in text
+    assert "Progress is logged to stderr" in text
+    assert "incomplete.json" in text
     assert ".agents/trinity.codex.json" in text
     assert "| `fast-review` | `glm`, `deepseek` | none |" in text
     assert "explicit `--providers`, explicit `--preset`" in text
@@ -102,6 +105,9 @@ def test_codex_skill_documents_preset_resolution():
     assert "trinity review --sop COR-1602 --rubric COR-1609" in text
     assert "strict template is `COR-1602` with `COR-1609`" in text
     assert "`fast-review` expands to `glm` and `deepseek`" in text
+    assert "review.max_parallel_providers" in text
+    assert "Progress is written to stderr" in text
+    assert "incomplete.json" in text
     assert "review.default_preset" in text
     assert "skipped providers are recorded" in text
 
