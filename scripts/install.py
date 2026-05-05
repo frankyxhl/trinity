@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
 
 
 def _load_version():
@@ -50,15 +51,26 @@ def atomic_update(path, update_fn):
                 file=sys.stderr,
             )
             sys.exit(1)
+    else:
+        dir_path = "."
 
+    base_name = os.path.basename(path)
+    lock_path = os.path.join(dir_path, f".{base_name}.lock")
+    tmp_path = None
     try:
-        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-        with os.fdopen(fd, "r+") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+        with os.fdopen(lock_fd, "r+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
-                f.seek(0)
-                content = f.read()
-                if content.strip():
+                try:
+                    with open(path, encoding="utf-8") as current:
+                        content = current.read()
+                except FileNotFoundError:
+                    content = ""
+
+                if not content.strip():
+                    data = {}
+                else:
                     try:
                         data = json.loads(content)
                     except json.JSONDecodeError as e:
@@ -67,15 +79,34 @@ def atomic_update(path, update_fn):
                             file=sys.stderr,
                         )
                         sys.exit(1)
-                else:
-                    data = {}
-                data = update_fn(data)
-                f.seek(0)
-                f.truncate()
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                f.write("\n")
+
+                updated = update_fn(data)
+                if updated is not None:
+                    data = updated
+
+                with tempfile.NamedTemporaryFile(
+                    "w",
+                    encoding="utf-8",
+                    dir=dir_path,
+                    prefix=f".{base_name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as tmp:
+                    tmp_path = tmp.name
+                    json.dump(data, tmp, indent=2, ensure_ascii=False)
+                    tmp.write("\n")
+                    tmp.flush()
+                    os.fsync(tmp.fileno())
+
+                os.replace(tmp_path, path)
+                tmp_path = None
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except FileNotFoundError:
+                        pass
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
     except OSError as e:
         print(f"trinity-scripts: IO error writing {path}: {e}", file=sys.stderr)
         sys.exit(1)
