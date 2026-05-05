@@ -32,6 +32,9 @@ trinity review --preset fast-review --scope <path-or-label>
 trinity review --preset dr --scope <path-or-label>
 trinity review --base main --head HEAD --providers glm,deepseek
 trinity review --pr 21 --preset deep-review
+trinity review --sop COR-1602 --rubric COR-1609 --scope <path-or-label>
+trinity review --sop COR-1602 --rubric COR-1609 --base main --head HEAD --preset fast-review
+trinity review --sop COR-1602 --rubric COR-1609 --pr 21 --preset deep-review
 ```
 
 The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
@@ -49,6 +52,10 @@ they lack config or a CLI, and skipped providers are recorded in
 command lookup, executable permissions, and timeout values without making network
 calls. Use the default review mode for dirty working-tree changes, `--base` /
 `--head` for committed branch reviews, and `--pr` for GitHub PR reviews.
+Pair `--sop` and `--rubric` for strict COR review mode. The first supported
+strict template is `COR-1602` with `COR-1609`; it asks reviewers for findings,
+a decision matrix, weighted average, and PASS/FIX, then records the selected
+SOP/rubric metadata in `metadata.json`.
 
 ## Host Boundary
 

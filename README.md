@@ -257,6 +257,9 @@ trinity review --preset fast-review --scope spikes/hardline
 trinity review --preset dr --scope .
 trinity review --base main --head HEAD --providers glm,deepseek
 trinity review --pr 21 --preset deep-review
+trinity review --sop COR-1602 --rubric COR-1609 --scope rules/TRN-2016-CHG-COR-1602-Strict-Review-Mode.md
+trinity review --sop COR-1602 --rubric COR-1609 --base main --head HEAD --preset fast-review
+trinity review --sop COR-1602 --rubric COR-1609 --pr 21 --preset deep-review
 ```
 
 Without `--pr` or `--base/--head`, the review wrapper collects tracked and
@@ -271,6 +274,13 @@ directories are created. If a preset has optional providers that are not
 configured or have no CLI, they are skipped with a stderr warning and recorded
 in `metadata.json`; required providers still fail preflight when unavailable.
 This path does not require Claude Code worker-agent files.
+
+Strict COR review mode is enabled by pairing `--sop` and `--rubric`. The first
+supported template is `COR-1602` with the `COR-1609` CHG rubric. It prepends
+rubric weights, COR-1611 calibration guidance, the 9.0 PASS threshold, and the
+required findings / decision-matrix / weighted-average output schema to the
+normal review prompt. The selected SOP, rubric, threshold, and output schema
+are recorded in `metadata.json`.
 
 **Codex repo-local skill**
 
