@@ -794,6 +794,11 @@ def test_codex_review_strict_cor1602_cor1609_prompt_and_metadata(tmp_path):
     assert "### Decision Matrix" in prompt
     assert "**Weighted Average: X.X/10 - PASS/FIX**" in prompt
     assert "COR-1611" in prompt
+    assert "## Review-Only Mode" in prompt
+    assert prompt.index("## Strict COR Review Mode") < prompt.index(
+        "## Review-Only Mode"
+    )
+    assert prompt.index("## Review-Only Mode") < prompt.index("## Review Artifact")
     assert "after" in prompt
 
     metadata = json.loads((review_dir / "metadata.json").read_text())

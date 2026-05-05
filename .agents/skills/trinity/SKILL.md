@@ -40,6 +40,11 @@ trinity review --sop COR-1602 --rubric COR-1609 --pr 21 --preset deep-review
 The wrapper loads `~/.codex/trinity.json`, whose repo default lives at
 `.agents/trinity.codex.json`. It calls provider CLIs directly, saves raw outputs,
 and writes a deterministic synthesis markdown under `.trinity/reviews/`.
+Review providers run concurrently up to `review.max_parallel_providers`
+(default: selected provider count). Progress is written to stderr; stdout
+remains the review directory path. Interrupted reviews that cannot write final
+metadata and synthesis are marked with `incomplete.json` in the review
+directory.
 The review preset resolver selects providers from explicit `--providers`,
 explicit `--preset`, `review.default_preset`, then legacy
 `review.default_providers`. `review` expands to `glm`, `gemini`, and

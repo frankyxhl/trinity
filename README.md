@@ -268,12 +268,17 @@ branch changes from `git diff base...head` and snapshots changed files from the
 head commit. With `--pr`, it uses `gh pr view` / `gh pr diff` for the GitHub PR
 patch and metadata, then snapshots changed files from the PR head commit when
 that commit is locally available. All modes call each provider CLI directly,
-store raw provider outputs, and write a deterministic `synthesis.md` under
-`.trinity/reviews/`. Selected providers are preflighted before output
-directories are created. If a preset has optional providers that are not
-configured or have no CLI, they are skipped with a stderr warning and recorded
-in `metadata.json`; required providers still fail preflight when unavailable.
-This path does not require Claude Code worker-agent files.
+run selected providers concurrently up to
+`review.max_parallel_providers` (default: selected provider count), store raw
+provider outputs, and write a deterministic `synthesis.md` under
+`.trinity/reviews/`. Progress is logged to stderr, while stdout remains the
+review directory path. If a review is interrupted before final artifacts are
+written, the review directory contains `incomplete.json` with cleanup details.
+Selected providers are preflighted before output directories are created. If a
+preset has optional providers that are not configured or have no CLI, they are
+skipped with a stderr warning and recorded in `metadata.json`; required
+providers still fail preflight when unavailable. This path does not require
+Claude Code worker-agent files.
 
 Strict COR review mode is enabled by pairing `--sop` and `--rubric`. The first
 supported template is `COR-1602` with the `COR-1609` CHG rubric. It prepends
