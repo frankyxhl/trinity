@@ -755,6 +755,296 @@ def test_codex_review_uses_short_prompt_file_handoff_for_large_diffs(tmp_path):
     assert "large-prompt-file-ok" in raw
 
 
+def test_codex_review_strict_cor1602_cor1609_prompt_and_metadata(tmp_path):
+    repo = simple_repo(tmp_path)
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--providers",
+            "glm",
+            "--sop",
+            "COR-1602",
+            "--rubric",
+            "COR-1609",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    prompt = (review_dir / "prompt.md").read_text()
+    assert "## Strict COR Review Mode" in prompt
+    assert "SOP: COR-1602" in prompt
+    assert "Rubric: COR-1609" in prompt
+    assert "PASS threshold: 9.0/10" in prompt
+    assert "Correctness | 25%" in prompt
+    assert "Completeness | 25%" in prompt
+    assert "TDD Plan Quality | 20%" in prompt
+    assert "Rollback Safety | 15%" in prompt
+    assert "### Decision Matrix" in prompt
+    assert "**Weighted Average: X.X/10 - PASS/FIX**" in prompt
+    assert "COR-1611" in prompt
+    assert "after" in prompt
+
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["strict_review"] == {
+        "enabled": True,
+        "sop": "COR-1602",
+        "rubric": "COR-1609",
+        "pass_threshold": 9.0,
+        "calibration": "COR-1611",
+        "decision_rule": (
+            "PASS when weighted_average >= 9.0 and no blocking findings remain; "
+            "otherwise FIX."
+        ),
+        "output_schema": [
+            "### Findings",
+            "### Decision Matrix",
+            "**Weighted Average: X.X/10 - PASS/FIX**",
+        ],
+    }
+
+
+def test_codex_review_strict_mode_requires_sop_and_rubric_pair(tmp_path):
+    repo = simple_repo(tmp_path)
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+
+    cases = [
+        ("sop-only", ["--sop", "COR-1602"]),
+        ("rubric-only", ["--rubric", "COR-1609"]),
+    ]
+    for label, flags in cases:
+        out_dir = tmp_path / f"reviews-{label}"
+        rc, out, err = run_codex(
+            [
+                "review",
+                "--root",
+                str(repo),
+                "--config",
+                str(config),
+                "--providers",
+                "glm",
+                *flags,
+                "--out-dir",
+                str(out_dir),
+            ]
+        )
+
+        assert rc == 1
+        assert out == ""
+        assert "trinity: --sop and --rubric must be used together" in err
+        assert not out_dir.exists()
+
+
+def test_codex_review_strict_mode_rejects_invalid_doc_id_format(tmp_path):
+    repo = simple_repo(tmp_path)
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--providers",
+            "glm",
+            "--sop",
+            "COR1602",
+            "--rubric",
+            "COR-1609",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: --sop must look like COR-1602" in err
+    assert not out_dir.exists()
+
+
+def test_codex_review_strict_mode_rejects_unsupported_template(tmp_path):
+    repo = simple_repo(tmp_path)
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--providers",
+            "glm",
+            "--sop",
+            "COR-1602",
+            "--rubric",
+            "COR-1610",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert (
+        "trinity: unsupported strict review template: SOP COR-1602 with rubric COR-1610"
+        in err
+    )
+    assert not out_dir.exists()
+
+
+def test_codex_review_strict_mode_combines_with_pr_and_preset(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    tracked = repo / "review.txt"
+    tracked.write_text("base version\n")
+    commit_all(repo, "base")
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=repo, check=True)
+    tracked.write_text("strict pr head snapshot\n")
+    commit_all(repo, "feature change")
+    head_oid = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm", "deepseek"])
+    gh = fake_bin / "gh"
+    gh.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:3] == ['pr', 'diff', '456']:\n"
+        "    print('diff --git a/review.txt b/review.txt')\n"
+        "    print('+from mocked strict gh pr diff')\n"
+        "elif args[:3] == ['pr', 'view', '456']:\n"
+        "    print(json.dumps({\n"
+        "        'number': 456,\n"
+        "        'url': 'https://github.example/pr/456',\n"
+        "        'baseRefName': 'main',\n"
+        "        'headRefName': 'feature',\n"
+        f"        'headRefOid': '{head_oid}',\n"
+        "        'files': [{'path': 'review.txt', 'changeType': 'MODIFIED'}],\n"
+        "    }))\n"
+        "else:\n"
+        "    raise SystemExit(f'unexpected gh args: {args}')\n"
+    )
+    gh.chmod(0o755)
+    config = tmp_path / "codex.json"
+    preset_review_config(config, fake_bin)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--preset",
+            "fr",
+            "--pr",
+            "456",
+            "--sop",
+            "COR-1602",
+            "--rubric",
+            "COR-1609",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ],
+        env=env,
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    prompt = (review_dir / "prompt.md").read_text()
+    assert "from mocked strict gh pr diff" in prompt
+    assert "strict pr head snapshot" in prompt
+    assert "## Strict COR Review Mode" in prompt
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["providers"] == ["glm", "deepseek"]
+    assert metadata["preset"]["resolved"] == "fast-review"
+    assert metadata["input"]["pr"] == 456
+    assert metadata["input"]["head_oid"] == head_oid
+    assert metadata["strict_review"]["sop"] == "COR-1602"
+    assert metadata["strict_review"]["rubric"] == "COR-1609"
+
+
+def test_codex_review_strict_mode_combines_with_base_head(tmp_path):
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    tracked = repo / "review.txt"
+    tracked.write_text("base version\n")
+    commit_all(repo, "base")
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=repo, check=True)
+    tracked.write_text("strict base-head snapshot\n")
+    commit_all(repo, "feature change")
+
+    provider = tmp_path / "provider"
+    write_fake_provider(provider)
+    config = tmp_path / "codex.json"
+    simple_review_config(config, provider)
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--base",
+            "main",
+            "--head",
+            "feature",
+            "--sop",
+            "COR-1602",
+            "--rubric",
+            "COR-1609",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert rc == 0, err
+    review_dir = Path(out)
+    prompt = (review_dir / "prompt.md").read_text()
+    assert "strict base-head snapshot" in prompt
+    assert "## Strict COR Review Mode" in prompt
+    metadata = json.loads((review_dir / "metadata.json").read_text())
+    assert metadata["input"]["mode"] == "base-head"
+    assert metadata["input"]["base"] == "main"
+    assert metadata["input"]["head"] == "feature"
+    assert metadata["strict_review"]["sop"] == "COR-1602"
+    assert metadata["strict_review"]["rubric"] == "COR-1609"
+
+
 def test_codex_review_base_head_collects_committed_diff_and_head_snapshots(tmp_path):
     repo = tmp_path / "repo"
     init_repo(repo)

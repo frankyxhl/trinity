@@ -24,6 +24,36 @@ DEFAULT_CONFIG_CANDIDATES = [
 DEFAULT_CONFIG_SECTIONS = ("providers", "review", "presets", "preset_aliases")
 PRESET_TASK_TYPES = {"tdd", "review", "prp", "general"}
 PRESET_ALIAS_RESERVED_WORDS = {"init-config", "doctor", "review", "help"}
+STRICT_REVIEW_OUTPUT_SCHEMA = [
+    "### Findings",
+    "### Decision Matrix",
+    "**Weighted Average: X.X/10 - PASS/FIX**",
+]
+STRICT_REVIEW_DECISION_RULE = (
+    "PASS when weighted_average >= 9.0 and no blocking findings remain; otherwise FIX."
+)
+STRICT_REVIEW_TEMPLATES = {
+    ("COR-1602", "COR-1609"): {
+        "pass_threshold": 9.0,
+        "calibration": "COR-1611",
+        "rubric_title": "CHG Review Scoring",
+        "criteria": [
+            ("Correctness", "25%", "Change is technically sound and feasible."),
+            ("Completeness", "25%", "CHG covers scope, risks, verification, and docs."),
+            (
+                "TDD Plan Quality",
+                "20%",
+                "Plan uses RED/GREEN/REFACTOR where code changes are involved.",
+            ),
+            ("Consistency", "15%", "Fits local conventions and related COR/TRN docs."),
+            ("Rollback Safety", "15%", "Rollback path and blast radius are clear."),
+        ],
+        "non_code_note": (
+            "For non-code CHGs where TDD is not applicable, redistribute the TDD "
+            "weight to Completeness (35%) and Consistency (25%)."
+        ),
+    }
+}
 
 
 def _load_version():
@@ -739,15 +769,110 @@ def resolve_review_input(args, root):
     return working_tree_review_input(root, args.scope)
 
 
-def render_prompt(config, root, scope, review_input):
+def normalize_review_doc_id(value, flag):
+    normalized = (value or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}-\d{4}", normalized):
+        raise SystemExit(f"trinity: {flag} must look like COR-1602")
+    return normalized
+
+
+def strict_review_metadata(sop, rubric, template):
+    return {
+        "enabled": True,
+        "sop": sop,
+        "rubric": rubric,
+        "pass_threshold": template["pass_threshold"],
+        "calibration": template["calibration"],
+        "decision_rule": STRICT_REVIEW_DECISION_RULE,
+        "output_schema": list(STRICT_REVIEW_OUTPUT_SCHEMA),
+    }
+
+
+def resolve_strict_review(args):
+    if bool(args.sop) != bool(args.rubric):
+        raise SystemExit("trinity: --sop and --rubric must be used together")
+    if not args.sop and not args.rubric:
+        return None
+
+    sop = normalize_review_doc_id(args.sop, "--sop")
+    rubric = normalize_review_doc_id(args.rubric, "--rubric")
+    template = STRICT_REVIEW_TEMPLATES.get((sop, rubric))
+    if template is None:
+        raise SystemExit(
+            f"trinity: unsupported strict review template: SOP {sop} with rubric {rubric}"
+        )
+    metadata = strict_review_metadata(sop, rubric, template)
+    return {**metadata, "template": template}
+
+
+def render_strict_review_instructions(strict_review):
+    template = strict_review["template"]
+    lines = [
+        "## Strict COR Review Mode",
+        "",
+        f"SOP: {strict_review['sop']}",
+        f"Rubric: {strict_review['rubric']} ({template['rubric_title']})",
+        f"Calibration: {strict_review['calibration']}",
+        f"PASS threshold: {strict_review['pass_threshold']:.1f}/10",
+        "",
+        "Follow the SOP workflow and score the artifact with this rubric:",
+        "",
+        "| Criterion | Weight | Scoring focus |",
+        "|-----------|--------|---------------|",
+    ]
+    for criterion, weight, focus in template["criteria"]:
+        lines.append(f"| {criterion} | {weight} | {focus} |")
+
+    matrix_rows = [
+        f"| {criterion} | {weight} | X.X | ... |"
+        for criterion, weight, _focus in template["criteria"]
+    ]
+    lines.extend(
+        [
+            "",
+            template["non_code_note"],
+            "",
+            "Use COR-1611 calibration: cite every deduction, distinguish blocking "
+            "findings from advisory improvements, and reserve 10/10 for zero "
+            "remaining improvements.",
+            "",
+            "Required output:",
+            "",
+            "### Findings",
+            "",
+            "- List each finding with severity, file/path reference when applicable, "
+            "and whether it is blocking or advisory.",
+            "",
+            "### Decision Matrix",
+            "",
+            "| Criterion | Weight | Score | Rationale |",
+            "|-----------|--------|-------|-----------|",
+            *matrix_rows,
+            "",
+            "**Weighted Average: X.X/10 - PASS/FIX**",
+            "",
+            STRICT_REVIEW_DECISION_RULE,
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def render_prompt(config, root, scope, review_input, strict_review=None):
     diff = review_input["diff"]
     files = review_input["files"]
     template = config.get("review", {}).get("prompt_template", "{diff}\n\n{files}\n")
-    return (
+    prompt = (
         template.replace("{scope}", scope or ".")
         .replace("{root}", str(root))
         .replace("{diff}", diff)
         .replace("{files}", files)
+    )
+    if strict_review is None:
+        return prompt
+    return (
+        render_strict_review_instructions(strict_review)
+        + "\n## Review Artifact\n\n"
+        + prompt
     )
 
 
@@ -871,6 +996,7 @@ def cmd_review(args):
     providers, preset_metadata, resolver_warnings = resolve_review_providers(
         args, config
     )
+    strict_review = resolve_strict_review(args)
     for warning in resolver_warnings:
         print(warning, file=sys.stderr)
     provider_configs = config.get("providers", {})
@@ -890,7 +1016,7 @@ def cmd_review(args):
     if not out_base.is_absolute():
         out_base = root / out_base
     review_dir = make_review_dir(out_base, args.scope)
-    prompt = render_prompt(config, root, args.scope, review_input)
+    prompt = render_prompt(config, root, args.scope, review_input, strict_review)
     prompt_path = review_dir / "prompt.md"
     prompt_path.write_text(prompt)
 
@@ -913,6 +1039,10 @@ def cmd_review(args):
         "input": review_input["metadata"],
         "results": results,
     }
+    if strict_review is not None:
+        metadata["strict_review"] = {
+            key: value for key, value in strict_review.items() if key != "template"
+        }
     (review_dir / "metadata.json").write_text(
         json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
     )
@@ -957,6 +1087,8 @@ def build_parser():
     review.add_argument("--pr", type=int)
     review.add_argument("--base")
     review.add_argument("--head")
+    review.add_argument("--sop")
+    review.add_argument("--rubric")
     return parser
 
 
