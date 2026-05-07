@@ -2,7 +2,13 @@
 # tests/test_install_sh.sh — Shell-level tests for install.sh
 #
 # Usage: bash tests/test_install_sh.sh
-# Requires: python3 (for local HTTP server), bash, curl
+# Requires: bash, curl
+#
+# install.sh's $TRINITY_BASE_URL is consumed verbatim by `curl -fsSL`. curl
+# supports `file://` natively, so each test points TRINITY_BASE_URL at a
+# local directory served from disk — no fake HTTP server, no port, no
+# background process, no race window. See TRN-2025-CHG for the full
+# rationale and the panel review that motivated this design.
 
 set -e
 
@@ -10,64 +16,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_SCRIPT="${REPO_DIR}/install.sh"
 
+# Sanity-check that REPO_DIR doesn't contain characters that file:// URLs
+# can't tolerate (spaces, # / ? without escaping). curl 8.x will reject the
+# URL outright in those cases. CI runners and `mktemp -d` paths are clean,
+# but a developer's clone under e.g. `/Users/foo/My Projects/trinity` would
+# trip without this guard. Fail fast with a clear error rather than letting
+# the failure surface as a curl-22 inside install.sh's ERR trap.
+case "${REPO_DIR}" in
+    *' '*|*'?'*|*'#'*)
+        echo "FAIL: REPO_DIR contains characters incompatible with bare file:// URLs: ${REPO_DIR}" >&2
+        echo "      Move the clone to a path without spaces / ? / # before running this test." >&2
+        exit 1
+        ;;
+esac
+
 PASS=0
 FAIL=0
 
 _pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 _fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
-# Start a local HTTP server serving the repo root
-_start_server() {
-    SERVE_DIR="$1"
-    # Allocate a free OS-assigned port. Avoids collisions on developer machines
-    # and CI workers, and fails the test cleanly if no port is available rather
-    # than silently talking to an unrelated process on a hard-coded port.
-    SERVER_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()') || {
-        echo "FAIL: could not allocate a free local port" >&2
-        exit 1
-    }
-    # Bind to loopback explicitly. Without --bind, http.server listens on
-    # 0.0.0.0 and exposes ${SERVE_DIR} (the repo) to any host on the local
-    # network for the duration of the test run.
-    python3 -m http.server "${SERVER_PORT}" --bind 127.0.0.1 \
-        --directory "${SERVE_DIR}" >/dev/null 2>&1 &
-    SERVER_PID=$!
-    # Install an EXIT/INT/TERM trap so a failing test (e.g. install.sh exits
-    # non-zero under `set -e`) doesn't leak the background http.server. The
-    # trap fires whether the script exits cleanly, by signal, or by `set -e`
-    # abort. _stop_server is idempotent, so a successful test that calls it
-    # explicitly later is harmless.
-    trap '_stop_server' EXIT INT TERM
-    # Wait for the server to be ready; fail fast (with a clear error) if it
-    # never binds — e.g. the small race between socket close and http.server
-    # bind was lost, or python died for any other reason. Probe the server
-    # root rather than /VERSION because some tests (T6) intentionally serve
-    # directories that lack VERSION.
-    for i in $(seq 1 20); do
-        curl -sf -o /dev/null "http://localhost:${SERVER_PORT}/" 2>/dev/null && return 0
-        sleep 0.2
-    done
-    echo "FAIL: local http server failed to start on port ${SERVER_PORT}" >&2
-    _stop_server
-    exit 1
-}
-
-_stop_server() {
-    if [ -n "${SERVER_PID:-}" ]; then
-        kill "${SERVER_PID}" 2>/dev/null || true
-        wait "${SERVER_PID}" 2>/dev/null || true
-        unset SERVER_PID
-    fi
-}
-
 # T1: Happy path — all 11 files installed
 t1_happy_path() {
     FAKE_HOME=$(mktemp -d)
-    _start_server "${REPO_DIR}"
-    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null
     RC=$?
-    _stop_server
 
     if [ $RC -ne 0 ]; then _fail "T1: non-zero exit"; return; fi
 
@@ -108,13 +82,11 @@ t1_happy_path() {
 # T2: Idempotent — run twice, second run succeeds and overwrites
 t2_idempotent() {
     FAKE_HOME=$(mktemp -d)
-    _start_server "${REPO_DIR}"
-    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null
-    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null
     RC=$?
-    _stop_server
     [ $RC -eq 0 ] && _pass "T2: idempotent — second run succeeds" \
                    || _fail "T2: second run failed"
     rm -rf "${FAKE_HOME}"
@@ -123,12 +95,10 @@ t2_idempotent() {
 # T3: TRINITY_VERSION set — uses versioned base URL (via TRINITY_BASE_URL override)
 t3_version_env() {
     FAKE_HOME=$(mktemp -d)
-    _start_server "${REPO_DIR}"
     HOME="${FAKE_HOME}" TRINITY_VERSION="1.0.0" \
-        TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+        TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null
     RC=$?
-    _stop_server
     [ $RC -eq 0 ] && _pass "T3: TRINITY_VERSION=1.0.0 with TRINITY_BASE_URL override — exit 0" \
                    || _fail "T3: failed"
     rm -rf "${FAKE_HOME}"
@@ -166,11 +136,9 @@ t4_leading_v_stripped() {
 t5_dirs_created() {
     FAKE_HOME=$(mktemp -d)
     rm -rf "${FAKE_HOME}/.claude"
-    _start_server "${REPO_DIR}"
-    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null
     RC=$?
-    _stop_server
     if [ $RC -ne 0 ]; then _fail "T5: non-zero exit"; rm -rf "${FAKE_HOME}"; return; fi
     [ -d "${FAKE_HOME}/.claude/skills/trinity/scripts" ] \
         && [ -d "${FAKE_HOME}/.claude/agents" ] \
@@ -180,6 +148,12 @@ t5_dirs_created() {
 }
 
 # T6: One file missing (404) — exit non-zero, stderr contains filename
+#
+# Under file://, curl returns exit-code 37 ("Couldn't open file") instead of
+# HTTP 404 (which would be curl exit-code 22). install.sh's `set -eE` +
+# `trap '... failed downloading ${CURRENT_FILE}' ERR` fires on any non-zero
+# curl exit and emits the same wrapper message regardless of curl's specific
+# exit code, so T6's stderr assertion is exit-code-agnostic.
 t6_404_exits_nonzero() {
     FAKE_HOME=$(mktemp -d)
     MISSING_DIR=$(mktemp -d)
@@ -191,15 +165,13 @@ t6_404_exits_nonzero() {
     # providers/codex.md intentionally missing
     cp "${REPO_DIR}/providers/gemini.md" "${MISSING_DIR}/providers/"
 
-    _start_server "${MISSING_DIR}"
     TMPFILE=$(mktemp)
     set +e
-    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${MISSING_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null 2>"${TMPFILE}"
     RC=$?
     set -e
     STDERR_OUT=$(cat "${TMPFILE}"); rm -f "${TMPFILE}"
-    _stop_server
 
     if [ $RC -eq 0 ]; then
         _fail "T6: expected non-zero exit on 404, got 0"
@@ -214,10 +186,8 @@ t6_404_exits_nonzero() {
 # T7: Success output contains version string from __init__.py
 t7_success_output_version() {
     FAKE_HOME=$(mktemp -d)
-    _start_server "${REPO_DIR}"
-    OUTPUT=$(HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    OUTPUT=$(HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" 2>/dev/null)
-    _stop_server
     EXPECTED_VERSION=$(grep '^__version__ = ' "${REPO_DIR}/scripts/__init__.py" \
         | sed 's/__version__ = "\(.*\)"/\1/')
     echo "${OUTPUT}" | grep -q "Trinity ${EXPECTED_VERSION} installed" \
@@ -231,10 +201,8 @@ t7_success_output_version() {
 # reference).
 t9_bin_scripts_and_absolute_cli() {
     FAKE_HOME=$(mktemp -d)
-    _start_server "${REPO_DIR}"
-    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null
-    _stop_server
 
     BIN_DIR="${FAKE_HOME}/.claude/skills/trinity/bin"
     for w in deepseek openrouter claude-code; do
@@ -290,10 +258,8 @@ t11_legacy_cli_migration() {
 }
 EOF
 
-    _start_server "${REPO_DIR}"
-    HOME="${FAKE_HOME}" TRINITY_BASE_URL="http://localhost:${SERVER_PORT}" \
+    HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
         bash "${INSTALL_SCRIPT}" >/dev/null
-    _stop_server
 
     TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
     BIN_DIR="${FAKE_HOME}/.claude/skills/trinity/bin"
