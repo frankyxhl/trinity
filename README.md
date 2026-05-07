@@ -277,9 +277,13 @@ All modes call provider CLIs directly, run them concurrently up to
 `review.max_parallel_providers`, store raw outputs, and write a deterministic
 `synthesis.md` under `.trinity/reviews/`. stdout is the review directory path;
 Progress is logged to stderr. Interrupted runs leave `incomplete.json` for
-cleanup. Optional preset providers without a usable CLI are skipped with a
-warning recorded in `metadata.json`; required providers still fail preflight.
-This path does not require Claude Code worker-agent files.
+cleanup. Optional preset providers with no config entry or no `cli` string
+are dropped from the run with a warning recorded in `metadata.json`; once an
+optional provider has a `cli` string it is treated like a required provider
+for preflight, so any optional or required provider whose CLI is `command
+not found`, not executable, or has an invalid timeout fails preflight and
+aborts the whole review before any provider runs. This path does not
+require Claude Code worker-agent files.
 
 **Strict COR review mode** — pair `--sop COR-1602` with `--rubric COR-1609` to
 prepend rubric weights, calibration guidance, the 9.0 PASS threshold, and the
