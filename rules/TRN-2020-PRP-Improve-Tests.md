@@ -3,8 +3,9 @@
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-05-07
 **Last reviewed:** 2026-05-07
-**Status:** Approved
+**Status:** Implemented
 **Reviewed by:** Trinity panel review on 2026-05-07 (`.trinity/reviews/20260507-180721-rules/`): glm PASS, deepseek PASS with 7 advisory findings (F1 skipped — `af index` tool behavior; F2+F3 folded into slice A scope; F4+F5 adopted; F6+F7 skipped with rationale), gemini timeout (no opinion). 2-of-3 PASS, no blockers; approved for execution per COR-1614 contract TRN-2021.
+**Implemented:** All three slices merged on 2026-05-07. Slice A `5b0a666` (PR #44, 6 review rounds, 7 P2 findings resolved). Slice B `cfe6e08` (PR #45, 1 review round, 1 P2 finding resolved — coverage methodology). Slice C `1e28392` (PR #46, 2 review rounds, 1 P1 + 1 race-fix resolved). Acceptance criteria all met: `make test` invokes `tests/test_install_sh.sh`, `make coverage` reports 83% TOTAL on `main`, `pytest tests/test_bdd_scenarios.py` collects 13 scenarios.
 **Related:** TRN-1000, TRN-1001, TRN-1002, TRN-1801, TRN-2021, GitHub issue #41
 
 ---
@@ -155,3 +156,4 @@ Slice C additionally:
 | 2026-05-07 | Trinity panel review (glm PASS / deepseek PASS / gemini timeout). Slice A scope expanded with TRN-1800 baseline correction (F2+F3). Status: Draft → Approved. | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 4 P2 from Codex bot: pytest-bdd does NOT auto-collect `.feature` files; raw feature files require a Python collector module calling `scenarios("features/")` or `@scenario(...)` to bind to pytest. PRP slice C scope corrected: collector module added as an explicit deliverable. | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 5 P2 from Codex bot: §Validation Commands slice C entry pointed at `pytest tests/features/ -v`, which (per round 4's own fix) collects zero scenarios because the collector module lives at `tests/test_bdd_scenarios.py`, not under `features/`. Validation command corrected to target the collector module + added `--collect-only` evidence step. | Claude Opus 4.7 |
+| 2026-05-07 | All three slices merged. Status: Approved → Implemented. Merge SHAs: slice A `5b0a666` (PR #44), slice B `cfe6e08` (PR #45), slice C `1e28392` (PR #46). Acceptance criteria all met. Deferred follow-ons: `plan_mode_autodecompose.feature` (skill-only), heartbeat threshold transitions, codecov upload, mutation testing, property-based testing, Windows runner, `TRN-2025-CHG-Switch-Install-Sh-Test-To-File-Url` (panel-recommended file:// rewrite, scoped via prior decision matrix). | Claude Opus 4.7 |
