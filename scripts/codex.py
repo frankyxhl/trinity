@@ -1468,9 +1468,64 @@ def _format_ago(now_iso, then_iso):
     return f"{secs // 86400}d ago"
 
 
+def _print_incomplete_only_summary(review_dir, incomplete_path):
+    """Render a summary for an interrupted review (no metadata.json yet).
+
+    cmd_review writes incomplete.json from its KeyboardInterrupt /
+    ReviewInterrupted / ReviewOrchestrationError handlers BEFORE the
+    metadata.json write would have happened, so an interrupted review has
+    only incomplete.json. This path renders what's available.
+    """
+    try:
+        incomplete = json.loads(incomplete_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(
+            f"trinity: malformed incomplete.json at {incomplete_path}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    status = incomplete.get("status", "interrupted")
+    when = incomplete.get("timestamp", "?")
+    providers_sel = incomplete.get("providers_selected", []) or []
+    providers_started = incomplete.get("providers_started", []) or []
+    providers_running = incomplete.get("providers_running_at_cleanup", []) or []
+    cleanup = incomplete.get("cleanup", {}) or {}
+    message = incomplete.get("message")
+
+    print(f"Latest review: {review_dir}  (interrupted at {when})")
+    print(f"  Status: interrupted ({status})")
+    print()
+    print(f"  Providers selected: {', '.join(providers_sel) or '(none)'}")
+    print(f"  Providers started:  {', '.join(providers_started) or '(none)'}")
+    if providers_running:
+        print(f"  Running at cleanup: {', '.join(providers_running)}")
+    if cleanup:
+        cleanup_lines = ", ".join(
+            f"{name}: {info if isinstance(info, str) else info.get('status', '?')}"
+            for name, info in cleanup.items()
+        )
+        print(f"  Cleanup: {cleanup_lines}")
+    if message:
+        print(f"  Message: {message}")
+    print()
+    print("  (metadata.json not present — review never reached completion)")
+    return 0
+
+
 def _print_review_summary(review_dir):
     """Render a one-screen summary of one review directory. Returns rc."""
     metadata_path = review_dir / "metadata.json"
+    incomplete_path = review_dir / "incomplete.json"
+
+    # An interrupted review never reaches the metadata-write step in
+    # cmd_review — incomplete.json exists by itself with the structural
+    # state. If that's the case, render from incomplete.json alone rather
+    # than bailing with "no metadata", since this is the exact artifact
+    # the user most wants summarized.
+    if not metadata_path.exists() and incomplete_path.exists():
+        return _print_incomplete_only_summary(review_dir, incomplete_path)
+
     if not metadata_path.exists():
         print(
             f"trinity: review in progress or no metadata at {metadata_path}",

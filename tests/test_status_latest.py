@@ -308,3 +308,66 @@ def test_t11_empty_results_renders_unknown(tmp_path):
     assert "Status: unknown" in out
     assert "Status: completed" not in out
     assert "(no results in metadata)" in out
+
+
+# ---------------------------------------------------------------------------
+# T12 (Codex GitHub bot R1 finding): interrupted review writes incomplete.json
+# from cmd_review's KeyboardInterrupt / ReviewInterrupted / ReviewOrchestrationError
+# handlers BEFORE metadata.json is ever written. So an interrupted review
+# directory has incomplete.json AND NO metadata.json. trinity status must
+# render from incomplete.json alone in that case rather than bailing with
+# "no metadata".
+# ---------------------------------------------------------------------------
+
+
+def test_t12_interrupted_review_with_no_metadata(tmp_path):
+    review_dir = tmp_path / ".trinity" / "reviews" / "20260508-140000-rules"
+    review_dir.mkdir(parents=True)
+    # Mimic the shape that write_incomplete() produces in cmd_review.
+    incomplete = {
+        "status": "interrupted",
+        "timestamp": "2026-05-08T14:00:30",
+        "review_dir": str(review_dir),
+        "providers_selected": ["glm", "gemini", "deepseek"],
+        "providers_started": ["glm", "gemini"],
+        "providers_running_at_cleanup": ["gemini"],
+        "cleanup": {"gemini": {"status": "terminated"}},
+    }
+    (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
+    # Critically: NO metadata.json exists.
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr  # Must NOT bail with rc=1
+    out = result.stdout
+    assert "Status: interrupted (interrupted)" in out
+    assert "Providers selected: glm, gemini, deepseek" in out
+    assert "Providers started:  glm, gemini" in out
+    assert "Running at cleanup: gemini" in out
+    assert "metadata.json not present" in out
+    # And specifically must NOT print the "review in progress or no metadata"
+    # error that would have surfaced under the pre-fix code path:
+    assert "review in progress or no metadata" not in result.stderr
+
+
+def test_t12b_failed_review_with_message_renders_message(tmp_path):
+    """Variant of T12: status='failed' with a message field — the message
+    should be surfaced in the output so the user sees the cause."""
+    review_dir = tmp_path / ".trinity" / "reviews" / "20260508-150000-rules"
+    review_dir.mkdir(parents=True)
+    incomplete = {
+        "status": "failed",
+        "timestamp": "2026-05-08T15:00:30",
+        "review_dir": str(review_dir),
+        "providers_selected": ["glm"],
+        "providers_started": [],
+        "providers_running_at_cleanup": [],
+        "cleanup": {},
+        "message": "trinity-codex: gh command not found",
+    }
+    (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Status: interrupted (failed)" in out
+    assert "Message: trinity-codex: gh command not found" in out
