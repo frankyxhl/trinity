@@ -1,0 +1,551 @@
+"""Tests for `trinity status [--latest]` (TRN-2028 / GitHub issue #35).
+
+Each test sets up a fake `.trinity/reviews/` under tmp_path, populates it with
+a metadata.json (and optionally synthesis.md / incomplete.json), invokes the
+CLI as a subprocess, and asserts the rendered output.
+
+The CLI is `python scripts/codex.py status --root <tmp_path>` so we can point
+it at an isolated reviews directory without touching the project's real
+`.trinity/reviews/`.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CODEX_SCRIPT = REPO_ROOT / "scripts" / "codex.py"
+
+
+def _run_status(root: Path, latest: bool = False) -> subprocess.CompletedProcess:
+    argv = [sys.executable, str(CODEX_SCRIPT), "status", "--root", str(root)]
+    if latest:
+        argv.append("--latest")
+    return subprocess.run(argv, capture_output=True, text=True)
+
+
+def _make_review(
+    root: Path,
+    name: str = "20260508-120000-rules",
+    *,
+    metadata: dict | None = None,
+    write_synthesis: bool = True,
+    incomplete: dict | None = None,
+    metadata_text: str | None = None,
+    raw_files: dict[str, str] | None = None,
+) -> Path:
+    """Materialize a fake review directory under <root>/.trinity/reviews/."""
+    reviews_dir = root / ".trinity" / "reviews"
+    review_dir = reviews_dir / name
+    review_dir.mkdir(parents=True, exist_ok=True)
+    if metadata_text is not None:
+        (review_dir / "metadata.json").write_text(metadata_text)
+    elif metadata is not None:
+        (review_dir / "metadata.json").write_text(json.dumps(metadata))
+    if write_synthesis:
+        (review_dir / "synthesis.md").write_text("# synthesis\n")
+    if incomplete is not None:
+        (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
+    raw_dir = review_dir / "raw"
+    raw_dir.mkdir(exist_ok=True)
+    for prov, body in (raw_files or {}).items():
+        (raw_dir / f"{prov}.txt").write_text(body)
+    return review_dir
+
+
+def _basic_metadata(provider_returncodes: dict[str, int]) -> dict:
+    return {
+        "scope": "rules/",
+        "root": "/fake",
+        "providers": list(provider_returncodes.keys()),
+        "preset": {
+            "requested": "review",
+            "resolved": "review",
+            "source": "explicit",
+            "task_type": "review",
+            "skipped_optional_providers": [],
+        },
+        "input": {"mode": "working-tree", "scope": "rules/"},
+        "results": [
+            {
+                "provider": prov,
+                "returncode": rc,
+                "raw": f"raw/{prov}.txt",
+                "started_at": "2026-05-08T12:00:00",
+                "finished_at": "2026-05-08T12:03:08",
+            }
+            for prov, rc in provider_returncodes.items()
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# T1: clean review dir → exits 0, "Status: completed", all providers rc=0.
+# ---------------------------------------------------------------------------
+
+
+def test_t1_clean_review_completed(tmp_path):
+    _make_review(
+        tmp_path,
+        metadata=_basic_metadata({"glm": 0, "gemini": 0, "deepseek": 0}),
+    )
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Status: completed" in out
+    for prov in ("glm", "gemini", "deepseek"):
+        assert prov in out
+        assert "rc=0" in out
+    assert "(timeout)" not in out
+
+
+# ---------------------------------------------------------------------------
+# T2: review with one rc=124 provider → "(timeout)" suffix on that line.
+# ---------------------------------------------------------------------------
+
+
+def test_t2_timeout_returncode_marks_provider(tmp_path):
+    md = _basic_metadata({"glm": 0, "gemini": 124, "deepseek": 0})
+    # Make gemini's elapsed obviously distinct
+    md["results"][1]["finished_at"] = "2026-05-08T12:06:00"
+    _make_review(tmp_path, metadata=md)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "rc=124" in result.stdout
+    assert "(timeout)" in result.stdout
+    # Status is partial (non-zero rc, but no incomplete.json)
+    assert "Status: partial" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# T3: review with incomplete.json → "Status: interrupted", surfaces .status.
+# ---------------------------------------------------------------------------
+
+
+def test_t3_incomplete_json_surfaces_status(tmp_path):
+    md = _basic_metadata({"glm": 0, "deepseek": 0})
+    _make_review(
+        tmp_path,
+        metadata=md,
+        incomplete={"status": "interrupted", "review_dir": "fake"},
+    )
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Incomplete: ✓ incomplete.json" in out
+    assert "status=interrupted" in out
+    assert "Status: interrupted" in out
+
+
+# ---------------------------------------------------------------------------
+# T4: review with no synthesis.md → "Synthesis: missing".
+# ---------------------------------------------------------------------------
+
+
+def test_t4_no_synthesis_marked_missing(tmp_path):
+    _make_review(
+        tmp_path,
+        metadata=_basic_metadata({"glm": 0}),
+        write_synthesis=False,
+    )
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "Synthesis: missing" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# T5: malformed metadata.json → exits rc=1 with clear error.
+# ---------------------------------------------------------------------------
+
+
+def test_t5_malformed_metadata_exits_nonzero(tmp_path):
+    _make_review(tmp_path, metadata_text="{not valid json")
+    result = _run_status(tmp_path)
+    assert result.returncode == 1
+    assert "malformed metadata" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# T6: empty .trinity/reviews/ → exits rc=1 with "no reviews".
+# ---------------------------------------------------------------------------
+
+
+def test_t6_empty_reviews_dir_exits_nonzero(tmp_path):
+    (tmp_path / ".trinity" / "reviews").mkdir(parents=True)
+    result = _run_status(tmp_path)
+    assert result.returncode == 1
+    assert "no reviews under" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# T7: missing .trinity/reviews/ entirely → exits rc=1 with "no reviews dir".
+# ---------------------------------------------------------------------------
+
+
+def test_t7_missing_reviews_dir_exits_nonzero(tmp_path):
+    # tmp_path has no .trinity/ subdirectory at all.
+    result = _run_status(tmp_path)
+    assert result.returncode == 1
+    assert "no reviews dir" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# T8: skipped optional providers → output lists each as "name (reason)".
+# ---------------------------------------------------------------------------
+
+
+def test_t8_skipped_optional_providers_rendered(tmp_path):
+    md = _basic_metadata({"glm": 0, "deepseek": 0})
+    md["preset"]["skipped_optional_providers"] = [
+        {"provider": "codex", "reason": "missing config"},
+        {"provider": "claude-code", "reason": "missing cli"},
+    ]
+    _make_review(tmp_path, metadata=md)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Skipped optional:" in out
+    assert "codex (missing config)" in out
+    assert "claude-code (missing cli)" in out
+
+
+# ---------------------------------------------------------------------------
+# T9: in-progress review or partial-data per-provider entries (panel-added).
+# ---------------------------------------------------------------------------
+
+
+def test_t9a_in_progress_no_metadata(tmp_path):
+    """Review dir exists but metadata.json hasn't been written yet."""
+    review_dir = tmp_path / ".trinity" / "reviews" / "20260508-130000-foo"
+    review_dir.mkdir(parents=True)
+    # No metadata.json, no synthesis.md, no incomplete.json — bare dir.
+    result = _run_status(tmp_path)
+    assert result.returncode == 1
+    assert "review in progress or no metadata" in result.stderr
+
+
+def test_t9b_partial_data_per_provider_doesnt_crash(tmp_path):
+    """A results[] entry missing started_at / finished_at / returncode keys
+    should render '?' for those fields and not crash."""
+    md = _basic_metadata({"glm": 0})
+    # Strip per-provider keys to simulate a partial write.
+    md["results"][0].pop("started_at")
+    md["results"][0].pop("finished_at")
+    md["results"][0].pop("returncode")
+    _make_review(tmp_path, metadata=md)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # The provider line itself must render ?-markers for rc and elapsed —
+    # find the glm line specifically and assert on it (rather than any '?'
+    # in the whole output, which could match Mode/Preset defaults).
+    glm_lines = [
+        line for line in out.splitlines() if "glm" in line and "elapsed" in line
+    ]
+    assert glm_lines, f"no glm provider line in output: {out!r}"
+    glm_line = glm_lines[0]
+    # The rc column AND the elapsed column must both render as bare '?'.
+    # Regex on the glm line: name + marker + rc + 'elapsed' + duration.
+    import re
+
+    m = re.search(r"glm\s+✗\s+(\S+)\s+elapsed\s+(\S+)", glm_line)
+    assert m, f"glm line didn't match expected shape: {glm_line!r}"
+    rc_field, elapsed_field = m.group(1), m.group(2)
+    assert rc_field == "?", f"expected rc='?', got {rc_field!r} in {glm_line!r}"
+    assert elapsed_field == "?", (
+        f"expected elapsed='?', got {elapsed_field!r} in {glm_line!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T10 (panel-added — claude-code alignment regression):
+# the provider name column must adapt to names longer than 10 chars
+# (claude-code is 11 chars).
+# ---------------------------------------------------------------------------
+
+
+def test_t10_long_provider_name_aligns(tmp_path):
+    md = _basic_metadata({"glm": 0, "claude-code": 0, "openrouter": 0, "deepseek": 0})
+    _make_review(tmp_path, metadata=md)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # Find each provider line; verify the marker character (✓/✗) appears at
+    # the same column position across all four. If column width was hard-coded
+    # to :10s, claude-code (11 chars) would push its marker right and break
+    # alignment.
+    provider_lines = [
+        line
+        for line in out.splitlines()
+        if any(p in line for p in ("glm", "claude-code", "openrouter", "deepseek"))
+        and "elapsed" in line
+    ]
+    assert len(provider_lines) == 4, (
+        f"expected 4 provider lines, got {len(provider_lines)}: {provider_lines}"
+    )
+    marker_positions = [line.find("✓") for line in provider_lines]
+    assert len(set(marker_positions)) == 1, (
+        f"marker columns drifted: {list(zip(provider_lines, marker_positions))}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T11 (panel-added — empty results semantics): zero providers ran → 'unknown'
+# rather than 'completed'.
+# ---------------------------------------------------------------------------
+
+
+def test_t11_empty_results_renders_unknown(tmp_path):
+    md = _basic_metadata({})  # no providers, results: []
+    _make_review(tmp_path, metadata=md)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Status: unknown" in out
+    assert "Status: completed" not in out
+    assert "(no results in metadata)" in out
+
+
+# ---------------------------------------------------------------------------
+# T12 (Codex GitHub bot R1 finding): interrupted review writes incomplete.json
+# from cmd_review's KeyboardInterrupt / ReviewInterrupted / ReviewOrchestrationError
+# handlers BEFORE metadata.json is ever written. So an interrupted review
+# directory has incomplete.json AND NO metadata.json. trinity status must
+# render from incomplete.json alone in that case rather than bailing with
+# "no metadata".
+# ---------------------------------------------------------------------------
+
+
+def test_t12_interrupted_review_with_no_metadata(tmp_path):
+    review_dir = tmp_path / ".trinity" / "reviews" / "20260508-140000-rules"
+    review_dir.mkdir(parents=True)
+    # Mimic the shape that write_incomplete() produces in cmd_review.
+    # cleanup_active_processes() (scripts/codex.py:1050) writes
+    # {"pid": ..., "result": "terminated"|"killed"|"kill_timeout"} per
+    # provider — match that schema verbatim, NOT a "status" field.
+    incomplete = {
+        "status": "interrupted",
+        "timestamp": "2026-05-08T14:00:30",
+        "review_dir": str(review_dir),
+        "providers_selected": ["glm", "gemini", "deepseek"],
+        "providers_started": ["glm", "gemini"],
+        "providers_running_at_cleanup": ["gemini"],
+        "cleanup": {"gemini": {"pid": 12345, "result": "terminated"}},
+    }
+    (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
+    # Critically: NO metadata.json exists.
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr  # Must NOT bail with rc=1
+    out = result.stdout
+    assert "Status: interrupted" in out
+    # Top-level header must use the stored status (not hard-coded "interrupted").
+    assert "(interrupted at 2026-05-08T14:00:30)" in out
+    assert "Providers selected: glm, gemini, deepseek" in out
+    assert "Providers started:  glm, gemini" in out
+    assert "Running at cleanup: gemini" in out
+    # The cleanup outcome must surface the actual `result` value (not `?`).
+    assert "Cleanup: gemini: terminated" in out
+    assert "metadata.json not present" in out
+    # And specifically must NOT print the "review in progress or no metadata"
+    # error that would have surfaced under the pre-fix code path:
+    assert "review in progress or no metadata" not in result.stderr
+
+
+def test_t13_status_resolves_root_from_subdirectory(tmp_path):
+    """Bot R3: cmd_status uses args.root directly without resolve_root, so
+    running `trinity status` from a subdirectory looks in the wrong place.
+    Fix: cmd_status now uses resolve_health_root (matches cmd_doctor).
+    Test: create a real git repo, put .trinity/reviews/ at the top, run
+    status from a subdirectory with --root='.', verify it finds the
+    top-level reviews dir."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    # Place a valid review at the repo top.
+    md = _basic_metadata({"glm": 0})
+    _make_review(repo, metadata=md)
+    # Create a subdir to invoke status from.
+    subdir = repo / "scripts"
+    subdir.mkdir()
+
+    # Invoke status with --root=. while CWD=subdir. With resolve_health_root,
+    # this should find the top-level .trinity/reviews/ via git rev-parse.
+    argv = [
+        sys.executable,
+        str(CODEX_SCRIPT),
+        "status",
+        "--root",
+        ".",
+    ]
+    result = subprocess.run(argv, cwd=str(subdir), capture_output=True, text=True)
+    assert result.returncode == 0, (
+        f"status from subdir should resolve to repo top-level. "
+        f"stderr: {result.stderr!r}"
+    )
+    out = result.stdout
+    assert "Status: completed" in out
+    assert "glm" in out
+
+
+def test_t12c_cleanup_result_field_rendered_for_each_outcome(tmp_path):
+    """Cleanup payload uses `result` field, not `status`. Each documented
+    outcome (terminated / killed / kill_timeout) must render verbatim.
+    Regression test for PR #60 round 2 Codex bot finding."""
+    review_dir = tmp_path / ".trinity" / "reviews" / "20260508-160000-rules"
+    review_dir.mkdir(parents=True)
+    incomplete = {
+        "status": "interrupted",
+        "timestamp": "2026-05-08T16:00:30",
+        "providers_selected": ["glm", "gemini", "deepseek"],
+        "providers_started": ["glm", "gemini", "deepseek"],
+        "providers_running_at_cleanup": ["glm", "gemini", "deepseek"],
+        "cleanup": {
+            "glm": {"pid": 1001, "result": "terminated"},
+            "gemini": {"pid": 1002, "result": "killed"},
+            "deepseek": {"pid": 1003, "result": "kill_timeout"},
+        },
+    }
+    (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "glm: terminated" in out
+    assert "gemini: killed" in out
+    assert "deepseek: kill_timeout" in out
+    # And specifically NO `?` placeholders for the cleanup outcomes
+    # (which would indicate the field-name regression returned).
+    assert "glm: ?" not in out
+    assert "gemini: ?" not in out
+    assert "deepseek: ?" not in out
+
+
+def test_t12b_failed_review_with_message_renders_message(tmp_path):
+    """Variant of T12: status='failed' with a message field — the message
+    should be surfaced in the output so the user sees the cause.
+
+    PR #60 round 5 (bot): the prior fix hard-coded "interrupted" in the
+    top-level label, so a `cmd_review` ReviewOrchestrationError (which
+    writes status='failed') was misrendered as "Status: interrupted
+    (failed)". Fix: use the stored status as the label directly. This
+    test guards both the new label AND the absence of the old
+    misrendering."""
+    review_dir = tmp_path / ".trinity" / "reviews" / "20260508-150000-rules"
+    review_dir.mkdir(parents=True)
+    incomplete = {
+        "status": "failed",
+        "timestamp": "2026-05-08T15:00:30",
+        "review_dir": str(review_dir),
+        "providers_selected": ["glm"],
+        "providers_started": [],
+        "providers_running_at_cleanup": [],
+        "cleanup": {},
+        "message": "trinity-codex: gh command not found",
+    }
+    (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # status='failed' must surface as a 'failed' label, not as 'interrupted'.
+    assert "Status: failed" in out
+    assert "(failed at 2026-05-08T15:00:30)" in out
+    # And specifically must NOT mislabel an orchestration failure as a
+    # user interruption — that was the PR #60 R5 bot finding.
+    assert "Status: interrupted" not in out
+    assert "interrupted at" not in out
+    assert "Message: trinity-codex: gh command not found" in out
+
+
+def test_t14_metadata_plus_incomplete_failed_renders_failed(tmp_path):
+    """PR #60 round 6 (bot): metadata-PRESENT path also hard-coded
+    'interrupted (...)' as the overall label. When an exception happens
+    after `metadata.json` is written but before completion (e.g.
+    `write_synthesis()` raises), `cmd_review` writes incomplete.json
+    with status='failed' alongside the metadata. The pre-fix code at
+    scripts/codex.py:1609 rendered this as `Status: interrupted
+    (failed)` — same misclassification as R5, just in the sibling
+    code branch. Fix: use the stored status directly.
+
+    This test guards the metadata-PRESENT + incomplete.status='failed'
+    case, which T12b cannot cover (T12b deletes metadata.json)."""
+    md = _basic_metadata({"glm": 0, "deepseek": 0})
+    _make_review(
+        tmp_path,
+        name="20260508-180000-rules",
+        metadata=md,
+        # Both files exist — metadata wrote successfully, then synthesis
+        # raised, then write_incomplete(status='failed') landed.
+        incomplete={"status": "failed", "review_dir": "fake"},
+    )
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # Both files reported.
+    assert "Incomplete: ✓ incomplete.json (status=failed)" in out
+    # Final overall label uses the stored status — NOT "interrupted (failed)".
+    assert "Status: failed" in out
+    assert "interrupted (failed)" not in out
+    assert "Status: interrupted" not in out
+
+
+def test_t15_same_second_reviews_use_mtime_tiebreak(tmp_path):
+    """PR #60 round 7 (bot): `make_review_dir()` only stamps to seconds
+    and appends `<slug>[-<index>]`, so two review dirs created in the
+    same second have lex order driven by their suffix — which doesn't
+    preserve creation order. Pre-fix, `sorted(..., reverse=True)` picked
+    `20260508-120000-z` over `20260508-120000-a` even when `-a` was the
+    actual newer review (or `-10` over `-2` for collision suffixes).
+    Fix: sort key (prefix, mtime); mtime breaks same-second ties."""
+    reviews_dir = tmp_path / ".trinity" / "reviews"
+    reviews_dir.mkdir(parents=True)
+
+    # Two reviews with identical timestamp prefix but disorder slugs.
+    # `-z` lex-sorts later than `-a`, so naive sort would pick `-z` as
+    # "latest". But we'll set mtimes so `-a` is the actual newer one.
+    review_z = reviews_dir / "20260508-120000-z"
+    review_a = reviews_dir / "20260508-120000-a"
+    review_z.mkdir()
+    review_a.mkdir()
+    (review_z / "raw").mkdir()
+    (review_a / "raw").mkdir()
+    (review_z / "metadata.json").write_text(
+        json.dumps(_basic_metadata({"deepseek": 0}))
+    )
+    (review_z / "synthesis.md").write_text("# z\n")
+    (review_a / "metadata.json").write_text(
+        json.dumps(_basic_metadata({"glm": 0}))
+    )
+    (review_a / "synthesis.md").write_text("# a\n")
+
+    # Force `-a` to have a strictly newer mtime than `-z`.
+    now = time.time()
+    os.utime(review_z, (now - 10, now - 10))
+    os.utime(review_a, (now, now))
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # The selected "Latest review" must be `-a` (newer mtime), not `-z`
+    # (later in lex order).
+    assert "20260508-120000-a" in out
+    assert "20260508-120000-z" not in out
