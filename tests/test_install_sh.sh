@@ -29,6 +29,12 @@ _start_server() {
     python3 -m http.server "${SERVER_PORT}" --directory "${SERVE_DIR}" \
         >/dev/null 2>&1 &
     SERVER_PID=$!
+    # Install an EXIT/INT/TERM trap so a failing test (e.g. install.sh exits
+    # non-zero under `set -e`) doesn't leak the background http.server. The
+    # trap fires whether the script exits cleanly, by signal, or by `set -e`
+    # abort. _stop_server is idempotent, so a successful test that calls it
+    # explicitly later is harmless.
+    trap '_stop_server' EXIT INT TERM
     # Wait for the server to be ready; fail fast (with a clear error) if it
     # never binds — e.g. the small race between socket close and http.server
     # bind was lost, or python died for any other reason. Probe the server
@@ -39,13 +45,16 @@ _start_server() {
         sleep 0.2
     done
     echo "FAIL: local http server failed to start on port ${SERVER_PORT}" >&2
-    kill "${SERVER_PID}" 2>/dev/null || true
+    _stop_server
     exit 1
 }
 
 _stop_server() {
-    kill "${SERVER_PID}" 2>/dev/null || true
-    wait "${SERVER_PID}" 2>/dev/null || true
+    if [ -n "${SERVER_PID:-}" ]; then
+        kill "${SERVER_PID}" 2>/dev/null || true
+        wait "${SERVER_PID}" 2>/dev/null || true
+        unset SERVER_PID
+    fi
 }
 
 # T1: Happy path — all 11 files installed
