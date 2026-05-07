@@ -1618,7 +1618,13 @@ def _print_review_summary(review_dir):
 
 
 def cmd_status(args):
-    reviews_dir = Path(args.root) / ".trinity" / "reviews"
+    # Resolve to git top-level (with non-git fallback) so `trinity status`
+    # works from any subdirectory, matching cmd_doctor's behavior. Without
+    # this, a user running from `scripts/` would look at
+    # `scripts/.trinity/reviews/` instead of the repo-root one where
+    # `cmd_review` actually writes artifacts.
+    root = resolve_health_root(args.root)
+    reviews_dir = root / ".trinity" / "reviews"
     if not reviews_dir.is_dir():
         print(
             f"trinity: no reviews dir at {reviews_dir}",

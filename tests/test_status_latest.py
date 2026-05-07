@@ -354,6 +354,54 @@ def test_t12_interrupted_review_with_no_metadata(tmp_path):
     assert "review in progress or no metadata" not in result.stderr
 
 
+def test_t13_status_resolves_root_from_subdirectory(tmp_path):
+    """Bot R3: cmd_status uses args.root directly without resolve_root, so
+    running `trinity status` from a subdirectory looks in the wrong place.
+    Fix: cmd_status now uses resolve_health_root (matches cmd_doctor).
+    Test: create a real git repo, put .trinity/reviews/ at the top, run
+    status from a subdirectory with --root='.', verify it finds the
+    top-level reviews dir."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    # Place a valid review at the repo top.
+    md = _basic_metadata({"glm": 0})
+    _make_review(repo, metadata=md)
+    # Create a subdir to invoke status from.
+    subdir = repo / "scripts"
+    subdir.mkdir()
+
+    # Invoke status with --root=. while CWD=subdir. With resolve_health_root,
+    # this should find the top-level .trinity/reviews/ via git rev-parse.
+    argv = [
+        sys.executable,
+        str(CODEX_SCRIPT),
+        "status",
+        "--root",
+        ".",
+    ]
+    result = subprocess.run(argv, cwd=str(subdir), capture_output=True, text=True)
+    assert result.returncode == 0, (
+        f"status from subdir should resolve to repo top-level. "
+        f"stderr: {result.stderr!r}"
+    )
+    out = result.stdout
+    assert "Status: completed" in out
+    assert "glm" in out
+
+
 def test_t12c_cleanup_result_field_rendered_for_each_outcome(tmp_path):
     """Cleanup payload uses `result` field, not `status`. Each documented
     outcome (terminated / killed / kill_timeout) must render verbatim.
