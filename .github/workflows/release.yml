@@ -141,16 +141,14 @@ jobs:
           enable-cache: true
           cache-dependency-glob: 'Makefile'
 
-      - name: Install dev dependencies (uv → pip fallback)
-        run: |
-          set -euo pipefail
-          if command -v uv >/dev/null 2>&1; then
-            uv venv
-            uv pip install pytest ruff
-          else
-            python3 -m venv .venv
-            .venv/bin/pip install pytest ruff
-          fi
+      - name: Install dev dependencies via `make setup`
+        # Use `make setup` as the single source of truth for dev deps so this
+        # workflow can't drift from the canonical list (pytest, pytest-cov,
+        # coverage[toml], pytest-bdd, ruff). Manual `pip install pytest ruff`
+        # here would silently miss new deps that downstream tests need —
+        # caught when slice C's `tests/test_bdd_scenarios.py` imports
+        # `pytest_bdd` at module level (PR #46 round 2 P1).
+        run: make setup
 
       - name: Verify build
         run: make verify-built
