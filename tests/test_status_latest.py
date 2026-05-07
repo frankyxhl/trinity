@@ -12,8 +12,10 @@ it at an isolated reviews directory without touching the project's real
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -504,3 +506,46 @@ def test_t14_metadata_plus_incomplete_failed_renders_failed(tmp_path):
     assert "Status: failed" in out
     assert "interrupted (failed)" not in out
     assert "Status: interrupted" not in out
+
+
+def test_t15_same_second_reviews_use_mtime_tiebreak(tmp_path):
+    """PR #60 round 7 (bot): `make_review_dir()` only stamps to seconds
+    and appends `<slug>[-<index>]`, so two review dirs created in the
+    same second have lex order driven by their suffix — which doesn't
+    preserve creation order. Pre-fix, `sorted(..., reverse=True)` picked
+    `20260508-120000-z` over `20260508-120000-a` even when `-a` was the
+    actual newer review (or `-10` over `-2` for collision suffixes).
+    Fix: sort key (prefix, mtime); mtime breaks same-second ties."""
+    reviews_dir = tmp_path / ".trinity" / "reviews"
+    reviews_dir.mkdir(parents=True)
+
+    # Two reviews with identical timestamp prefix but disorder slugs.
+    # `-z` lex-sorts later than `-a`, so naive sort would pick `-z` as
+    # "latest". But we'll set mtimes so `-a` is the actual newer one.
+    review_z = reviews_dir / "20260508-120000-z"
+    review_a = reviews_dir / "20260508-120000-a"
+    review_z.mkdir()
+    review_a.mkdir()
+    (review_z / "raw").mkdir()
+    (review_a / "raw").mkdir()
+    (review_z / "metadata.json").write_text(
+        json.dumps(_basic_metadata({"deepseek": 0}))
+    )
+    (review_z / "synthesis.md").write_text("# z\n")
+    (review_a / "metadata.json").write_text(
+        json.dumps(_basic_metadata({"glm": 0}))
+    )
+    (review_a / "synthesis.md").write_text("# a\n")
+
+    # Force `-a` to have a strictly newer mtime than `-z`.
+    now = time.time()
+    os.utime(review_z, (now - 10, now - 10))
+    os.utime(review_a, (now, now))
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # The selected "Latest review" must be `-a` (newer mtime), not `-z`
+    # (later in lex order).
+    assert "20260508-120000-a" in out
+    assert "20260508-120000-z" not in out

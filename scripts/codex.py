@@ -1641,10 +1641,23 @@ def cmd_status(args):
             file=sys.stderr,
         )
         return 1
-    # Latest by lexicographic sort — directory name prefix is fixed-width
-    # %Y%m%d-%H%M%S so lex order == chronological order.
+    # Sort key: (timestamp_prefix, mtime). The fixed-width
+    # %Y%m%d-%H%M%S prefix gives chronological order across distinct
+    # seconds; mtime breaks ties for same-second creates where the
+    # slug or numeric collision suffix (`-10` vs `-2`) doesn't preserve
+    # creation order. `make_review_dir()` (scripts/codex.py:914) only
+    # stamps to seconds and appends `<slug>[-<index>]`, so two reviews
+    # made in the same second can have lex order != creation order.
+    def _sort_key(d):
+        try:
+            mtime = d.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        return (d.name[:15], mtime)
+
     candidates = sorted(
         [d for d in reviews_dir.iterdir() if d.is_dir()],
+        key=_sort_key,
         reverse=True,
     )
     if not candidates:
