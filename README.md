@@ -1,8 +1,8 @@
-# Trinity — Multi-Model Orchestration for Claude Code
+# Trinity — Multi-Model Orchestration
 
-Dispatch tasks to any LLM (GLM, Codex, Gemini, Claude Code, or your own) from within Claude Code. Providers run in the background via Claude's Agent tool. Sessions persist across turns. Health monitoring tells you if they're alive.
+Dispatch tasks to any LLM (GLM, Codex, Gemini, Claude Code, DeepSeek, OpenRouter, or your own) from your AI coding host. Trinity runs as a skill in Claude Code and as a skill / plugin in Codex; providers run in the background as sub-agents or direct CLI calls. Sessions persist across turns. Health monitoring tells you if they're alive.
 
-The name comes from 三位一体 — not a fixed count, but a philosophy: all AIs united, working together. Whoever runs Trinity is the Leader. Any external LLM with a CLI is a Member.
+The name comes from 三位一体 — not a fixed count, but a philosophy: all AIs united, working together. Whoever runs Trinity is the Leader. Any external LLM with a CLI is a Member. Any host that can spawn sub-agents or shell out to a CLI can be the Leader.
 
 ---
 
@@ -259,6 +259,7 @@ surface during an actual review.
 ### Run a review
 
 ```bash
+trinity review --providers glm,gemini,deepseek --scope spikes/hardline
 trinity review --preset fast-review --scope spikes/hardline
 trinity review --preset dr --scope .
 trinity review --base main --head HEAD --providers glm,deepseek
@@ -275,7 +276,7 @@ Scope modes:
 All modes call provider CLIs directly, run them concurrently up to
 `review.max_parallel_providers`, store raw outputs, and write a deterministic
 `synthesis.md` under `.trinity/reviews/`. stdout is the review directory path;
-progress logs go to stderr. Interrupted runs leave `incomplete.json` for
+Progress is logged to stderr. Interrupted runs leave `incomplete.json` for
 cleanup. Optional preset providers without a usable CLI are skipped with a
 warning recorded in `metadata.json`; required providers still fail preflight.
 This path does not require Claude Code worker-agent files.
@@ -318,20 +319,23 @@ git push --force-with-lease fork HEAD:codex/example-branch
 gh pr comment 26 --body-file comment.md
 ```
 
-### Codex repo-local skill and plugin
+### Codex repo-local skill and Codex plugin
+
+**Codex repo-local skill** — `.agents/skills/trinity/SKILL.md`. Smoke test:
+restart Codex in the repo, then open `/skills` or invoke `$trinity` to
+confirm the `trinity` skill loads.
+
+**Codex plugin** — packaged under:
 
 | Path | Purpose |
 |------|---------|
-| `.agents/skills/trinity/SKILL.md`                | Repo-local Codex skill |
 | `plugins/trinity/.codex-plugin/plugin.json`      | Local plugin manifest |
 | `plugins/trinity/skills/trinity/SKILL.md`        | Plugin-bundled skill |
 | `.agents/plugins/marketplace.json`               | Repo marketplace entry |
 
-Smoke test: restart Codex in the repo, open `/skills` (or `$trinity`) for the
-repo-local skill, or `/plugins` → repo marketplace → install `trinity` for
-the plugin.
-
-To smoke test it, restart Codex, open `/plugins`, select the repo marketplace, and confirm the `trinity` plugin appears. After installing the plugin, its bundled skill should be available.
+Smoke test: restart Codex, open `/plugins`, select the repo marketplace, and
+confirm the `trinity` plugin appears. After installing it, the bundled skill
+becomes available.
 
 **Claude Code regression check**
 
@@ -431,11 +435,11 @@ A preset expands one keyword into a configured provider set, dispatching the sam
 Built-in presets (configurable in `~/.claude/trinity.json` under `presets` /
 `preset_aliases`):
 
-| Preset        | Required providers          | Optional providers     | Alias |
-|---------------|-----------------------------|------------------------|-------|
-| `review`      | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `r`   |
-| `fast-review` | `glm`, `deepseek`           | —                      | `fr`  |
-| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `dr`  |
+| Preset | Required providers | Optional providers | Alias |
+|--------|--------------------|--------------------|-------|
+| `review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `r` |
+| `fast-review` | `glm`, `deepseek` | none | `fr` |
+| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `dr` |
 
 Optional providers are only dispatched when discovery marks them usable;
 otherwise Trinity warns and continues with the required set.
