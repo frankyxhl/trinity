@@ -1,0 +1,36 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Cancel an in-flight run on the same ref when a new commit lands. Keeps
+# CI minutes from piling up on a fast-iterating PR (e.g. a COR-1612 review
+# loop pushing fixes every few minutes).
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dev dependencies
+        run: make setup
+      - name: Run tests
+        run: make test
+      - name: Run coverage
+        run: make coverage
