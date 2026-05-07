@@ -1,9 +1,9 @@
 # CHG-2022: Wire Install-Sh Test Into Make Test
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-07
-**Last reviewed:** 2026-05-07
-**Status:** Proposed
+**Last updated:** 2026-05-08
+**Last reviewed:** 2026-05-08
+**Status:** Completed
 **Date:** 2026-05-07
 **Requested by:** Frank (via GitHub issue #41 plan A)
 **Implementer:** Claude Opus 4.7
@@ -141,3 +141,4 @@ This CHG is subordinate to TRN-2021-PLN §4 (slice A definition). Operator defau
 | 2026-05-07 | PR #44 round 2 P2 from Codex bot escalated the deferred port-collision risk to a now-blocker because making the test part of `make test` exposed it. Scope expanded: switched `tests/test_install_sh.sh` to OS-allocated port + universal-readiness probe + fail-fast. Verified by reproducing the bot's pre-bind-18742 scenario; both runs (clean + squatted) produce 10 PASS markers. | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 3 P2 from Codex bot — `set -e` + a failing install regression aborts the test before `_stop_server`, leaking the background `python3 -m http.server`. Fix: install `trap '_stop_server' EXIT INT TERM` inside `_start_server`; make `_stop_server` idempotent (`unset SERVER_PID` after kill). Verified by injecting `false` between `_start_server` and the install invocation; captured the running http.server PID via stderr probe; confirmed `kill -0 $PID` after script exit returns non-zero (PID was reaped by the trap). | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 5 P2 from Codex bot — `python3 -m http.server` defaults to binding 0.0.0.0 (all interfaces), exposing the repo to any host on the local network during the test. Fix: add `--bind 127.0.0.1` to the http.server invocation. Verified via `lsof -i -P -n` while the test was running — server now listed as `127.0.0.1:<port> (LISTEN)`, no longer `*:<port>`. | Claude Opus 4.7 |
+| 2026-05-08 | Status reconciled to Completed; merged in PR #44 at `07e1c14` (TRN-3019 backlog reconciliation). | Claude Opus 4.7 |

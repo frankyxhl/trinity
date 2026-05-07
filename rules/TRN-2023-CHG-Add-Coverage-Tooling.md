@@ -1,9 +1,9 @@
 # CHG-2023: Add Coverage Tooling
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-07
-**Last reviewed:** 2026-05-07
-**Status:** Proposed
+**Last updated:** 2026-05-08
+**Last reviewed:** 2026-05-08
+**Status:** Completed
 **Date:** 2026-05-07
 **Requested by:** Frank (via GitHub issue #41 plan B + TRN-2020-PRP slice B)
 **Implementer:** Claude Opus 4.7
@@ -211,3 +211,4 @@ This CHG is subordinate to TRN-2021-PLN §4 (slice B definition). Operator defau
 |------|--------|----|
 | 2026-05-07 | Initial draft of slice B delivery contract; CI workflow inclusion confirmed by operator | Claude Opus 4.7 |
 | 2026-05-07 | PR #45 round 1 P2 from Codex bot: bare `pytest tests/ -q` doesn't measure the pytest parent process, so tests that import modules and call functions directly (`test_codex_review_dispatch.py` calling `codex.cmd_review()`) are silently omitted from coverage. Fix: change runner to `coverage run -m pytest`. Re-measured baseline TOTAL 82% → 83%; codex.py 81% → 82% (the directly-called functions now visible to coverage). | Claude Opus 4.7 |
+| 2026-05-08 | Status reconciled to Completed; merged in PR #45 at `0143d07` (TRN-3019 backlog reconciliation). | Claude Opus 4.7 |

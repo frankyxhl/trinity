@@ -2,9 +2,9 @@
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Date:** 2026-05-04
-**Last updated:** 2026-05-06
-**Last reviewed:** 2026-05-06
-**Status:** Proposed
+**Last updated:** 2026-05-08
+**Last reviewed:** 2026-05-08
+**Status:** Completed
 **Requested by:** Frank
 **Implementer:** Codex
 **Priority:** Medium
@@ -205,3 +205,4 @@ tests pass, because it may consume Claude Code quota.
 | 2026-05-04 | Revised after Trinity provider review | Codex |
 | 2026-05-04 | Added explicit model and effort policy | Codex |
 | 2026-05-06 | Revised default model/effort to Claude Code `sonnet` + `high` | Codex |
+| 2026-05-08 | Status reconciled to Completed; merged in PR #18 at `fbf37a3` (TRN-3019 backlog reconciliation). | Claude Opus 4.7 |

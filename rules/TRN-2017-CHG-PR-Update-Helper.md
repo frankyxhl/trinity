@@ -1,9 +1,9 @@
 # CHG-2017: PR Update Helper
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-05
-**Last reviewed:** 2026-05-05
-**Status:** Proposed
+**Last updated:** 2026-05-08
+**Last reviewed:** 2026-05-08
+**Status:** Completed
 **Date:** 2026-05-04
 **Requested by:** Frank
 **Implementer:** Codex
@@ -103,3 +103,4 @@ Trinity improvement triage on 2026-05-04:
 |------|--------|----|
 | 2026-05-05 | Revised CHG with concrete Makefile/script interface, dry-run mode, safety model, and COR-1615/COR-1612 relationship | Codex |
 | 2026-05-04 | Initial CHG for PR update helper | Codex |
+| 2026-05-08 | Status reconciled to Completed; merged in PR #28 at `56ab7cb` (TRN-3019 backlog reconciliation). | Claude Opus 4.7 |

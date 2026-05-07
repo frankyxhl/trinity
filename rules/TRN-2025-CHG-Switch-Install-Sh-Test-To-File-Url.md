@@ -1,9 +1,9 @@
 # CHG-2025: Switch Install-Sh Test To File URL
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-07
-**Last reviewed:** 2026-05-07
-**Status:** Proposed
+**Last updated:** 2026-05-08
+**Last reviewed:** 2026-05-08
+**Status:** Completed
 **Date:** 2026-05-07
 **Requested by:** Frank (via GitHub issue #53)
 **Implementer:** Claude Opus 4.7
@@ -192,3 +192,4 @@ Plan-review: per operator instruction (2026-05-07), this CHG goes through Trinit
 |------|--------|----|
 | 2026-05-07 | Initial draft per COR-1616 step 3; references panel decision matrix from earlier session and pre-condition `grep` on `install.sh` | Claude Opus 4.7 |
 | 2026-05-08 | Trinity panel plan-review (3 Agent dispatches: glm PASS-with-advisories, gemini PASS-with-advisories, deepseek FAIL → trivially fixable). Adopted: Blocking finding (call-site count `six` → `eight`, T3b/T4 removed from per-case list because they don't call `_start_server`), advisory #1 (space-in-path sanity check added to §Risk + implementation), advisory #2 (Acceptance lifted explicit `Results: 10 passed, 0 failed` assertion + T6 stderr assertion), advisory #3 (header-comment update on line 5 added to §Implementation Plan). T6 file:// 404 semantics independently verified by all 3 agents via local curl test + `install.sh` ERR-trap inspection — confirmed safe. | Claude Opus 4.7 |
+| 2026-05-08 | Status reconciled to Completed; merged in PR #56 at `b1ab34a` (TRN-3019 backlog reconciliation). | Claude Opus 4.7 |
