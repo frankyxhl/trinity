@@ -201,9 +201,9 @@ To use review presets via the Claude Code skill, add them to the same file:
 ```json
 {
   "presets": {
-    "review":      { "providers": ["glm", "gemini", "deepseek"], "optional": ["codex", "claude-code"] },
+    "review":      { "providers": ["glm", "gemini", "deepseek"], "optional_providers": ["codex", "claude-code"] },
     "fast-review": { "providers": ["glm", "deepseek"] },
-    "deep-review": { "providers": ["glm", "gemini", "deepseek"], "optional": ["codex", "claude-code"] }
+    "deep-review": { "providers": ["glm", "gemini", "deepseek"], "optional_providers": ["codex", "claude-code"] }
   },
   "preset_aliases": { "r": "review", "fr": "fast-review", "dr": "deep-review" }
 }
