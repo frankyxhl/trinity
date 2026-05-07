@@ -27,7 +27,7 @@ DEFAULT_CONFIG_CANDIDATES = [
 ]
 DEFAULT_CONFIG_SECTIONS = ("providers", "review", "presets", "preset_aliases")
 PRESET_TASK_TYPES = {"tdd", "review", "prp", "general"}
-PRESET_ALIAS_RESERVED_WORDS = {"init-config", "doctor", "review", "help"}
+PRESET_ALIAS_RESERVED_WORDS = {"init-config", "doctor", "review", "status", "help"}
 STRICT_REVIEW_OUTPUT_SCHEMA = [
     "### Findings",
     "### Decision Matrix",

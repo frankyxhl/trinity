@@ -648,6 +648,41 @@ def test_codex_review_alias_collision_fails_before_review_dir(tmp_path):
     assert not out_dir.exists()
 
 
+def test_codex_review_alias_collision_status_subcommand(tmp_path):
+    repo = simple_repo(tmp_path)
+    fake_bin = tmp_path / "bin"
+    write_named_fake_providers(fake_bin, ["glm"])
+    config = tmp_path / "codex.json"
+    config.write_text(
+        json.dumps(
+            {
+                "providers": {"glm": {"cli": str(fake_bin / "glm"), "timeout": 10}},
+                "review": {"default_preset": "review"},
+                "presets": {"review": {"providers": ["glm"]}},
+                "preset_aliases": {"status": "review"},
+            }
+        )
+    )
+    out_dir = tmp_path / "reviews"
+
+    rc, out, err = run_codex(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "trinity: preset alias 'status' collides with subcommand" in err
+    assert not out_dir.exists()
+
+
 def test_codex_review_optional_provider_with_empty_cli_is_skipped(tmp_path):
     repo = simple_repo(tmp_path)
     fake_bin = tmp_path / "bin"
