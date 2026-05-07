@@ -1,13 +1,13 @@
-.PHONY: setup build verify-built install-hooks test lint install install-codex pr-update bump release-prep
+.PHONY: setup build verify-built install-hooks test lint coverage install install-codex pr-update bump release-prep
 
 # Read VERSION at make invocation time
 CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
 
 setup:          ## Create venv and install dev dependencies (uv → pip fallback)
 	@if command -v uv >/dev/null 2>&1; then \
-		uv venv && uv pip install pytest ruff; \
+		uv venv && uv pip install pytest pytest-cov coverage[toml] ruff; \
 	else \
-		python3 -m venv .venv && .venv/bin/pip install pytest ruff; \
+		python3 -m venv .venv && .venv/bin/pip install pytest pytest-cov coverage[toml] ruff; \
 	fi
 
 build:          ## Compose providers/*.md from _base/ partials and *.delta.md (TRN-2004)
@@ -32,6 +32,12 @@ test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 rel
 lint:           ## Check and format code (TRN-1002)
 	.venv/bin/ruff check dev/ scripts/ tests/
 	.venv/bin/ruff format --check dev/ scripts/ tests/
+
+coverage:       ## Measure line coverage with subprocess tracking (TRN-2023, fail-under 80%)
+	.venv/bin/coverage erase
+	.venv/bin/coverage run -m pytest tests/ -q
+	.venv/bin/coverage combine
+	.venv/bin/coverage report --include='scripts/*,dev/*' --fail-under=80
 
 install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	@mkdir -p ~/.claude/skills/trinity/scripts

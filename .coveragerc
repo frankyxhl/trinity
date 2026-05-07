@@ -1,0 +1,9 @@
+[run]
+parallel = True
+source = scripts,dev
+sigterm = True
+
+[report]
+exclude_also =
+    if __name__ == .__main__.:
+    raise NotImplementedError
