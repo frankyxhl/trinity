@@ -1,36 +1,36 @@
-"""Test-runner setup: enable coverage tracking inside subprocesses.
+"""Test-runner setup: optionally enable coverage tracking inside subprocesses.
 
-The Trinity test suite invokes its target modules as CLI subprocesses
-(e.g. `subprocess.run([..., scripts/session.py, "read", ...])`) rather
-than importing them. Without subprocess tracking, `pytest --cov` only
-sees the test runner's own execution and reports ~27% across modules
-that actually have ~83% line coverage. This conftest closes that gap
-by:
+Subprocess-coverage tracking is OPT-IN, controlled by `COVERAGE_PROCESS_START`:
 
-1. Setting `COVERAGE_PROCESS_START` to the project's `.coveragerc` so
-   any Python child process that imports `coverage.process_startup()`
-   activates coverage with the project's parallel-mode config.
+- When `COVERAGE_PROCESS_START` is set in the env (set by `Makefile`'s
+  `coverage:` target via inline `VAR=val cmd`, or by a developer
+  invoking pytest directly with the env var prefix), this conftest
+  prepends `tests/` to `PYTHONPATH` so child Python processes
+  auto-import `tests/sitecustomize.py`, which calls
+  `coverage.process_startup()`.
 
-2. Prepending `tests/` to `PYTHONPATH` so child processes auto-import
-   `tests/sitecustomize.py`, which calls `coverage.process_startup()`
-   exactly once at child-process startup.
+- When `COVERAGE_PROCESS_START` is unset (the default during plain
+  `make test` and direct `pytest tests/` invocation), this conftest
+  is a no-op. No PYTHONPATH mutation, no `.coverage.*` files written
+  by subprocesses.
 
-The pair (env var + sitecustomize) is the canonical pattern documented
-in coverage.py's "subprocess" recipe. It's preferred over writing a
-sitecustomize.py into the venv's site-packages (an invasive global
-side-effect that would activate coverage for unrelated tools too).
+Note on ambient env: a developer who has `COVERAGE_PROCESS_START`
+exported globally in their shell will trigger the gate even on plain
+`make test`. This is by design (the env var IS the opt-in switch),
+but worth noting if `.coverage.*` files appear unexpectedly.
+
+`coverage.process_startup()` is a no-op unless `COVERAGE_PROCESS_START`
+or `COVERAGE_PROCESS_CONFIG` is set (verified against coverage.py
+`control.py` `process_startup()` — early-return gate at the function
+top). So accidental imports of sitecustomize stay harmless.
 """
 
 import os
 from pathlib import Path
 
 _TESTS_DIR = Path(__file__).parent.resolve()
-_PROJECT_ROOT = _TESTS_DIR.parent
-_COVERAGERC = _PROJECT_ROOT / ".coveragerc"
 
-if _COVERAGERC.exists():
-    os.environ.setdefault("COVERAGE_PROCESS_START", str(_COVERAGERC))
-
+if os.environ.get("COVERAGE_PROCESS_START"):
     _existing_pp = os.environ.get("PYTHONPATH", "")
     _parts = _existing_pp.split(os.pathsep) if _existing_pp else []
     if str(_TESTS_DIR) not in _parts:
