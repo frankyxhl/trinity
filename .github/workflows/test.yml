@@ -3,7 +3,32 @@ name: Test
 on:
   push:
     branches: [main]
+    # Skip pure-docs pushes — see paths-ignore rationale below.
+    paths-ignore:
+      - 'rules/**'
+      - '*.md'
   pull_request:
+    # Skip CI on pure-docs PRs (status flips, README edits, CHANGELOG, TRN-PRP/PLN/CHG
+    # markdown). Mixed PRs that also touch Makefile/scripts/tests/.github still trigger.
+    # Trinity panel decision matrix (2026-05-07): unanimous Option A, weighted 8.75/8.37/6.62
+    # against B/B+A/C variants. Saves ~6 min macOS wall-clock on the ~70% of PRs that
+    # are pure-docs without losing the cross-platform parity gate on code PRs.
+    #
+    # Re-evaluate the glob if `rules/` ever gains executable content (hooks, scripts,
+    # `af validate` in CI) — currently all `.md`, so safe.
+    #
+    # FOOT-GUN: if branch protection on `main` is ever configured to require the
+    # `Test (ubuntu-latest)` / `Test (macos-latest)` checks, this `paths-ignore`
+    # makes pure-docs PRs UNMERGEABLE — the skipped checks stay `Pending` forever.
+    # As of 2026-05-07 no branch protection / required checks are configured on main
+    # (only `protect-release-tags` ruleset, which targets tags), so this works today.
+    # If you add required checks later, migrate to a job-level `if:` skip pattern so
+    # the matrix always runs and reports success. See GitHub's docs on "skipping
+    # workflow runs" + the community pattern for required checks on path-filtered
+    # workflows.
+    paths-ignore:
+      - 'rules/**'
+      - '*.md'
 
 permissions:
   contents: read
