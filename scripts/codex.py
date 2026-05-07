@@ -1493,8 +1493,12 @@ def _print_incomplete_only_summary(review_dir, incomplete_path):
     cleanup = incomplete.get("cleanup", {}) or {}
     message = incomplete.get("message")
 
-    print(f"Latest review: {review_dir}  (interrupted at {when})")
-    print(f"  Status: interrupted ({status})")
+    # cmd_review writes status="interrupted" (KeyboardInterrupt /
+    # ReviewInterrupted) or status="failed" (ReviewOrchestrationError /
+    # bare Exception). Use the stored status as the top-level label so
+    # orchestration failures aren't misrendered as user interruptions.
+    print(f"Latest review: {review_dir}  ({status} at {when})")
+    print(f"  Status: {status}")
     print()
     print(f"  Providers selected: {', '.join(providers_sel) or '(none)'}")
     print(f"  Providers started:  {', '.join(providers_started) or '(none)'}")

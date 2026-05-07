@@ -342,7 +342,9 @@ def test_t12_interrupted_review_with_no_metadata(tmp_path):
     result = _run_status(tmp_path)
     assert result.returncode == 0, result.stderr  # Must NOT bail with rc=1
     out = result.stdout
-    assert "Status: interrupted (interrupted)" in out
+    assert "Status: interrupted" in out
+    # Top-level header must use the stored status (not hard-coded "interrupted").
+    assert "(interrupted at 2026-05-08T14:00:30)" in out
     assert "Providers selected: glm, gemini, deepseek" in out
     assert "Providers started:  glm, gemini" in out
     assert "Running at cleanup: gemini" in out
@@ -437,7 +439,14 @@ def test_t12c_cleanup_result_field_rendered_for_each_outcome(tmp_path):
 
 def test_t12b_failed_review_with_message_renders_message(tmp_path):
     """Variant of T12: status='failed' with a message field — the message
-    should be surfaced in the output so the user sees the cause."""
+    should be surfaced in the output so the user sees the cause.
+
+    PR #60 round 5 (bot): the prior fix hard-coded "interrupted" in the
+    top-level label, so a `cmd_review` ReviewOrchestrationError (which
+    writes status='failed') was misrendered as "Status: interrupted
+    (failed)". Fix: use the stored status as the label directly. This
+    test guards both the new label AND the absence of the old
+    misrendering."""
     review_dir = tmp_path / ".trinity" / "reviews" / "20260508-150000-rules"
     review_dir.mkdir(parents=True)
     incomplete = {
@@ -455,5 +464,11 @@ def test_t12b_failed_review_with_message_renders_message(tmp_path):
     result = _run_status(tmp_path)
     assert result.returncode == 0, result.stderr
     out = result.stdout
-    assert "Status: interrupted (failed)" in out
+    # status='failed' must surface as a 'failed' label, not as 'interrupted'.
+    assert "Status: failed" in out
+    assert "(failed at 2026-05-08T15:00:30)" in out
+    # And specifically must NOT mislabel an orchestration failure as a
+    # user interruption — that was the PR #60 R5 bot finding.
+    assert "Status: interrupted" not in out
+    assert "interrupted at" not in out
     assert "Message: trinity-codex: gh command not found" in out
