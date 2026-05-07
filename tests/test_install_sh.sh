@@ -19,15 +19,28 @@ _fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 # Start a local HTTP server serving the repo root
 _start_server() {
     SERVE_DIR="$1"
-    SERVER_PORT=18742
+    # Allocate a free OS-assigned port. Avoids collisions on developer machines
+    # and CI workers, and fails the test cleanly if no port is available rather
+    # than silently talking to an unrelated process on a hard-coded port.
+    SERVER_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()') || {
+        echo "FAIL: could not allocate a free local port" >&2
+        exit 1
+    }
     python3 -m http.server "${SERVER_PORT}" --directory "${SERVE_DIR}" \
         >/dev/null 2>&1 &
     SERVER_PID=$!
-    # Wait for server to be ready
-    for i in $(seq 1 10); do
-        curl -sf "http://localhost:${SERVER_PORT}/VERSION" >/dev/null 2>&1 && break
+    # Wait for the server to be ready; fail fast (with a clear error) if it
+    # never binds — e.g. the small race between socket close and http.server
+    # bind was lost, or python died for any other reason. Probe the server
+    # root rather than /VERSION because some tests (T6) intentionally serve
+    # directories that lack VERSION.
+    for i in $(seq 1 20); do
+        curl -sf -o /dev/null "http://localhost:${SERVER_PORT}/" 2>/dev/null && return 0
         sleep 0.2
     done
+    echo "FAIL: local http server failed to start on port ${SERVER_PORT}" >&2
+    kill "${SERVER_PID}" 2>/dev/null || true
+    exit 1
 }
 
 _stop_server() {

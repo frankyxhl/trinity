@@ -36,9 +36,9 @@ Two consequences worth fixing in one slice:
 
 **Impact:** Adds ~5 s wall-clock to `make test` (HTTP server bring-up + 10 cases). Existing `make test` baseline ~30 s → ~35 s. No new test code, no new dependencies, no new files in `tests/`.
 
-**Risk:** Low.
+**Risk:** Low (after PR review-driven scope expansion).
 
-- Port collision: `tests/test_install_sh.sh` hardcodes port 18742. If a contributor's machine has something bound to that port, the test fails to start the local server. Mitigation deferred to a follow-on if the issue surfaces in practice (Python 3.12+ `http.server` supports OS-allocated port=0).
+- ~~Port collision: `tests/test_install_sh.sh` hardcodes port 18742. Mitigation deferred to a follow-on.~~ Promoted to in-scope after PR #44 round 2 P2 from Codex bot. The test now allocates an OS-assigned port via `python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'` and probes the server root (not `/VERSION`, since T6 serves a directory that intentionally lacks VERSION). Fail-fast error message if the server never binds.
 - Test brittleness: the test currently passes locally on macOS Darwin 25.4.0. CI is tag-only today, so this slice does not exercise Linux. The Linux parity check is implicit (test_install_sh.sh's own logic is the same regardless of OS), but slice B's optional CI workflow would close that gap explicitly.
 - Reverse-side risk: if `test_install_sh.sh` itself has a flake or platform-specific bug that's been silent because nobody runs it, wiring it in surfaces the bug. That's a feature, not a regression — but it could turn slice A red on the first PR run. Mitigation: run the test locally before opening the PR; if it fails, fix the underlying issue or revert this slice and open a separate fix-first PR.
 
@@ -119,7 +119,7 @@ $ af validate --root .
 
 ## Out of Scope
 
-- Reassigning the local-server port from 18742 to OS-allocated.
+- ~~Reassigning the local-server port from 18742 to OS-allocated.~~ Promoted to in-scope mid-flight (see Risk).
 - Adding Linux-side CI for the install path (slice B's optional workflow handles that).
 - Updating any other section of TRN-1800 beyond the §Behavior Baseline counts.
 - Coverage measurement (slice B).
@@ -138,3 +138,4 @@ This CHG is subordinate to TRN-2021-PLN §4 (slice A definition). Operator defau
 | Date | Change | By |
 |------|--------|----|
 | 2026-05-07 | Initial draft of slice A delivery contract | Claude Opus 4.7 |
+| 2026-05-07 | PR #44 round 2 P2 from Codex bot escalated the deferred port-collision risk to a now-blocker because making the test part of `make test` exposed it. Scope expanded: switched `tests/test_install_sh.sh` to OS-allocated port + universal-readiness probe + fail-fast. Verified by reproducing the bot's pre-bind-18742 scenario; both runs (clean + squatted) produce 10 PASS markers. | Claude Opus 4.7 |
