@@ -164,6 +164,10 @@ t6_404_exits_nonzero() {
     cp "${REPO_DIR}/providers/glm.md" "${MISSING_DIR}/providers/"
     # providers/codex.md intentionally missing
     cp "${REPO_DIR}/providers/gemini.md" "${MISSING_DIR}/providers/"
+    # registry.json must be present so install.sh's TRN-3020 probe doesn't
+    # short-circuit before reaching the codex.md 404 scenario this test is
+    # actually exercising.
+    cp "${REPO_DIR}/providers/registry.json" "${MISSING_DIR}/providers/"
 
     TMPFILE=$(mktemp)
     set +e

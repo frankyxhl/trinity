@@ -44,6 +44,8 @@
 | 2025 | CHG | Switch Install Sh Test To File Url |
 | 2026 | CHG | Scope Coverage Shim To Make Coverage |
 | 2028 | CHG | Add Trinity Status Latest Command |
+| 3000 | REF | Code Agent Wrapping Architectures |
+| 3020 | CHG | Consolidate Provider Config |
 
 ---
 

@@ -25,9 +25,28 @@ else
     BASE_URL="https://raw.githubusercontent.com/frankyxhl/trinity/main"
 fi
 
+# Probe: does the target version include providers/registry.json?
+# This file is required by the install flow as of TRN-3020. Older tags
+# don't have it, and their scripts/install.py doesn't have the
+# register-from-registry subcommand — piping main's install.sh against
+# an old TRINITY_VERSION would fail mid-install with a confusing error.
+# Detect early and direct the user to the tag's own install.sh, which
+# is self-contained for that version.
+if ! curl -fsSL --head "${BASE_URL}/providers/registry.json" -o /dev/null 2>/dev/null; then
+    echo "trinity-install: TRINITY_VERSION '${TRINITY_VERSION:-main}' does not include providers/registry.json." >&2
+    echo "trinity-install: This file was added in the TRN-3020 release. To install an older tag," >&2
+    echo "trinity-install: use that tag's own install.sh directly:" >&2
+    echo "" >&2
+    echo "    curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/v\${TRINITY_VERSION}/install.sh | bash" >&2
+    echo "" >&2
+    echo "trinity-install: Each tagged release ships a self-contained installer for that version." >&2
+    exit 1
+fi
+
 # Create destination directories
 mkdir -p "${HOME}/.claude/skills/trinity/scripts"
 mkdir -p "${HOME}/.claude/skills/trinity/bin"
+mkdir -p "${HOME}/.claude/skills/trinity/providers"
 mkdir -p "${HOME}/.claude/agents"
 
 # Download each file
@@ -51,30 +70,31 @@ _download "providers/claude-code.md"  "${HOME}/.claude/agents/trinity-claude-cod
 _download "providers/bin/deepseek"    "${HOME}/.claude/skills/trinity/bin/deepseek"
 _download "providers/bin/openrouter"  "${HOME}/.claude/skills/trinity/bin/openrouter"
 _download "providers/bin/claude-code" "${HOME}/.claude/skills/trinity/bin/claude-code"
+_download "providers/registry.json"   "${HOME}/.claude/skills/trinity/providers/registry.json"
 chmod +x "${HOME}/.claude/skills/trinity/bin/deepseek" \
          "${HOME}/.claude/skills/trinity/bin/openrouter" \
          "${HOME}/.claude/skills/trinity/bin/claude-code"
 
+# Validate the downloaded registry is parseable JSON before invoking
+# register-from-registry (TRN-3020 §"Surfaces" item 4: a truncated download
+# would otherwise produce a partial-install where some providers register
+# and some don't).
+python3 -c "import json,sys; json.load(open('${HOME}/.claude/skills/trinity/providers/registry.json'))" || {
+    echo "trinity: registry.json corrupt or unparseable" >&2
+    exit 1
+}
+
 CURRENT_FILE=""
 
-# Register default providers in ~/.claude/trinity.json
-python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register glm \
-    --cli "droid exec --auto medium --model glm-5.1 --reasoning-effort high" \
-    --global-config "${HOME}/.claude/trinity.json"
-python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register codex \
-    --cli "codex exec --skip-git-repo-check -m gpt-5.5" \
+# Register default providers in ~/.claude/trinity.json from the canonical
+# registry (5 providers: glm, codex, openrouter, deepseek, claude-code).
+# Gemini is registered separately below — deferred from registry per
+# TRN-3020 (canonical CLI value pending; tracked as TRN-3025 follow-up).
+python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register-from-registry \
+    "${HOME}/.claude/skills/trinity/providers/registry.json" \
     --global-config "${HOME}/.claude/trinity.json"
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register gemini \
     --cli "gemini -p" \
-    --global-config "${HOME}/.claude/trinity.json"
-python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register openrouter \
-    --cli "${HOME}/.claude/skills/trinity/bin/openrouter -p" \
-    --global-config "${HOME}/.claude/trinity.json"
-python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register deepseek \
-    --cli "${HOME}/.claude/skills/trinity/bin/deepseek -p" \
-    --global-config "${HOME}/.claude/trinity.json"
-python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register claude-code \
-    --cli "${HOME}/.claude/skills/trinity/bin/claude-code -p" \
     --global-config "${HOME}/.claude/trinity.json"
 
 # Print success with version
