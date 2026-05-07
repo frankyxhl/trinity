@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a new capability or behavior change for Trinity.
+title: "feat: <one-line summary>"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the proposal. Substantial features in this repo become **TRN-NNNN-PRP** documents under `rules/` (proposal) and ship via slice-shaped CHGs and PRs (see TRN-2010 / TRN-2020 for examples). The maintainer routes the issue to the right governance shape; this template captures the upstream signal.
+
+        For small fixes / one-line changes, just open a PR directly without an issue.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: One-paragraph summary
+      description: What would change in user-facing behavior or developer experience?
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Concrete user scenario
+      description: A real situation where this would help. "I want to do X but Trinity currently does Y, which forces me to Z." Avoid abstract framing ("it would be nice if...").
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you think about? Why did you settle on this one?
+
+  - type: textarea
+    id: scope-hints
+    attributes:
+      label: Scope hints (optional)
+      description: |
+        If you have a sense of the implementation surface — which files, which providers, which existing TRN docs would be touched — note it here. Helps the maintainer route the issue to PRP / CHG / direct PR.
+
+  - type: dropdown
+    id: provider-affected
+    attributes:
+      label: Provider(s) most affected
+      multiple: true
+      options:
+        - glm
+        - codex
+        - gemini
+        - openrouter
+        - deepseek
+        - claude-code
+        - multi-provider (preset / fan-out)
+        - N/A (not provider-specific)
