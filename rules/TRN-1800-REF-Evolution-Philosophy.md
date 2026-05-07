@@ -19,7 +19,7 @@ PRJ-layer override of COR-1800 for the `trinity` repo. Trinity is a Python skill
 `Fitness = same behavior / (LoC + doc words)` requires a "behavior" definition. For trinity:
 
 - **Behavior** = the union of:
-  1. `make test` is green (pytest 63+ cases, shell `tests/test_install_sh.sh` 10+ cases, `tests/test_release_workflow.sh` 53+ cases, `tests/test_build_providers.sh`)
+  1. `make test` is green (pytest 141+ cases, shell `tests/test_install_sh.sh` 10+ cases, `tests/test_release_workflow.sh` 105+ cases, `tests/test_build_providers.sh` 113+ cases, `tests/test_make_bump.sh` 2 cases)
   2. `make verify-built` is green (committed `providers/<name>.md` matches what `make build` would generate from `_base/*.md` + `<name>.delta.md`)
   3. `make lint` is green (ruff check + format)
   4. `install.sh` against a tmp `HOME` produces all 5 registered providers in `~/.claude/trinity.json` with absolute-path `cli` for the Anthropic-compat wrappers, and bin scripts present + executable
