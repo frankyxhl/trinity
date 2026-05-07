@@ -26,8 +26,11 @@ _start_server() {
         echo "FAIL: could not allocate a free local port" >&2
         exit 1
     }
-    python3 -m http.server "${SERVER_PORT}" --directory "${SERVE_DIR}" \
-        >/dev/null 2>&1 &
+    # Bind to loopback explicitly. Without --bind, http.server listens on
+    # 0.0.0.0 and exposes ${SERVE_DIR} (the repo) to any host on the local
+    # network for the duration of the test run.
+    python3 -m http.server "${SERVER_PORT}" --bind 127.0.0.1 \
+        --directory "${SERVE_DIR}" >/dev/null 2>&1 &
     SERVER_PID=$!
     # Install an EXIT/INT/TERM trap so a failing test (e.g. install.sh exits
     # non-zero under `set -e`) doesn't leak the background http.server. The

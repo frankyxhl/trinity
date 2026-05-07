@@ -121,7 +121,8 @@ make coverage   # must exit 0; reports ≥80% TOTAL
 Slice C additionally:
 
 ```bash
-.venv/bin/pytest tests/features/ -v   # 5+ scenarios green
+.venv/bin/pytest tests/test_bdd_scenarios.py -v   # collector module binds 5+ scenarios green
+.venv/bin/pytest --collect-only tests/test_bdd_scenarios.py   # confirm non-zero scenarios actually bind
 ```
 
 ---
@@ -153,3 +154,4 @@ Slice C additionally:
 | 2026-05-07 | Initial draft promoting issue #41 content into a TRN PRP | Claude Opus 4.7 |
 | 2026-05-07 | Trinity panel review (glm PASS / deepseek PASS / gemini timeout). Slice A scope expanded with TRN-1800 baseline correction (F2+F3). Status: Draft → Approved. | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 4 P2 from Codex bot: pytest-bdd does NOT auto-collect `.feature` files; raw feature files require a Python collector module calling `scenarios("features/")` or `@scenario(...)` to bind to pytest. PRP slice C scope corrected: collector module added as an explicit deliverable. | Claude Opus 4.7 |
+| 2026-05-07 | PR #44 round 5 P2 from Codex bot: §Validation Commands slice C entry pointed at `pytest tests/features/ -v`, which (per round 4's own fix) collects zero scenarios because the collector module lives at `tests/test_bdd_scenarios.py`, not under `features/`. Validation command corrected to target the collector module + added `--collect-only` evidence step. | Claude Opus 4.7 |
