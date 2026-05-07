@@ -1,0 +1,87 @@
+name: Bug report
+description: Something is broken in Trinity (dispatch, install, review, session, or docs gate).
+title: "bug: <one-line summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a Trinity bug. To make this fast to triage, please fill in everything below.
+        For provider-specific issues (CLI changed, install path broken, smoke test fails) use the **Provider issue** template instead.
+
+  - type: input
+    id: trinity-version
+    attributes:
+      label: Trinity version
+      description: |
+        Run `cat ~/.claude/skills/trinity/scripts/__init__.py | grep __version__` or look in the install output (`Trinity X.Y.Z installed to ~/.claude/`).
+      placeholder: "3.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (Ubuntu/Debian)
+        - Linux (other)
+        - Windows / WSL
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider(s) involved
+      description: Which provider(s) does this bug touch? Pick "N/A" for non-dispatch bugs.
+      multiple: true
+      options:
+        - glm
+        - codex
+        - gemini
+        - openrouter
+        - deepseek
+        - claude-code
+        - multi-provider (preset / fan-out)
+        - N/A (not provider-specific)
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+      placeholder: e.g. /trinity glm "task" should dispatch a background agent and write a session entry to .claude/trinity.json
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Paste the error output, stderr, agent task-notification text, or relevant log excerpts. Don't include secrets, API keys, or absolute paths under `/Users/`.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal reproduction. Include the `/trinity` command, any `~/.claude/trinity.json` config relevant, and what you observed at each step.
+      placeholder: |
+        1. Run `/trinity install glm`
+        2. Then run `/trinity glm "hello"`
+        3. Observed ... (expected: ...)
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context (optional)
+      description: Anything else helpful — recent changes, pre-existing config, related TRN docs.

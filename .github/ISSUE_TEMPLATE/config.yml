@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 How do I use Trinity?
+    url: https://github.com/frankyxhl/trinity/blob/main/README.md
+    about: README covers install, command reference, review presets, and the Codex adapter. Most "how do I…" questions are answered there.
+  - name: 🔍 Trinity skill specification
+    url: https://github.com/frankyxhl/trinity/blob/main/SKILL.md
+    about: SKILL.md is the canonical spec for `/trinity` dispatch semantics, session management, and provider discovery. If the README and SKILL.md disagree, the issue belongs in "Documentation issue".
+  - name: 📋 Existing TRN-NNNN proposals
+    url: https://github.com/frankyxhl/trinity/tree/main/rules
+    about: Active proposals (PRP), execution contracts (PLN), and changes (CHG) live under `rules/`. Browse before opening a feature request — your idea may already be filed.

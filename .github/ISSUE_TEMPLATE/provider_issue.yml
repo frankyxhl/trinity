@@ -1,0 +1,89 @@
+name: Provider-specific issue
+description: One of the 6 providers (glm / codex / gemini / openrouter / deepseek / claude-code) is broken at the install / dispatch / smoke-test boundary.
+title: "provider:<name>: <one-line summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when the failure is clearly tied to one provider — provider CLI changed upstream, install path broken, smoke test fails, or dispatch never returns.
+        For non-provider bugs (the `/trinity` skill itself, install.sh logic, session management) use the **Bug report** template instead.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: Pick the one provider this issue is about. If it's multiple, file separately or use the Bug report template.
+      options:
+        - glm
+        - codex
+        - gemini
+        - openrouter
+        - deepseek
+        - claude-code
+    validations:
+      required: true
+
+  - type: input
+    id: provider-cli-version
+    attributes:
+      label: Provider CLI version
+      description: |
+        Run the version check appropriate to the provider:
+        - glm: `droid --version`
+        - codex: `codex --version`
+        - gemini: `gemini --version`
+        - openrouter / deepseek / claude-code: `~/.claude/skills/trinity/bin/<name> --version` (Anthropic-compatible wrapper)
+      placeholder: "e.g. droid 0.4.2 / gpt-5.5 / gemini-3-pro / 4.7.0[1m]"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How did you install Trinity?
+      options:
+        - "`make install` from cloned repo"
+        - "`install.sh` from raw GitHub URL"
+        - Manual (copied agent files + edited trinity.json by hand)
+        - Codex adapter (`make install-codex`)
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: failure-mode
+    attributes:
+      label: Failure pattern
+      multiple: true
+      options:
+        - Install — provider CLI not found in PATH
+        - Install — smoke test returns non-zero
+        - Install — atomic rollback didn't clean up
+        - Dispatch — agent never starts (output_file empty after 30s)
+        - Dispatch — agent stalls (heartbeat shows no progress)
+        - Dispatch — timeout exceeded but agent still running
+        - Dispatch — provider returns auth error / quota error
+        - Review — preset preflight fails
+        - Wrapper (`bin/<provider>`) — env var injection broken
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: |
+        Paste the relevant stderr / output / agent output_file excerpt. Don't include API keys, absolute paths under `/Users/`, or shell history.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: trinity-config
+    attributes:
+      label: This provider's entry in `~/.claude/trinity.json`
+      description: |
+        Just the `cli` line for the affected provider (redact any path containing `/Users/<your-name>/`). Helps confirm the config matches what the failure shape implies.
+      placeholder: 'e.g. "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high"'

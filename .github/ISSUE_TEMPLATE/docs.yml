@@ -1,0 +1,51 @@
+name: Documentation issue
+description: A doc is unclear, incorrect, missing, or contradicts the actual behavior.
+title: "docs: <one-line summary>"
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for flagging a doc gap. For minor fixes (typo, broken link, one-line clarification) feel free to skip the issue and open a PR directly.
+
+  - type: dropdown
+    id: which-doc
+    attributes:
+      label: Which document?
+      options:
+        - README.md
+        - SKILL.md
+        - CHANGELOG.md
+        - install.sh comments / install instructions
+        - Specific TRN-NNNN doc under rules/ (specify in description)
+        - COR-NNNN / CLD-NNNN doc (governance — usually out of scope for this repo, but flag it anyway)
+        - Inline comments in scripts/ or tests/
+        - Provider agent file (rules/TRN-1006 model-IDs)
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: Where exactly?
+      description: |
+        File path + section / line if you can pinpoint it. Quote the unclear/wrong text.
+      placeholder: |
+        e.g. README.md → "Codex Compatibility" section → "Run a review" subsection,
+        line near "trinity review --pr 21 --preset deep-review".
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong, missing, or unclear?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested-fix
+    attributes:
+      label: Suggested fix (optional)
+      description: If you already have wording in mind, paste it here. Otherwise leave blank.
