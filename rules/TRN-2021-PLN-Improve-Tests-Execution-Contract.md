@@ -87,11 +87,11 @@ The executor must NOT, under any circumstances within this contract:
 
 ### Slice C — TRN-2024-CHG-Add-Pytest-BDD-Scenario-Layer
 
-- **Scope**: extend `make setup` with `pytest-bdd`; create `tests/features/` with five `.feature` files; create `tests/step_defs/` with shared step implementations; integrate with existing `pytest tests/` invocation.
+- **Scope**: extend `make setup` with `pytest-bdd`; create `tests/features/` with five `.feature` files; create `tests/step_defs/` with shared step implementations; create at least one collector test module (e.g. `tests/test_bdd_scenarios.py` with `from pytest_bdd import scenarios; scenarios("features/")`) so pytest binds the `.feature` files at collection time — pytest-bdd does not auto-collect raw `.feature` files. Integrate with existing `pytest tests/` invocation.
 - **Out of scope**: migrating existing unit tests to BDD; expanding mock posture in `test_codex_review_dispatch.py`; adding additional scenarios beyond the five seed flows.
-- **Tests**: `pytest tests/features/ -v` runs 5+ scenarios, all green; `make test` total grows to ≈ 150 cases with no regressions in existing pytest cases.
-- **Validation**: `make verify-built && make test && make lint && af validate --root .` plus `pytest tests/features/ -v`.
-- **Exit condition**: PR merged; `make test` on `main` runs the new BDD scenarios alongside the existing 141 pytest cases.
+- **Tests**: `pytest tests/ -v -k bdd` (or equivalent) runs 5+ scenarios, all green; `make test` total grows to ≈ 150 cases with no regressions in existing pytest cases. Verification step before commit must include `pytest --collect-only tests/` to confirm the BDD collector binds non-zero scenarios.
+- **Validation**: `make verify-built && make test && make lint && af validate --root .`; pre-commit also `pytest --collect-only tests/` showing each `.feature` scenario as a collected item under the BDD collector module.
+- **Exit condition**: PR merged; `make test` on `main` runs the new BDD scenarios alongside the existing 141 pytest cases, with `pytest --collect-only` evidence proving the scenarios actually bind to the test runner.
 
 ---
 
@@ -180,3 +180,4 @@ The executor stops and reports instead of continuing when:
 |------|--------|----|
 | 2026-05-07 | Initial draft of the COR-1614 execution contract subordinate to TRN-2020-PRP | Claude Opus 4.7 |
 | 2026-05-07 | Trinity panel plan-review (glm PASS / deepseek PASS / gemini timeout). Adopted advisory F4 (generic "the executor" instead of named model), F5 (drop specific tmp/ filename). Folded F2 + F3 into slice A scope (TRN-1800:22 baseline correction). F1 (af-index title formatting) skipped — tool behavior. F6 (collapsed change history) skipped — `af index` autogenerates. F7 (forward refs) skipped — correct PRP pattern. glm "220 shell" finding rebutted — count is correct (113+105+2+10≈230). Status: Draft → Active. | Claude Opus 4.7 |
+| 2026-05-07 | PR #44 round 4 P2 from Codex bot: §4 slice C scope corrected. pytest-bdd does NOT auto-collect `.feature` files — a Python collector module (`tests/test_bdd_scenarios.py` with `scenarios("features/")` or per-scenario `@scenario` decorators) is required for pytest to bind features. Validation also expanded to require `pytest --collect-only` evidence that scenarios actually bind. | Claude Opus 4.7 |

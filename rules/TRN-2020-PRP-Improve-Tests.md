@@ -77,7 +77,8 @@ Three small artifacts plus a Make target:
   - `heartbeat_and_timeout.feature` — proactive update + warn / max threshold transitions per `defaults.timeout`.
   - `install_atomic_rollback.feature` — `/trinity install <provider>` rolls back agent file + config entry on smoke-test failure.
 - **`tests/step_defs/conftest.py` + `tests/step_defs/common_steps.py`** — shared `Given a Trinity config at <path>` / `When I run trinity <args>` / `Then the session file contains <key>` step implementations. Reuse `tmp_path`, `monkeypatch`, and the existing JSON fixture helpers from `test_session.py` and `test_codex_review_dispatch.py`.
-- **`make test` integration** — `pytest tests/` already discovers `tests/features/*.feature` automatically once `pytest-bdd` is installed; no separate runner.
+- **`tests/test_bdd_scenarios.py`** — a thin pytest collector module (one per feature file or one shared) that calls `from pytest_bdd import scenarios; scenarios("features/")` to bind the `.feature` files to pytest. Without this collector, pytest discovers zero scenarios even if the `.feature` files exist — pytest-bdd does not auto-collect raw feature files.
+- **`make test` integration** — once the collector module(s) are in place, `pytest tests/` discovers them like any other test module, and pytest-bdd's `scenarios(...)` call walks the feature dir at collection time. No separate runner.
 
 ---
 
@@ -151,3 +152,4 @@ Slice C additionally:
 |------|--------|----|
 | 2026-05-07 | Initial draft promoting issue #41 content into a TRN PRP | Claude Opus 4.7 |
 | 2026-05-07 | Trinity panel review (glm PASS / deepseek PASS / gemini timeout). Slice A scope expanded with TRN-1800 baseline correction (F2+F3). Status: Draft → Approved. | Claude Opus 4.7 |
+| 2026-05-07 | PR #44 round 4 P2 from Codex bot: pytest-bdd does NOT auto-collect `.feature` files; raw feature files require a Python collector module calling `scenarios("features/")` or `@scenario(...)` to bind to pytest. PRP slice C scope corrected: collector module added as an explicit deliverable. | Claude Opus 4.7 |
