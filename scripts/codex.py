@@ -1606,7 +1606,13 @@ def _print_review_summary(review_dir):
 
     # Final status line.
     if incomplete_status is not None:
-        overall = f"interrupted ({incomplete_status})"
+        # Use the stored status directly. cmd_review writes status=
+        # "interrupted" (KeyboardInterrupt / ReviewInterrupted) or
+        # "failed" (ReviewOrchestrationError / bare Exception) — see
+        # scripts/codex.py:1370-1402. Hard-coding "interrupted" here
+        # would mislabel an exception-after-metadata-write (e.g. inside
+        # write_synthesis()) as a user interruption.
+        overall = incomplete_status
     elif not results:
         # Empty results list isn't "completed" — no providers ran.
         overall = "unknown (no results)"

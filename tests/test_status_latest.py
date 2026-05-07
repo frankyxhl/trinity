@@ -472,3 +472,35 @@ def test_t12b_failed_review_with_message_renders_message(tmp_path):
     assert "Status: interrupted" not in out
     assert "interrupted at" not in out
     assert "Message: trinity-codex: gh command not found" in out
+
+
+def test_t14_metadata_plus_incomplete_failed_renders_failed(tmp_path):
+    """PR #60 round 6 (bot): metadata-PRESENT path also hard-coded
+    'interrupted (...)' as the overall label. When an exception happens
+    after `metadata.json` is written but before completion (e.g.
+    `write_synthesis()` raises), `cmd_review` writes incomplete.json
+    with status='failed' alongside the metadata. The pre-fix code at
+    scripts/codex.py:1609 rendered this as `Status: interrupted
+    (failed)` — same misclassification as R5, just in the sibling
+    code branch. Fix: use the stored status directly.
+
+    This test guards the metadata-PRESENT + incomplete.status='failed'
+    case, which T12b cannot cover (T12b deletes metadata.json)."""
+    md = _basic_metadata({"glm": 0, "deepseek": 0})
+    _make_review(
+        tmp_path,
+        name="20260508-180000-rules",
+        metadata=md,
+        # Both files exist — metadata wrote successfully, then synthesis
+        # raised, then write_incomplete(status='failed') landed.
+        incomplete={"status": "failed", "review_dir": "fake"},
+    )
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # Both files reported.
+    assert "Incomplete: ✓ incomplete.json (status=failed)" in out
+    # Final overall label uses the stored status — NOT "interrupted (failed)".
+    assert "Status: failed" in out
+    assert "interrupted (failed)" not in out
+    assert "Status: interrupted" not in out
