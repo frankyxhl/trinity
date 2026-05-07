@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-05-07
+
 ### Added
 - `claude-code` is now a first-class Claude Code provider. `make install` and
   `install.sh` install `trinity-claude-code.md`, register
