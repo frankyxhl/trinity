@@ -35,7 +35,7 @@ lint:           ## Check and format code (TRN-1002)
 
 coverage:       ## Measure line coverage with subprocess tracking (TRN-2023, fail-under 80%)
 	.venv/bin/coverage erase
-	.venv/bin/pytest tests/ -q
+	.venv/bin/coverage run -m pytest tests/ -q
 	.venv/bin/coverage combine
 	.venv/bin/coverage report --include='scripts/*,dev/*' --fail-under=80
 

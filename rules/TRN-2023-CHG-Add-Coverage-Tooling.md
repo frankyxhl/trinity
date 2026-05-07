@@ -51,7 +51,7 @@ Three concrete gaps from the parent PRP:
 
 Five file changes, one commit:
 
-1. **`Makefile`** — extend the `setup:` target to install `pytest-cov` and `coverage[toml]` alongside the existing `pytest` + `ruff`. Add a new `coverage:` target that runs `coverage erase && pytest -q && coverage combine && coverage report --include='scripts/*,dev/*' --fail-under=80`.
+1. **`Makefile`** — extend the `setup:` target to install `pytest-cov` and `coverage[toml]` alongside the existing `pytest` + `ruff`. Add a new `coverage:` target that runs `coverage erase && coverage run -m pytest tests/ -q && coverage combine && coverage report --include='scripts/*,dev/*' --fail-under=80`. Note: the runner is `coverage run -m pytest`, not bare `pytest`, so the pytest parent process is also measured. Tests that import a module and call its functions directly (`tests/test_codex_review_dispatch.py` calls `codex.cmd_review()`) execute in the parent; under bare pytest the subprocess shim only measures children, leaving parent-process execution silently uncounted.
 
 2. **`.coveragerc`** (new) — project-root config:
    ```ini
@@ -161,20 +161,20 @@ $ make test          # all gates still PASS, no regressions from conftest/sitecu
 
 $ make coverage
 .venv/bin/coverage erase
-.venv/bin/pytest tests/ -q
-.venv/bin/coverage combine     (combines ~70 .coverage.* parallel data files)
+.venv/bin/coverage run -m pytest tests/ -q
+.venv/bin/coverage combine     (combines parent + ~70 subprocess .coverage.* parallel data files)
 .venv/bin/coverage report --include='scripts/*,dev/*' --fail-under=80
 Name                  Stmts   Miss  Cover
 -----------------------------------------
 dev/pr_update.py        208     27    87%
 scripts/__init__.py       1      0   100%
-scripts/codex.py        844    164    81%
+scripts/codex.py        844    151    82%
 scripts/config.py        82     10    88%
 scripts/discover.py      91     11    88%
 scripts/install.py      126     32    75%
 scripts/session.py      169     33    80%
 -----------------------------------------
-TOTAL                  1521    277    82%
+TOTAL                  1521    264    83%
 
 $ make lint
 All checks passed!     (19 files already formatted)
@@ -210,3 +210,4 @@ This CHG is subordinate to TRN-2021-PLN §4 (slice B definition). Operator defau
 | Date | Change | By |
 |------|--------|----|
 | 2026-05-07 | Initial draft of slice B delivery contract; CI workflow inclusion confirmed by operator | Claude Opus 4.7 |
+| 2026-05-07 | PR #45 round 1 P2 from Codex bot: bare `pytest tests/ -q` doesn't measure the pytest parent process, so tests that import modules and call functions directly (`test_codex_review_dispatch.py` calling `codex.cmd_review()`) are silently omitted from coverage. Fix: change runner to `coverage run -m pytest`. Re-measured baseline TOTAL 82% → 83%; codex.py 81% → 82% (the directly-called functions now visible to coverage). | Claude Opus 4.7 |
