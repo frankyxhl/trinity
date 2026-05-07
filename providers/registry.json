@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "providers": {
+    "glm": {
+      "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high",
+      "supports_resume": true,
+      "resume_arg": "-s",
+      "timeout": 360
+    },
+    "codex": {
+      "cli": "codex exec --skip-git-repo-check -m gpt-5.5",
+      "supports_resume": true,
+      "resume_arg": "experimental resume",
+      "timeout": 600
+    },
+    "openrouter": {
+      "cli": "{HOME}/.claude/skills/trinity/bin/openrouter -p",
+      "supports_resume": false,
+      "timeout": 600
+    },
+    "deepseek": {
+      "cli": "{HOME}/.claude/skills/trinity/bin/deepseek -p",
+      "supports_resume": true,
+      "resume_arg": "-r",
+      "timeout": 600
+    },
+    "claude-code": {
+      "cli": "{HOME}/.claude/skills/trinity/bin/claude-code -p",
+      "supports_resume": true,
+      "resume_arg": "--resume",
+      "timeout": 600
+    }
+  }
+}

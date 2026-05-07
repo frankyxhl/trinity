@@ -42,9 +42,11 @@ coverage:       ## Measure line coverage with subprocess tracking (TRN-2023, fai
 install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	@mkdir -p ~/.claude/skills/trinity/scripts
 	@mkdir -p ~/.claude/skills/trinity/bin
+	@mkdir -p ~/.claude/skills/trinity/providers
 	@mkdir -p ~/.claude/agents
 	cp SKILL.md ~/.claude/skills/trinity/SKILL.md
 	cp -r scripts/. ~/.claude/skills/trinity/scripts/
+	cp providers/registry.json ~/.claude/skills/trinity/providers/registry.json
 	cp providers/glm.md ~/.claude/agents/trinity-glm.md
 	cp providers/codex.md ~/.claude/agents/trinity-codex.md
 	cp providers/gemini.md ~/.claude/agents/trinity-gemini.md
@@ -55,23 +57,11 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	cp providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
 	cp providers/bin/claude-code ~/.claude/skills/trinity/bin/claude-code
 	chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code
-	python3 ~/.claude/skills/trinity/scripts/install.py register glm \
-		--cli "droid exec --auto medium --model glm-5.1 --reasoning-effort high" \
-		--global-config ~/.claude/trinity.json
-	python3 ~/.claude/skills/trinity/scripts/install.py register codex \
-		--cli "codex exec --skip-git-repo-check -m gpt-5.5" \
+	python3 ~/.claude/skills/trinity/scripts/install.py register-from-registry \
+		~/.claude/skills/trinity/providers/registry.json \
 		--global-config ~/.claude/trinity.json
 	python3 ~/.claude/skills/trinity/scripts/install.py register gemini \
 		--cli "gemini -p" \
-		--global-config ~/.claude/trinity.json
-	python3 ~/.claude/skills/trinity/scripts/install.py register openrouter \
-		--cli "$(HOME)/.claude/skills/trinity/bin/openrouter -p" \
-		--global-config ~/.claude/trinity.json
-	python3 ~/.claude/skills/trinity/scripts/install.py register deepseek \
-		--cli "$(HOME)/.claude/skills/trinity/bin/deepseek -p" \
-		--global-config ~/.claude/trinity.json
-	python3 ~/.claude/skills/trinity/scripts/install.py register claude-code \
-		--cli "$(HOME)/.claude/skills/trinity/bin/claude-code -p" \
 		--global-config ~/.claude/trinity.json
 	@echo "Installed Trinity $(CURRENT_VERSION)"
 
