@@ -15,6 +15,15 @@
   effort: `--reasoning-effort high`. Claude Code installs keep
   `--auto medium` for normal development tasks, while Codex-native review
   config stays read-only and only changes the model/effort flags.
+- `README.md` refreshed to track current SKILL behavior: documents preset
+  dispatch (`/trinity review|fast-review|deep-review` plus `r`/`fr`/`dr`
+  aliases) in the Command Reference and a new "Review presets" section, adds
+  a `presets` / `preset_aliases` snippet to the manual `~/.claude/trinity.json`
+  example, updates the Architecture diagram to include `scripts/`, `bin/`, and
+  the deepseek/openrouter/claude-code agent files, and restructures the Codex
+  Compatibility section into Install / Provider health / Run a review /
+  Update a PR / Repo-local skill & plugin subsections without dropping
+  concrete examples.
 
 ## [3.1.1] - 2026-05-06
 

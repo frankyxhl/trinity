@@ -21,6 +21,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
   - [Multi-provider parallel](#multi-provider-parallel)
   - [Named instances](#named-instances)
   - [Parallel same-provider](#parallel-same-provider)
+  - [Review presets](#review-presets)
   - [Plan mode](#plan-mode)
   - [Health monitoring](#health-monitoring)
   - [Session management](#session-management)
@@ -88,9 +89,11 @@ Expected output: glm, codex, gemini, openrouter, deepseek, and claude-code all s
 - **Dispatch** tasks to external LLMs running in the background — you keep working while they run
 - **Session continuity** — each provider instance remembers its conversation across calls
 - **Provider auto-discovery** — add new providers by dropping a config entry + agent file; no skill editing required
+- **Review presets** — one keyword (`review`, `fast-review`, `deep-review`) fans a task out to a configured provider set in parallel
 - **Health monitoring** — heartbeat checks tell you if agents are alive, stalled, or timed out
 - **Install command** — `/trinity install codex` sets up the CLI, agent file, config, and smoke test in one step
 - **Plan mode** — draw a sequence diagram, confirm, then auto-dispatch in dependency order
+- **Codex adapter** — a terminal `trinity review` that runs the same multi-provider review without Claude Code
 
 ---
 
@@ -193,6 +196,19 @@ Then create `~/.claude/trinity.json`:
 }
 ```
 
+To use review presets via the Claude Code skill, add them to the same file:
+
+```json
+{
+  "presets": {
+    "review":      { "providers": ["glm", "gemini", "deepseek"], "optional": ["codex", "claude-code"] },
+    "fast-review": { "providers": ["glm", "deepseek"] },
+    "deep-review": { "providers": ["glm", "gemini", "deepseek"], "optional": ["codex", "claude-code"] }
+  },
+  "preset_aliases": { "r": "review", "fr": "fast-review", "dr": "deep-review" }
+}
+```
+
 ### Step 3: Configure global defaults (optional)
 
 Edit `~/.claude/trinity.json` to set your preferred heartbeat interval and timeout thresholds. Per-project overrides go in `.claude/trinity.json` at the project root.
@@ -201,9 +217,10 @@ Edit `~/.claude/trinity.json` to set your preferred heartbeat interval and timeo
 
 ## Codex Compatibility
 
-Trinity also ships a Codex adapter without changing the Claude Code install path.
+Trinity also ships a Codex adapter that adds a terminal `trinity` command for
+multi-provider code review. It does not change the Claude Code install path.
 
-**Install the Codex adapter**
+### Install
 
 From a cloned repo:
 
@@ -211,147 +228,108 @@ From a cloned repo:
 make install-codex
 ```
 
-This installs:
-
 | Location | Contents |
 |----------|----------|
-| `~/.codex/skills/trinity/SKILL.md` | Codex-specific Trinity skill |
-| `~/.codex/skills/trinity/scripts/` | Shared Trinity scripts plus Codex wrapper script |
-| `~/.codex/skills/trinity/bin/deepseek` | Codex DeepSeek Anthropic-compatible wrapper |
+| `~/.codex/skills/trinity/SKILL.md`           | Codex-specific Trinity skill |
+| `~/.codex/skills/trinity/scripts/`           | Shared scripts + Codex wrapper |
+| `~/.codex/skills/trinity/bin/deepseek`       | DeepSeek Anthropic-compat wrapper |
 | `~/.codex/skills/trinity/trinity.codex.json` | Bundled default Codex config |
-| `~/.codex/trinity.json` | User-level Codex provider config |
-| `~/.local/bin/trinity` | Terminal wrapper for Codex-native commands |
+| `~/.codex/trinity.json`                      | User-level Codex provider config |
+| `~/.local/bin/trinity`                       | Terminal wrapper |
 
-The committed default config lives at `.agents/trinity.codex.json`. It registers
-`glm`, `gemini`, and `deepseek` for direct CLI review calls and records each
-provider's command, resume support flag, timeout, and review prompt template.
-It also configures review presets under `presets` (`review`, `fast-review`,
-`deep-review`) plus short aliases under `preset_aliases`. `trinity review`
-selects providers in this order: explicit `--providers`, explicit `--preset`,
+The default config (`.agents/trinity.codex.json`) registers `glm`, `gemini`,
+and `deepseek` for direct CLI review and seeds the `review` / `fast-review` /
+`deep-review` presets (with `r` / `fr` / `dr` aliases) — same set documented
+under [Review presets](#review-presets). `trinity review` chooses providers in
+this order: explicit `--providers`, explicit `--preset`,
 `review.default_preset`, then legacy `review.default_providers`.
 
-Default preset config:
-
-| Preset | Required providers | Optional providers |
-|--------|--------------------|--------------------|
-| `review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
-| `fast-review` | `glm`, `deepseek` | none |
-| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
-
-The Codex DeepSeek entry uses the installed
-`~/.codex/skills/trinity/bin/deepseek -p` wrapper so it does not depend on a
-locally accepted `droid` model alias.
-The optional `claude-code` preset entry is a Claude Code worker-agent provider;
-it is skipped by Codex-native reviews unless the user explicitly adds a
-compatible CLI entry to `~/.codex/trinity.json`.
-
-**Check provider health**
+### Provider health
 
 ```bash
 trinity doctor --providers glm,gemini,deepseek
 trinity doctor --preset fast-review
-trinity review --check-providers --providers glm,gemini,deepseek
 trinity review --check-providers --preset dr
 ```
 
-Health checks validate the selected provider config, command lookup,
-executable permissions, and timeout values before a review run starts. They do
-not call the provider or require a network request, so API-key or quota failures
-can still occur during the actual review.
+Health checks validate config shape, CLI lookup, executable permissions, and
+timeouts. They do not call the provider, so API-key or quota errors can still
+surface during an actual review.
 
-**Run a Codex-native review**
+### Run a review
 
 ```bash
-trinity review --providers glm,gemini,deepseek --scope spikes/hardline
 trinity review --preset fast-review --scope spikes/hardline
 trinity review --preset dr --scope .
 trinity review --base main --head HEAD --providers glm,deepseek
 trinity review --pr 21 --preset deep-review
-trinity review --sop COR-1602 --rubric COR-1609 --scope rules/TRN-2016-CHG-COR-1602-Strict-Review-Mode.md
-trinity review --sop COR-1602 --rubric COR-1609 --base main --head HEAD --preset fast-review
 trinity review --sop COR-1602 --rubric COR-1609 --pr 21 --preset deep-review
 ```
 
-Without `--pr` or `--base/--head`, the review wrapper collects tracked and
-untracked working-tree changes. With `--base/--head`, it reviews committed
-branch changes from `git diff base...head` and snapshots changed files from the
-head commit. With `--pr`, it uses `gh pr view` / `gh pr diff` for the GitHub PR
-patch and metadata, then snapshots changed files from the PR head commit when
-that commit is locally available. All modes call each provider CLI directly,
-run selected providers concurrently up to
-`review.max_parallel_providers` (default: selected provider count), store raw
-provider outputs, and write a deterministic `synthesis.md` under
-`.trinity/reviews/`. Progress is logged to stderr, while stdout remains the
-review directory path. If a review is interrupted before final artifacts are
-written, the review directory contains `incomplete.json` with cleanup details.
-Selected providers are preflighted before output directories are created. If a
-preset has optional providers that are not configured or have no CLI, they are
-skipped with a stderr warning and recorded in `metadata.json`; required
-providers still fail preflight when unavailable. This path does not require
-Claude Code worker-agent files.
+Scope modes:
 
-Strict COR review mode is enabled by pairing `--sop` and `--rubric`. The first
-supported template is `COR-1602` with the `COR-1609` CHG rubric. It prepends
-rubric weights, COR-1611 calibration guidance, the 9.0 PASS threshold, and the
-required findings / decision-matrix / weighted-average output schema to the
-normal review prompt. The selected SOP, rubric, threshold, and output schema
-are recorded in `metadata.json`.
+- **default** — tracked + untracked working-tree changes
+- `--base/--head` — committed branch diff (`git diff base...head`) + head snapshot
+- `--pr <n>` — `gh pr view` / `gh pr diff` + head snapshot when the commit is local
 
-**Update a PR after review fixes**
+All modes call provider CLIs directly, run them concurrently up to
+`review.max_parallel_providers`, store raw outputs, and write a deterministic
+`synthesis.md` under `.trinity/reviews/`. stdout is the review directory path;
+progress logs go to stderr. Interrupted runs leave `incomplete.json` for
+cleanup. Optional preset providers without a usable CLI are skipped with a
+warning recorded in `metadata.json`; required providers still fail preflight.
+This path does not require Claude Code worker-agent files.
+
+**Strict COR review mode** — pair `--sop COR-1602` with `--rubric COR-1609` to
+prepend rubric weights, calibration guidance, the 9.0 PASS threshold, and the
+findings / decision-matrix / weighted-average output schema to the prompt.
+SOP, rubric, threshold, and schema are recorded in `metadata.json`.
+
+### Update a PR after review fixes
 
 ```bash
 make pr-update PR=26 MESSAGE="Address review feedback" DRY_RUN=1
 make pr-update PR=26 MESSAGE="Address review feedback" REVIEW="Trinity fast-review PASS"
-make pr-update PR=26 MESSAGE="Add follow-up fix" MODE=commit REVIEW="Codex connector found no major issues"
+make pr-update PR=26 MESSAGE="Add follow-up fix" MODE=commit REVIEW="Codex found no major issues"
 make pr-update PR=26 MESSAGE="Post validation evidence" MODE=comment-only REVIEW="No actionable findings"
 ```
 
-`make pr-update` wraps `dev/pr_update.py`. It requires no unstaged or
-untracked files, a configured upstream branch, and staged changes for
-`MODE=amend` or `MODE=commit`. The default mode is `amend`, which runs
-`git commit --amend --no-edit` and pushes with `--force-with-lease` to the
-explicit configured upstream ref. `MODE=commit` creates a new commit and uses a
-plain explicit-refspec `git push`. `MODE=comment-only` only runs validation and
-posts the PR comment. The helper runs `make test`, `make lint`, and
-`af validate --root .` before any push/comment side effects.
-When `MESSAGE` or `REVIEW` contains `$`, quote the value for your shell, for
-example `MESSAGE='Preserve $VAR literally'`; the Make wrapper passes that text
-through without re-expanding it.
+`make pr-update` wraps `dev/pr_update.py`. It requires a clean working tree
+(no unstaged/untracked files), a configured upstream branch, and staged
+changes for `MODE=amend` (default) or `MODE=commit`. It runs `make test`,
+`make lint`, and `af validate --root .` before any push or comment.
 
-Always run with `DRY_RUN=1` first and inspect the command preview plus comment
-body. Do not use the helper when unrelated local files are dirty, when the PR
-head has changed unexpectedly, when you need a custom push target, or when the
-manual COR-1612/COR-1615 review-response flow requires more precise comments.
+- `MODE=amend` (default): `git commit --amend --no-edit` + `git push --force-with-lease`
+- `MODE=commit`: new commit + plain `git push`
+- `MODE=comment-only`: validate and post the PR comment, no push
+
+Always run `DRY_RUN=1` first to preview. Skip the helper if unrelated local
+files are dirty, the PR head changed unexpectedly, you need a custom push
+target, or COR-1612/COR-1615 needs more precise per-finding replies. When
+`MESSAGE` or `REVIEW` contain `$`, single-quote the value so Make passes it
+through unexpanded.
+
 Manual fallback:
 
 ```bash
-make test
-make lint
-af validate --root .
+make test && make lint && af validate --root .
 git commit --amend --no-edit
 git push --force-with-lease fork HEAD:codex/example-branch
 gh pr comment 26 --body-file comment.md
 ```
 
-**Codex repo-local skill**
+### Codex repo-local skill and plugin
 
-The repo-local Codex skill lives at:
+| Path | Purpose |
+|------|---------|
+| `.agents/skills/trinity/SKILL.md`                | Repo-local Codex skill |
+| `plugins/trinity/.codex-plugin/plugin.json`      | Local plugin manifest |
+| `plugins/trinity/skills/trinity/SKILL.md`        | Plugin-bundled skill |
+| `.agents/plugins/marketplace.json`               | Repo marketplace entry |
 
-```text
-.agents/skills/trinity/SKILL.md
-```
-
-To smoke test it, restart or start Codex from this repository, then open `/skills` or invoke `$trinity`. Expected result: `trinity` is visible/loadable as a Codex skill.
-
-**Codex plugin**
-
-The local plugin package lives at:
-
-```text
-plugins/trinity/.codex-plugin/plugin.json
-plugins/trinity/skills/trinity/SKILL.md
-.agents/plugins/marketplace.json
-```
+Smoke test: restart Codex in the repo, open `/skills` (or `$trinity`) for the
+repo-local skill, or `/plugins` → repo marketplace → install `trinity` for
+the plugin.
 
 To smoke test it, restart Codex, open `/plugins`, select the repo marketplace, and confirm the `trinity` plugin appears. After installing the plugin, its bundled skill should be available.
 
@@ -373,16 +351,21 @@ Expected result: the command is recognized and registered providers are listed. 
 /trinity <provider>[:<instance>] "task"          # single dispatch
 /trinity <p1>[:<i>] "t1" <p2> "t2"              # multi-provider parallel
 /trinity <provider>*N "task"                     # N parallel same-provider
+/trinity <preset> "task"                         # dispatch to a preset's provider set
 /trinity plan <p1> "t1" <p2> "t2"               # plan with diagram, confirm, execute
 /trinity plan "high-level description"           # auto-decompose, confirm, execute
 /trinity install <provider>                      # install + register provider
-/trinity status                                  # registered providers + active sessions
+/trinity status                                  # registered providers + presets + sessions
 /trinity heartbeat [<instance>]                  # on-demand liveness check
 /trinity clear [<instance> | all]                # clear sessions
 /trinity help                                    # show this README
 ```
 
-Reserved words (not provider names): `status`, `clear`, `plan`, `heartbeat`, `install`, `help`
+Reserved subcommands (cannot be used as provider, preset, or alias names):
+`status`, `clear`, `plan`, `heartbeat`, `install`, `help`.
+
+Built-in presets (when configured): `review`, `fast-review`, `deep-review`,
+with aliases `r`, `fr`, `dr`. See [Review presets](#review-presets).
 
 ---
 
@@ -433,6 +416,34 @@ Use `provider*N` to spawn N independent instances of the same provider.
 ```
 
 Auto-generates instance keys like `glm:a3f2b1`, `glm:c7d8e9`, `glm:f0a1b2`. Each gets an independent session.
+
+### Review presets
+
+A preset expands one keyword into a configured provider set, dispatching the same task to each in parallel.
+
+```
+/trinity review      "Review the auth module for security issues"
+/trinity fast-review "Skim PR #21 for obvious regressions"
+/trinity deep-review "Audit the migration plan against COR-1602"
+/trinity r           "Same as review, via short alias"
+```
+
+Built-in presets (configurable in `~/.claude/trinity.json` under `presets` /
+`preset_aliases`):
+
+| Preset        | Required providers          | Optional providers     | Alias |
+|---------------|-----------------------------|------------------------|-------|
+| `review`      | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `r`   |
+| `fast-review` | `glm`, `deepseek`           | —                      | `fr`  |
+| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `dr`  |
+
+Optional providers are only dispatched when discovery marks them usable;
+otherwise Trinity warns and continues with the required set.
+
+The Codex-native review adapter (`trinity review`, see
+[Codex Compatibility](#codex-compatibility)) ships these presets out of the
+box. For Claude Code, presets are recognized by the dispatcher but must be
+declared in your `~/.claude/trinity.json` to be used.
 
 ### Plan mode
 
@@ -519,26 +530,31 @@ Sessions persist in `.claude/trinity.json` (project-scoped). Clearing removes th
 ## Architecture
 
 ```
-~/.claude/trinity.json          ← global providers + defaults
+~/.claude/trinity.json          ← global providers, presets, defaults
 .claude/trinity.json            ← project sessions + local overrides
 
 ~/.claude/skills/trinity/
   SKILL.md                      ← Trinity skill (Claude reads this)
+  scripts/                      ← session, config, discover, install helpers
+  bin/                          ← deepseek, openrouter, claude-code wrappers
 
 ~/.claude/agents/
   trinity-glm.md                ← GLM worker agent
   trinity-codex.md              ← Codex worker agent
   trinity-gemini.md             ← Gemini worker agent
+  trinity-deepseek.md           ← DeepSeek (Anthropic-compat wrapper)
+  trinity-openrouter.md         ← OpenRouter (Anthropic-compat wrapper)
+  trinity-claude-code.md        ← isolated nested Claude Code
   trinity-<custom>.md           ← your custom providers
 ```
 
 **Dispatch flow:**
-1. `/trinity glm "task"` → Trinity skill (SKILL.md) receives the command
-2. Provider discovery: loads `~/.claude/trinity.json` + `.claude/trinity.json`, verifies agent files
-3. Spawns `Agent(subagent_type="general-purpose", run_in_background=true)` pointing to `trinity-glm.md`
-4. Agent reads instructions from `trinity-glm.md`, calls `droid exec`, manages sessions in `.claude/trinity.json`
-5. Agent returns structured summary when done
-6. Trinity captures `output_file` path from Agent response for health monitoring
+1. `/trinity <provider> "task"` → Trinity skill (SKILL.md) receives the command
+2. Provider discovery: loads `~/.claude/trinity.json` + `.claude/trinity.json`, resolves presets/aliases, verifies agent files
+3. Spawns `Agent(subagent_type="general-purpose", run_in_background=true)` pointing to `trinity-<provider>.md`
+4. Agent reads instructions from its template, invokes the provider's CLI (`droid exec`, `codex exec`, `gemini -p`, or a wrapper from `bin/`), and manages sessions in `.claude/trinity.json`
+5. Agent returns a structured summary when done
+6. Trinity captures `output_file` path from the Agent response for health monitoring
 
 **Key design decisions:**
 - No tmux, no daemons — pure CLI via Claude's Agent tool
