@@ -324,6 +324,9 @@ def test_t12_interrupted_review_with_no_metadata(tmp_path):
     review_dir = tmp_path / ".trinity" / "reviews" / "20260508-140000-rules"
     review_dir.mkdir(parents=True)
     # Mimic the shape that write_incomplete() produces in cmd_review.
+    # cleanup_active_processes() (scripts/codex.py:1050) writes
+    # {"pid": ..., "result": "terminated"|"killed"|"kill_timeout"} per
+    # provider — match that schema verbatim, NOT a "status" field.
     incomplete = {
         "status": "interrupted",
         "timestamp": "2026-05-08T14:00:30",
@@ -331,7 +334,7 @@ def test_t12_interrupted_review_with_no_metadata(tmp_path):
         "providers_selected": ["glm", "gemini", "deepseek"],
         "providers_started": ["glm", "gemini"],
         "providers_running_at_cleanup": ["gemini"],
-        "cleanup": {"gemini": {"status": "terminated"}},
+        "cleanup": {"gemini": {"pid": 12345, "result": "terminated"}},
     }
     (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
     # Critically: NO metadata.json exists.
@@ -343,10 +346,45 @@ def test_t12_interrupted_review_with_no_metadata(tmp_path):
     assert "Providers selected: glm, gemini, deepseek" in out
     assert "Providers started:  glm, gemini" in out
     assert "Running at cleanup: gemini" in out
+    # The cleanup outcome must surface the actual `result` value (not `?`).
+    assert "Cleanup: gemini: terminated" in out
     assert "metadata.json not present" in out
     # And specifically must NOT print the "review in progress or no metadata"
     # error that would have surfaced under the pre-fix code path:
     assert "review in progress or no metadata" not in result.stderr
+
+
+def test_t12c_cleanup_result_field_rendered_for_each_outcome(tmp_path):
+    """Cleanup payload uses `result` field, not `status`. Each documented
+    outcome (terminated / killed / kill_timeout) must render verbatim.
+    Regression test for PR #60 round 2 Codex bot finding."""
+    review_dir = tmp_path / ".trinity" / "reviews" / "20260508-160000-rules"
+    review_dir.mkdir(parents=True)
+    incomplete = {
+        "status": "interrupted",
+        "timestamp": "2026-05-08T16:00:30",
+        "providers_selected": ["glm", "gemini", "deepseek"],
+        "providers_started": ["glm", "gemini", "deepseek"],
+        "providers_running_at_cleanup": ["glm", "gemini", "deepseek"],
+        "cleanup": {
+            "glm": {"pid": 1001, "result": "terminated"},
+            "gemini": {"pid": 1002, "result": "killed"},
+            "deepseek": {"pid": 1003, "result": "kill_timeout"},
+        },
+    }
+    (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
+
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "glm: terminated" in out
+    assert "gemini: killed" in out
+    assert "deepseek: kill_timeout" in out
+    # And specifically NO `?` placeholders for the cleanup outcomes
+    # (which would indicate the field-name regression returned).
+    assert "glm: ?" not in out
+    assert "gemini: ?" not in out
+    assert "deepseek: ?" not in out
 
 
 def test_t12b_failed_review_with_message_renders_message(tmp_path):

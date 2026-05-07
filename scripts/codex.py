@@ -1501,8 +1501,11 @@ def _print_incomplete_only_summary(review_dir, incomplete_path):
     if providers_running:
         print(f"  Running at cleanup: {', '.join(providers_running)}")
     if cleanup:
+        # cleanup_active_processes() (scripts/codex.py:1050) writes
+        # {"pid": ..., "result": "terminated"|"killed"|"kill_timeout"}
+        # per provider. Read 'result' not 'status'.
         cleanup_lines = ", ".join(
-            f"{name}: {info if isinstance(info, str) else info.get('status', '?')}"
+            f"{name}: {info if isinstance(info, str) else info.get('result', '?')}"
             for name, info in cleanup.items()
         )
         print(f"  Cleanup: {cleanup_lines}")
