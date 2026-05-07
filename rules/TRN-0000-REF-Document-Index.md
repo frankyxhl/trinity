@@ -40,6 +40,7 @@
 | 2021 | PLN | Improve Tests Execution Contract |
 | 2022 | CHG | Wire Install Sh Test Into Make Test |
 | 2023 | CHG | Add Coverage Tooling |
+| 2024 | CHG | Add Pytest BDD Scenario Layer |
 
 ---
 
