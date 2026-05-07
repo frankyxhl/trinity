@@ -42,6 +42,7 @@
 | 2023 | CHG | Add Coverage Tooling |
 | 2024 | CHG | Add Pytest BDD Scenario Layer |
 | 2025 | CHG | Switch Install Sh Test To File Url |
+| 2028 | CHG | Add Trinity Status Latest Command |
 
 ---
 
