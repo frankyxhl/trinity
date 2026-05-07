@@ -104,7 +104,7 @@ The executor must NOT, under any circumstances within this contract:
 | `make lint` (ruff check + format) | ✓ | ✓ | ✓ |
 | `af validate --root .` (0 issues) | ✓ | ✓ | ✓ |
 | `make coverage` ≥ 80% | n/a | ✓ (slice deliverable) | ✓ (must not regress) |
-| `pytest tests/features/ -v` ≥ 5 scenarios green | n/a | n/a | ✓ (slice deliverable) |
+| `pytest tests/test_bdd_scenarios.py -v` ≥ 5 scenarios green (and `pytest --collect-only tests/test_bdd_scenarios.py` shows non-zero collected items — pytest-bdd does not auto-collect raw `.feature` files) | n/a | n/a | ✓ (slice deliverable) |
 | `tests/test_install_sh.sh` invoked by `make test` | ✓ (slice deliverable) | ✓ (must not regress) | ✓ (must not regress) |
 
 **Deferred**: codecov upload, mutation testing, property-based testing, shell-test coverage. Each becomes its own follow-on slice or PRP if wanted.
@@ -181,3 +181,4 @@ The executor stops and reports instead of continuing when:
 | 2026-05-07 | Initial draft of the COR-1614 execution contract subordinate to TRN-2020-PRP | Claude Opus 4.7 |
 | 2026-05-07 | Trinity panel plan-review (glm PASS / deepseek PASS / gemini timeout). Adopted advisory F4 (generic "the executor" instead of named model), F5 (drop specific tmp/ filename). Folded F2 + F3 into slice A scope (TRN-1800:22 baseline correction). F1 (af-index title formatting) skipped — tool behavior. F6 (collapsed change history) skipped — `af index` autogenerates. F7 (forward refs) skipped — correct PRP pattern. glm "220 shell" finding rebutted — count is correct (113+105+2+10≈230). Status: Draft → Active. | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 4 P2 from Codex bot: §4 slice C scope corrected. pytest-bdd does NOT auto-collect `.feature` files — a Python collector module (`tests/test_bdd_scenarios.py` with `scenarios("features/")` or per-scenario `@scenario` decorators) is required for pytest to bind features. Validation also expanded to require `pytest --collect-only` evidence that scenarios actually bind. | Claude Opus 4.7 |
+| 2026-05-07 | PR #44 round 6 P2 from Codex bot: §5 Validation Matrix slice C row still pointed at `pytest tests/features/ -v` (consistency gap from round 4 — TRN-2020-PRP fixed in round 5, TRN-2021-PLN missed). Updated to target the collector module + collect-only evidence. | Claude Opus 4.7 |
