@@ -25,6 +25,24 @@ else
     BASE_URL="https://raw.githubusercontent.com/frankyxhl/trinity/main"
 fi
 
+# Probe: does the target version include providers/registry.json?
+# This file is required by the install flow as of TRN-3020. Older tags
+# don't have it, and their scripts/install.py doesn't have the
+# register-from-registry subcommand — piping main's install.sh against
+# an old TRINITY_VERSION would fail mid-install with a confusing error.
+# Detect early and direct the user to the tag's own install.sh, which
+# is self-contained for that version.
+if ! curl -fsSL --head "${BASE_URL}/providers/registry.json" -o /dev/null 2>/dev/null; then
+    echo "trinity-install: TRINITY_VERSION '${TRINITY_VERSION:-main}' does not include providers/registry.json." >&2
+    echo "trinity-install: This file was added in the TRN-3020 release. To install an older tag," >&2
+    echo "trinity-install: use that tag's own install.sh directly:" >&2
+    echo "" >&2
+    echo "    curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/v\${TRINITY_VERSION}/install.sh | bash" >&2
+    echo "" >&2
+    echo "trinity-install: Each tagged release ships a self-contained installer for that version." >&2
+    exit 1
+fi
+
 # Create destination directories
 mkdir -p "${HOME}/.claude/skills/trinity/scripts"
 mkdir -p "${HOME}/.claude/skills/trinity/bin"
