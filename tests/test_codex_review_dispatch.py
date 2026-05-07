@@ -439,6 +439,14 @@ time.sleep(30)
     )
     assert wait_until_exists(glm_done)
     assert wait_until_exists(deepseek_started)
+    # Brief settle delay so glm's process exit propagates to codex.py's
+    # provider-running bookkeeping before SIGINT triggers cleanup. Without
+    # this, on macOS CI runners under coverage instrumentation (TRN-2023
+    # subprocess shim activates coverage in glm/deepseek child processes,
+    # adding startup+exit overhead), glm can still appear in the running
+    # snapshot at the moment SIGINT fires — a latent race the test hadn't
+    # exercised until slice B's CI workflow began running it cross-platform.
+    time.sleep(0.5)
     proc.send_signal(signal.SIGINT)
     try:
         stdout, stderr = proc.communicate(timeout=10)
