@@ -3,8 +3,9 @@
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-05-07
 **Last reviewed:** 2026-05-07
-**Status:** Active
+**Status:** Completed
 **Reviewed by:** Trinity panel review on 2026-05-07 (`.trinity/reviews/20260507-180721-rules/`): glm PASS, deepseek PASS, gemini timeout (no opinion). 2-of-3 PASS verdict; advisory findings F4, F5 (and slice-A scope expansion for F2/F3) adopted before activation.
+**Completed:** 2026-05-07. All three slices merged. See §10 for closeout retention.
 **Related:** TRN-2020 (parent PRP), TRN-2022, TRN-2023, TRN-2024, COR-1614, COR-1616, COR-1612, COR-1615
 
 ---
@@ -165,12 +166,57 @@ The executor stops and reports instead of continuing when:
 
 ## 10. Retention and Closeout
 
-- This PLN's `## Change History` records every contract amendment. Initial draft and any re-scoping after Trinity panel review both belong here.
-- Each slice's CHG records its own merge SHA, deviation list (if any), and post-merge regression evidence.
-- The parent PRP (TRN-2020) updates its `Status:` field from `Draft` → `Approved` after Trinity panel review passes, and from `Approved` → `Done` after all three slices merge.
-- This PLN updates its `Status:` field similarly: `Draft` → `Active` once review passes, `Active` → `Closed` after the closeout.
-- GitHub issue #41 closes with links to PR-A, PR-B, PR-C, TRN-2020, and TRN-2021.
-- Deferred items (e.g. codecov upload, mutation testing, additional BDD scenarios beyond the five seeds) are listed in the closeout with proposed follow-on PRPs/CHGs.
+### Closeout summary (2026-05-07)
+
+All three slices merged on 2026-05-07. Contract executed end-to-end without invoking any §9 stop condition.
+
+| Slice | CHG | PR | Merge SHA | Review rounds | Findings resolved |
+|-------|-----|------|-----------|---------------|-------------------|
+| A — Wire `test_install_sh.sh` into `make test` + TRN-1800 baseline correction | TRN-2022 | #44 | `5b0a666` | 6 | 7 (R1 missing-index, R2 port collision, R3 set-e leak, R4 BDD-discovery doc error, R5a 0.0.0.0 bind, R5b PRP slice C path, R6 PLN slice C path) |
+| B — Coverage tooling + PR-triggered CI on Linux + macOS | TRN-2023 | #45 | `cfe6e08` | 1 | 1 (coverage methodology: bare pytest didn't measure parent process; switched to `coverage run -m pytest`) |
+| C — pytest-bdd scenario layer (5 features, 13 collected scenarios) | TRN-2024 | #46 | `1e28392` | 2 | 2 (R1 macOS race in `test_review_sigint_writes_incomplete_json_and_cleans_up`, R2 release.yml dev-deps drift — pytest-bdd missing) |
+
+### Acceptance criteria (all met)
+
+- ✓ `make test` on `main` runs `tests/test_install_sh.sh` with 10 PASS markers
+- ✓ `make coverage` reports TOTAL ≥ 80% (actual: 83%) on `scripts/` + `dev/`
+- ✓ `pytest --collect-only tests/test_bdd_scenarios.py` shows ≥ 9 collected items (actual: 13)
+- ✓ `.github/workflows/test.yml` runs on every PR + push to main; both ubuntu-latest + macos-latest legs green on this contract's three PRs
+- ✓ TRN-1800:22 baseline numbers match the actual `make test` gate set on `main`
+- ✓ `af validate --root .` reports 0 issues across the new docs
+
+### Deviations from the parent PRP (TRN-2020)
+
+- **plan_mode_autodecompose.feature deferred** → substituted with `provider_discovery.feature` because the auto-decomposition logic lives in the Claude Code skill (`SKILL.md`), not in `scripts/`. Documented in TRN-2024-CHG §Deviation. Re-raise as a fresh PRP if a skill-level BDD harness becomes available.
+- **heartbeat_and_timeout narrowed to session_heartbeat** → threshold transitions are skill-level. The CLI heartbeat *parsing* is now scenario-tested; threshold logic stays out of scope.
+- **`tests/step_defs/` directory dropped** → single-file approach in `tests/test_bdd_scenarios.py`. If the BDD layer grows past ~500 lines or 15 scenarios, splitting back into `step_defs/` with explicit `pytest_plugins` registration is the natural follow-on.
+- **Slice A scope mid-flight expansion** → port-collision robustness (`tests/test_install_sh.sh` switched to OS-allocated port + universal readiness probe + EXIT trap reaping), driven by PR #44 rounds 2 + 3. Originally deferred; promoted to in-scope when Codex bot demonstrated the failure mode would land in CI.
+- **Slice C scope mid-flight expansion** → 0.5s settle delay in `test_review_sigint_writes_incomplete_json_and_cleans_up` to defeat a glm-exit/SIGINT race exposed by slice B's coverage shim on macOS CI runners. Pre-existing test flake; closing the loop in slice C since slice B+C are what surfaced it.
+- **Cross-workflow drift fix** → release.yml's manual `pip install pytest ruff` replaced with `make setup` so dev-deps lists can't diverge between workflows. Closes both slice B's `coverage[toml]` silent absence and slice C's `pytest-bdd` hard-blocker by construction.
+
+### Deferred follow-ons (proposed)
+
+- **TRN-2025-CHG-Switch-Install-Sh-Test-To-File-Url** — switch `tests/test_install_sh.sh` from `python3 -m http.server` to `TRINITY_BASE_URL=file://${REPO_DIR}`. Trinity panel decision matrix (2026-05-07) returned unanimous Option A: 8.8 / 5.8 / 6.6 weighted across glm + gemini + deepseek. Pre-condition `grep` on `install.sh` confirmed clean (no scheme assertions). Removes ~30 lines of fixture code, eliminates the entire `_start_server` / `_stop_server` / EXIT-trap apparatus that PR #44 rounds 2 + 3 + 5 fixed in slice A. Timing TBD per operator decision.
+- **plan_mode_autodecompose.feature** — pending skill-level BDD harness OR auto-decompose logic moving into `scripts/`.
+- **heartbeat threshold transitions BDD scenarios** — pending the same skill-level BDD harness.
+- **codecov / coveralls remote upload** — local + CI gate is sufficient v1; promote later if multi-contributor visibility becomes useful.
+- **Mutation testing** (`mutmut`, `cosmic-ray`) — separate proposal if wanted.
+- **Property-based testing** (`hypothesis`) — separate proposal if wanted.
+- **Shell-test coverage** — no portable tool fits the zero-dep posture (`kcov` Linux-only; `bashcov` adds Ruby).
+- **Windows runner in CI matrix** — no Windows users today; can add as follow-on if requested.
+- **pytest-bdd 8.x adoption** — their step-def API changed; pin stays at 7.x until a deliberate migration.
+
+### Cross-contract effects (worth noting)
+
+- TRN-1800-REF-Evolution-Philosophy.md §Behavior Baseline updated as part of slice A: pytest count 63+ → 141+, added `test_release_workflow.sh 105+`, `test_build_providers.sh 113+`, `test_make_bump.sh 2`. Behavior-baseline now reflects current truth.
+- `.github/workflows/release.yml` updated as part of slice C round 2: dev-deps install now delegates to `make setup`, eliminating cross-workflow drift class.
+
+### Retention pointers
+
+- This PLN's `## Change History` records every contract amendment.
+- Each slice's CHG (TRN-2022, TRN-2023, TRN-2024) records its own merge SHA and round-by-round review evidence.
+- Trinity panel review artifacts retained at `.trinity/reviews/20260507-180721-rules/` (PRP+PLN review) and `.trinity/reviews/20260507-195543-rules/` (TRN-2024-CHG slice C review).
+- GitHub issue #41 closed with comment linking PR #44, #45, #46 + TRN-2020/2021/2022/2023/2024.
 
 ---
 
@@ -182,3 +228,4 @@ The executor stops and reports instead of continuing when:
 | 2026-05-07 | Trinity panel plan-review (glm PASS / deepseek PASS / gemini timeout). Adopted advisory F4 (generic "the executor" instead of named model), F5 (drop specific tmp/ filename). Folded F2 + F3 into slice A scope (TRN-1800:22 baseline correction). F1 (af-index title formatting) skipped — tool behavior. F6 (collapsed change history) skipped — `af index` autogenerates. F7 (forward refs) skipped — correct PRP pattern. glm "220 shell" finding rebutted — count is correct (113+105+2+10≈230). Status: Draft → Active. | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 4 P2 from Codex bot: §4 slice C scope corrected. pytest-bdd does NOT auto-collect `.feature` files — a Python collector module (`tests/test_bdd_scenarios.py` with `scenarios("features/")` or per-scenario `@scenario` decorators) is required for pytest to bind features. Validation also expanded to require `pytest --collect-only` evidence that scenarios actually bind. | Claude Opus 4.7 |
 | 2026-05-07 | PR #44 round 6 P2 from Codex bot: §5 Validation Matrix slice C row still pointed at `pytest tests/features/ -v` (consistency gap from round 4 — TRN-2020-PRP fixed in round 5, TRN-2021-PLN missed). Updated to target the collector module + collect-only evidence. | Claude Opus 4.7 |
+| 2026-05-07 | All three slices merged. Status: Active → Completed. §10 expanded with closeout summary table (slice / CHG / PR / merge SHA / review rounds), acceptance evidence, deviations from parent PRP, deferred follow-ons (TRN-2025 file:// switch, plan_mode_autodecompose, heartbeat thresholds, codecov, mutation testing, property-based testing, shell-test coverage, Windows runner, pytest-bdd 8.x), and retention pointers. Contract executed end-to-end without invoking any §9 stop condition. | Claude Opus 4.7 |
