@@ -557,6 +557,28 @@ def test_numeric_bool_confidence_rejected():
     assert parse_structured_review(text) is None
 
 
+def test_nan_weighted_score_rejected():
+    text = '```json\n{"decision": "PASS", "weighted_score": NaN, "blocking": [], "advisories": []}\n```'
+    assert parse_structured_review(text) is None
+
+
+def test_infinity_weighted_score_rejected():
+    text = '```json\n{"decision": "PASS", "weighted_score": Infinity, "blocking": [], "advisories": []}\n```'
+    assert parse_structured_review(text) is None
+
+
+def test_nan_confidence_rejected():
+    text = '```json\n{"decision": "PASS", "weighted_score": 9.5, "blocking": [], "advisories": [], "confidence": NaN}\n```'
+    assert parse_structured_review(text) is None
+
+
+def test_addendum_score_range_uses_full_domain():
+    """Score domain (0.0-10.0) is independent of PASS threshold (9.0)."""
+    addendum = _review_schema_addendum("review")
+    assert "<0.0-10.0>" in addendum
+    assert "<0.0-9.0>" not in addendum
+
+
 # ---------------------------------------------------------------------------
 # Markdown sanitization
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import difflib
 import fnmatch
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -1546,11 +1547,11 @@ def _validate_review_schema(data):
     if not isinstance(decision, str) or decision.upper() not in ("PASS", "FIX"):
         return False
 
-    # weighted_score — reject bools (True/False are int subclasses)
+    # weighted_score — reject bools (True/False are int subclasses) and NaN/Inf
     ws = data.get("weighted_score")
     if isinstance(ws, bool) or not isinstance(ws, (int, float)):
         return False
-    if ws < 0.0 or ws > 10.0:
+    if not math.isfinite(ws) or ws < 0.0 or ws > 10.0:
         return False
 
     # blocking and advisories
@@ -1570,12 +1571,12 @@ def _validate_review_schema(data):
             if fix is not None and not isinstance(fix, str):
                 return False
 
-    # confidence (optional)
+    # confidence (optional) — reject bools and NaN/Inf
     conf = data.get("confidence")
     if conf is not None:
         if isinstance(conf, bool) or not isinstance(conf, (int, float)):
             return False
-        if conf < 0.0 or conf > 1.0:
+        if not math.isfinite(conf) or conf < 0.0 or conf > 1.0:
             return False
 
     return True
@@ -1643,7 +1644,7 @@ def _review_schema_addendum(task_type):
         "```json\n"
         "{\n"
         f'  "decision": "PASS" | "FIX",\n'
-        f'  "weighted_score": <0.0-{threshold}>,\n'
+        '  "weighted_score": <0.0-10.0>,\n'
         f'  "blocking": [{{"title": "...", "evidence": "file:line", "fix": "..."}}],\n'
         f'  "advisories": [{{"title": "...", "evidence": "file:line", "fix": "..."}}],\n'
         f'  "confidence": <0.0-1.0, optional>\n'
