@@ -16,6 +16,7 @@
 | 1004 | SOP | Release |
 | 1005 | SOP | Install |
 | 1006 | SOP | Provider Model IDs |
+| 1007 | SOP | PR Readiness |
 | 1800 | REF | Evolution Philosophy |
 | 1801 | SOP | Evolve Trinity |
 | 2001 | CHG | Release Infrastructure |
