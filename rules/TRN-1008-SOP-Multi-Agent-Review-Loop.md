@@ -105,7 +105,7 @@ flowchart TD
     A["Candidate item:<br/>open GitHub issue (any author)<br/>OR deferred TRN-* tech-debt note"] --> G1{Tracking GitHub<br/>issue exists?}
     G1 -- No --> Z_GATE_A[NOT eligible<br/>file an issue first]
     G1 -- Yes --> V[verify_rocket_eligibility<br/>see hardened command below]
-    V -- Pass: 🚀 from $TRUSTED_REACTOR<br/>+ state OPEN + unlocked<br/>+ body not edited after rocket --> SCOPE[Continue to<br/>scope-rank tree]
+    V -- Pass: 🚀 from $TRUSTED_REACTOR<br/>+ state "open" + unlocked<br/>+ body not edited after rocket --> SCOPE[Continue to<br/>scope-rank tree]
     V -- Fail: any check fails<br/>OR gh exits non-zero<br/>fail-closed --> Z_GATE_B[NOT eligible<br/>idle silently<br/>do not invent work]
     SCOPE --> B{User granted<br/>auto-pick mandate?}
     B -- No --> Z1[Ask user before picking]
@@ -131,7 +131,7 @@ flowchart TD
 
 | # | Check | Source |
 |---|-------|--------|
-| 1 | Issue state is `OPEN` and `locked == false` | `gh api repos/$REPO/issues/$N` (NOT `gh issue view --json locked` — the field is unsupported) |
+| 1 | Issue state is `open` and `locked == false` (REST API returns lowercase `open`/`closed`) | `gh api repos/$REPO/issues/$N` (NOT `gh issue view --json locked` — the field is unsupported) |
 | 2 | At least one 🚀 reaction from `$TRUSTED_REACTOR` exists on the issue body | `gh api repos/$REPO/issues/$N/reactions --paginate \| jq -rs '... select(.user.login == $login and .content == "rocket")'` (slurp pages with `jq -rs`; without slurp, `--jq` runs per-page and emits `null\nnull\n...` for unrocketed issues, letting them slip through) |
 | 3 | No invalidating timeline events after `rocket_created` | `gh api repos/$REPO/issues/$N/timeline --paginate \| jq -rs '... select(.event \| IN("edited","renamed","closed","reopened","transferred","unlocked") and .created_at > $rocket)'` |
 | 4 | Fail-closed on ANY error (network, rate-limit, 5xx, malformed JSON, jq error) | every check returns `1` if its `gh`/`jq` invocation exits non-zero |
@@ -142,7 +142,7 @@ The function is self-contained — no caller-held state between calls. Each invo
 
 - Any non-zero exit from `gh` (network failure, rate-limit, 5xx, auth failure) → NOT eligible.
 - Any malformed JSON or `jq` error → NOT eligible.
-- Any unmatched check (state ≠ OPEN, locked, no rocket, body edited after rocket) → NOT eligible.
+- Any unmatched check (state != "open", locked, no rocket, body edited after rocket) → NOT eligible.
 - The orchestrator MUST treat "could not verify" as "not eligible". Never fail-open. Never assume a previously-eligible item is still eligible without re-running the full check.
 
 **Where the 🚀 must be placed.** Only reactions on the issue **body** (not on comments) count. The verification command queries `/issues/<n>/reactions` (issue-body reactions only) — comment reactions live at `/issues/comments/<id>/reactions` and are NOT consulted. The tracking-issue helper below instructs the user to react on the issue body itself, not on a comment. If the user reacts to a comment by mistake, the gate stays closed.
@@ -620,3 +620,4 @@ Two orchestrators racing for the same rocketed issue: best-effort claim-comment 
 | 2026-05-08 | R19: codex bot caught 1 P2 — frontmatter Last updated/reviewed said 2026-05-08, but R7-R18 history rows are 2026-05-08 (date rolled over during the iteration loop). Bumped frontmatter to 2026-05-08 so the audit trail is internally consistent. | Claude Opus 4.7 |
 | 2026-05-08 | R20: codex bot caught the inverse of R19's fix. R19 bumped frontmatter to 2026-05-09 to match R7-R18 row dates, but the bot pointed out the ACTUAL git commit timestamps are 2026-05-08 UTC — the orchestrator was anchoring to JST (UTC+9) which crossed midnight while UTC stayed 2026-05-08. For an audit trail tied to git commits, UTC is canonical. Reverted: ALL dates (frontmatter + R7-R20 rows) → 2026-05-08. Lesson: SOP audit-trail dates MUST match commit timestamps; do NOT use the runtime's "today" if it differs from `git log --format=%ai`. | Claude Opus 4.7 |
 | 2026-05-08 | R21: codex bot caught a dangling reference to `samples/panel-blind-spots.md` in §Failure Modes "User override mid-loop" subsection. The `samples/` directory was deleted in R8; the panel-blind-spots.md log file never existed (forward-reference to a future log). Following the SOP literally would fail or create an ad-hoc untracked file. Fix: removed the dangling directive; replaced with "the rejection PR/commit is itself the artifact future plan-review prompts can grep" — uses existing repo state instead of inventing new infrastructure. Convergence-tracking: R20 was 1 finding; R21 is 1 finding; both single-issue. | Claude Opus 4.7 |
+| 2026-05-08 | R22: codex bot caught a real bug in R17's simplification spec table. Spec said "Issue state is `OPEN` and `locked == false`" but the bot pointed out `gh api repos/$N/issues/$N` returns lowercase `state` (`open`/`closed` per REST API docs). An implementer comparing `.state == "OPEN"` would reject every valid rocketed issue — gate fails closed end-to-end on the autonomous path. Fix: changed `OPEN` → `open` in 3 places: §1 mermaid `V` node label, §1 spec table row 1 (with explicit "REST API returns lowercase" note), §1 fail-closed prose. Note: the R10 verify_rocket_eligibility bash function (which was deleted in R17) had used `${state,,}` lowercase normalisation — R17's spec-table simplification dropped that normalisation step without preserving the case-correct comparison. | Claude Opus 4.7 |
