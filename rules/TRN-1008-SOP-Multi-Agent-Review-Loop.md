@@ -4,13 +4,13 @@
 **Last updated:** 2026-05-08
 **Last reviewed:** 2026-05-08
 **Status:** Active
-**Related:** TRN-1007 (PR readiness gate), TRN-1800 (evolution philosophy / weights), CLD-1802 (atomicity surface definition), COR-1612 / COR-1614 / COR-1616 (PR-loop SOPs the panel inherits from)
+**Related:** TRN-1007 (PR readiness gate), TRN-1800 (evolution philosophy / weights), CLD-1802 (atomicity surface definition; PKG-layer doc — see `~/.claude/rules/CLD-1802-*.md`), **COR-1602** (Multi Model Parallel Review — the Leader-dispatches-N-Reviewers pattern phases §4 and §8 implement), COR-1612 / COR-1614 / COR-1616 (PR-loop SOPs the panel inherits from), **COR-1615** (GitHub App PR Review Bot Loop — the head-commit-matched bot-poll loop phase §8 implements). See [frankyxhl/alfred#115](https://github.com/frankyxhl/alfred/issues/115) for the COR-1602/1615 prior-art alignment + future COR-1200 promotion proposal.
 
 ---
 
 ## What Is It?
 
-The end-to-end loop a Claude orchestrator runs to ship a PR through a 4-provider review panel: pick the next issue, plan, dispatch a worker, panel-review the plan, implement, panel-review the code, iterate on bot/CI findings, hand off to the user for merge, then auto-pick the next issue. It captures three independent levers (auto-pick, dispatch heuristic, panel-review gate) plus the surrounding loop hygiene (branch base, identity, bot triage) in one place.
+The end-to-end loop a Claude orchestrator runs to ship a PR through a 4-provider review panel: pick the next issue, plan, panel-review the plan, dispatch implementation, verify, panel-review the code, iterate on bot/CI findings, hand off to the user for merge, then auto-pick the next issue. It captures three independent levers (auto-pick, dispatch heuristic, panel-review gate) plus the surrounding loop hygiene (branch base, identity, bot triage) in one place.
 
 This SOP exists because the loop was being re-derived ad-hoc each session. Without it, three failure modes recur:
 
@@ -55,7 +55,7 @@ The loop has 10 phases:
 3. Plan           ← draft CHG / spec
 4. Plan-review    ← 4-provider panel, all-individual ≥9.0
 5. Dispatch       ← worker heuristic (orchestrator vs trinity-glm)
-6. Verify worker  ← read symbols, tests, lint, af-validate
+6. Verify implementation ← read symbols, tests, lint, af-validate
 7. PR open        ← push to fork, gh pr create
 8. Iterate        ← CI poll, bot poll, code-review panel
 9. Triage         ← real bug → fix; advisory → batch into R3+
@@ -68,19 +68,23 @@ When the user grants the auto-pick mandate ("once current PR is mergeable, pick 
 
 ```mermaid
 flowchart TD
-    A[Candidate issue or tech-debt item] --> B{User granted<br/>auto-pick?}
+    A[Candidate issue or tech-debt item] --> Q{Queue empty?}
+    Q -- Yes --> Z0[Wait for user signal<br/>do not invent work]
+    Q -- No --> B{User granted<br/>auto-pick?}
     B -- No --> Z1[Ask user before picking]
     B -- Yes --> C{Depends on<br/>unmerged PR?}
     C -- Yes --> Z2[Skip, revisit when<br/>dependency lands]
     C -- No --> D{Scope statable<br/>in one sentence?}
     D -- No --> Z3[Decline; ask user<br/>to scope or split]
-    D -- Yes --> E{Type?}
-    E -- Deferred TRN-* tech-debt --> R1[Strong candidate<br/>RANK 1]
+    D -- Yes --> E{Type — apply<br/>highest-matching<br/>rank only}
+    E -- Deferred TRN-* tech-debt --> R1[RANK 1<br/>strongest candidate]
     E -- Issue unblocked by<br/>just-shipped PR --> R2[RANK 2]
     E -- Single-file CHG --> R3[RANK 3]
     E -- Multi-surface CHG<br/>with clear scope --> R4[RANK 4]
     E -- Broad audit /<br/>large design --> Z4[Defer;<br/>ask user]
 ```
+
+**Branch precedence** (the `Type?` branches are NOT mutually exclusive — a single-file CHG may also be deferred tech-debt). Rule: take the **lowest-numbered RANK** that matches; on a tie within the same rank, pick the smaller LoC estimate.
 
 **Sample worked decision** (this session, post-#71-merge):
 
@@ -96,16 +100,18 @@ flowchart TD
 
 ### 2. Branch hygiene (PR #68 lesson)
 
-Before every R1 dispatch:
+Before every new PR branch:
 
 ```bash
 git fetch origin main
-git status -uno              # confirm clean
+git status --porcelain        # MUST be empty (covers tracked + untracked)
+                              # if non-empty: stash, commit elsewhere, or abort
+git status -uno               # confirm tracked-clean
 git log origin/main --oneline -3   # verify expected merge state
 git checkout main && git pull origin main && git checkout -b codex/<slug>
 ```
 
-The `git fetch origin main` is non-negotiable. Branching off a local `main` that lags upstream produces phantom-reference bugs (where a panel reviewer references a file that's been moved/deleted on origin/main but still exists on the stale local).
+The `git status --porcelain` check is non-negotiable: `git status -uno` only inspects tracked files, so untracked drafts in `tmp/` or new sample files would be silently destroyed by `git checkout main`. If `--porcelain` reports anything, stash it (`git stash -u`) or move it before continuing. Branching off a local `main` that lags upstream produces phantom-reference bugs (where a panel reviewer references a file that's been moved/deleted on origin/main but still exists on the stale local).
 
 Identity gate before any GitHub-visible write:
 
@@ -119,13 +125,18 @@ If the wrong account is active, abort. Public artifacts authored by the wrong id
 
 ```mermaid
 flowchart TD
-    A[Issue / tech-debt picked] --> B{LoC estimate?}
+    A[Issue / tech-debt picked] --> X{Generated-file<br/>regen only?<br/>e.g. make build, af index}
+    X -- Yes --> Z1[Skip CHG —<br/>generator is the spec.<br/>Regen, commit, ship.]
+    X -- No --> B{LoC estimate?}
     B -- ">30 LoC OR<br/>multi-file" --> C[Write full CHG in rules/]
     B -- "≤30 LoC AND<br/>single file" --> D{Contract change?<br/>signature, schema, IO}
     D -- Yes --> C
-    D -- No --> E{Issue scope-hint<br/>says no CHG?}
+    D -- No --> E{Issue Scope-hints<br/>section says<br/>no CHG?}
     E -- Yes --> F[Inline CHG in PR body]
     E -- No --> C
+    F --> P{Inline-CHG<br/>≥30 LoC OR<br/>contract change?}
+    P -- Yes --> H
+    P -- No --> K
     C --> G[Status: Proposed]
     G --> H[Run plan-review panel<br/>see phase 4]
     H --> I{Gate met?}
@@ -134,7 +145,9 @@ flowchart TD
     I -- Yes --> K[Status: Approved]
 ```
 
-**CHG skeleton** (sections shown as bold labels; in a real CHG these are `##` headings — see e.g. `rules/TRN-3022-CHG-*.md` for a worked instance):
+**"Scope hints"** refers to the optional `## Scope hints` section of the GitHub issue template (see `.github/ISSUE_TEMPLATE/*.yml`). When the filer has explicitly written e.g. "no CHG needed; one-line fix", treat that as authorisation for an inline-CHG-in-PR-body shortcut. Absent that section, default to writing a full CHG.
+
+**CHG skeleton:** see `rules/samples/sample-chg-skeleton.md` for the copy-paste template (with `##`-headed sections — that file is in `samples/` because it isn't subject to SOP-validator structural rules). Sections summarised below for orchestrator quick-reference (a real CHG uses `##` headings — see e.g. `rules/TRN-3022-CHG-*.md` for a worked instance):
 
 - **Frontmatter**: `Applies to`, `Last updated`, `Last reviewed`, `Status: Proposed`, `Date`, `Requested by`, `Priority`, `Change Type`, `Targets`, `Closes #<issue>`, `Builds on <prior TRN>`.
 - **What** — one paragraph: what changes.
@@ -158,28 +171,31 @@ flowchart LR
     B --> G2[codex]
     B --> G3[glm]
     B --> G4[deepseek]
-    G1 --> J[Collect 4 verdicts]
-    G2 --> J
-    G3 --> J
-    G4 --> J
-    J --> K{All 4 individual<br/>≥ 9.0 AND<br/>all blocking == []?}
-    K -- Yes --> L[Status: Approved<br/>→ phase 5]
+    G1 --> V1{Verdict OK?<br/>timeout / malformed JSON /<br/>missing score?}
+    G2 --> V1
+    G3 --> V1
+    G4 --> V1
+    V1 -- Malformed --> R1[Retry provider once]
+    R1 --> V1
+    V1 -- "Still bad" --> Drop[Mark provider unavailable<br/>see Failure Modes]
+    V1 -- OK --> J[Collect verdicts]
+    Drop --> J
+    J --> N1{≥3 viable<br/>verdicts?}
+    N1 -- No --> Abort[Abort panel<br/>notify user]
+    N1 -- Yes --> K{All viable individual<br/>≥ 9.0 AND<br/>all blocking == []?}
+    K -- Yes --> ADV{Advisories<br/>present?}
+    ADV -- Yes --> L2[Status: Approved<br/>fix convergent advisories<br/>before phase 8]
+    ADV -- No --> L[Status: Approved<br/>→ phase 5]
     K -- No --> M[Triage findings<br/>see phase 9]
-    M --> N[Apply fixes to CHG]
-    N --> A
+    M --> NX[Apply fixes to CHG]
+    NX --> A
 ```
 
-**Sample plan-review prompt** (template — fill the `<...>` slots):
+**Sample plan-review prompt:** see `rules/samples/sample-plan-review-prompt.md` for the full copy-paste template. The template is parameterised over both **code-weights** (TRN-1800 §Override Code Weights — for code/test changes) and **doc-weights** (TRN-1800 §Override Document Weights — for doc-only CHGs); pick the right table per CHG type before dispatching. Doc-only CHGs (e.g. TRN-3027, TRN-1008 itself) get scored wrong if the prompt names the code table.
 
-```
-Provider: <gemini|codex|glm|deepseek> (PLAN REVIEWER role).
-Project: /Users/frank/Projects/trinity.
-Branch: <branch-name> (head <short-sha>, off origin/main <short-sha>).
+**Weights tables** (per TRN-1800 — both reproduced here for orchestrator quick-reference; the prompt template lists both verbatim):
 
-INVOKE the <provider> CLI for the actual review.
-
-TASK: Plan-review of <CHG-ID> at `rules/<CHG-file>.md`.
-Score per **TRN-1800 weights** (rules/TRN-1800-REF-Evolution-Philosophy.md):
+*Code / test changes:*
 
 | Dimension | Weight |
 |-----------|--------|
@@ -189,30 +205,18 @@ Score per **TRN-1800 weights** (rules/TRN-1800-REF-Evolution-Philosophy.md):
 | Scope restraint | 15% |
 | Necessity | 15% |
 
-USE TRN-1800, NOT CLD-1800 (the .claude repo philosophy doesn't apply here).
+*Doc-only CHGs:*
 
-## What to scrutinize
-<bulleted list of the 3-5 things you most want this reviewer to check —
-e.g. "verdict precedence ordering", "stderr-sentinel boundary detection",
-"backwards-compat invariant in the legacy path">
+| Dimension | Weight |
+|-----------|--------|
+| Necessity | 25% |
+| Generated-vs-source | 25% |
+| Atomicity | 15% |
+| Compression ratio | 15% |
+| Consistency | 10% |
+| Actionability | 10% |
 
-## Output schema (REQUIRED — emit at END)
-
-After concise free-form review, emit EXACTLY ONE fenced JSON block:
-
-```json
-{
-  "decision": "PASS" | "FIX",
-  "weighted_score": <0.0-10.0>,
-  "blocking": [{"title": "...", "evidence": "file:line", "fix": "..."}],
-  "advisories": [{"title": "...", "evidence": "file:line", "fix": "..."}],
-  "confidence": <0.0-1.0>
-}
-```
-
-Rules: PASS only when blocking == [] AND weighted_score >= 9.0.
-LAST fenced ```json block in your output.
-```
+USE TRN-1800, NOT CLD-1800 (the `.claude` repo philosophy doesn't apply here).
 
 **Common R1 universal blockers** (catalogue):
 - Returncode precedence undefined (TRN-3022)
@@ -221,14 +225,17 @@ LAST fenced ```json block in your output.
 - Stale-base reference / phantom file (TRN-3021 — fixed by phase-2 branch hygiene)
 - Panel reviewing CLD-1800 weights instead of TRN-1800 (PR #69 R3 lesson)
 
-**Gate enforcement**: all-individual ≥ 9.0 AND every reviewer's `blocking` empty. Mean is informational only.
+**Gate enforcement**: the gate is `decision == PASS AND weighted_score >= 9.0 AND blocking == []` for *every* reviewer. Mean is informational only.
+
+A structured verdict with `decision: PASS` but `weighted_score < 9.0` is malformed (the schema rule says PASS requires `score >= 9.0` AND `blocking == []`). Treat such verdicts as inconsistent and FIX-coerce them per TRN-3022's `effective_decision` logic — i.e. demote to FIX and require the reviewer to either raise the score or list blockers.
 
 | Panel result | Action |
 |--------------|--------|
-| 4 PASS, mean ≥ 9.0, all blocking empty | Status: Approved → phase 5 |
+| 4 PASS, every score ≥ 9.0, all blocking empty | Status: Approved → phase 5 |
 | 3 PASS + 1 FIX | NOT passed — fix dissenter's blockers, re-dispatch |
-| 4 PASS but one reviewer at 8.95 | NOT passed — 8.95 ≠ "near-pass"; fix or justify |
-| 4 PASS, blocking empty, advisories present | Passed — fix convergent advisories before code-review (phase 8) |
+| 4 PASS but one reviewer at 8.95 | NOT passed — 8.95 < 9.0 fails the gate; demote to FIX and iterate |
+| Reviewer emits PASS with score < 9.0 | Malformed verdict; coerce to FIX (TRN-3022 effective_decision), iterate |
+| 4 PASS, all blocking empty, advisories present | Passed — fix convergent advisories before code-review (phase 8) |
 
 ### 5. Dispatch — orchestrator vs worker
 
@@ -236,7 +243,14 @@ LAST fenced ```json block in your output.
 flowchart TD
     A[Implementation task] --> B{Generated file<br/>regen only?}
     B -- Yes --> O1[ORCHESTRATOR<br/>run make build]
-    B -- No --> C{≤ 2 lines in<br/>one function?}
+    B -- No --> MIX{Mixed<br/>code+doc?}
+    MIX -- "Yes — code surface dominates" --> C
+    MIX -- "Yes — doc surface dominates" --> H
+    MIX -- No --> H0{Multi-FILE<br/>multi-section<br/>doc edit?}
+    H0 -- Yes --> W4[WORKER]
+    H0 -- No --> H{Single doc file,<br/>≥3 sections changed?}
+    H -- Yes --> W4
+    H -- No --> C{≤ 2 lines in<br/>one function?}
     C -- Yes --> O2[ORCHESTRATOR<br/>direct edit]
     C -- No --> D{Signature change<br/>crossing call sites?}
     D -- Yes --> W1[WORKER<br/>trinity-glm via droid exec]
@@ -246,9 +260,7 @@ flowchart TD
     F -- Yes --> W3[WORKER]
     F -- No --> G{Single file<br/>AND no contract change?}
     G -- Yes --> O3[ORCHESTRATOR]
-    G -- No --> H{Multi-section<br/>doc edit?}
-    H -- Yes --> W4[WORKER]
-    H -- No --> O4[ORCHESTRATOR]
+    G -- No --> O4[ORCHESTRATOR]
 ```
 
 **Why the threshold matters**: every `droid exec` round-trip costs ~30-90s + the worker's own context window. For a typo fix that's a 95% loss; for a 200-line refactor that's a 95% gain (orchestrator context stays clean for plan-review prompts).
@@ -260,33 +272,11 @@ flowchart TD
 - **5+ small fixes from a bot batch** → orchestrator, sequentially. Don't dispatch a worker for a list of grep-and-replaces.
 - **Investigation that may or may not require code** → orchestrator first; promote to worker only if the diagnosis grows.
 
-**Sample worker dispatch prompt** (sections shown as bold labels; in the actual `Agent` tool prompt these can be `##` headings — see PR #69 / #71 dispatch transcripts for worked instances):
+**Sample worker dispatch prompt:** see `rules/samples/sample-worker-dispatch-prompt.md` for the copy-paste template. Worker dispatch contract (do not omit): pass the CHG path (do not inline the spec); specify implementation order; list exact verification commands; constrain "do NOT push or commit"; ask for structured report.
 
-- **Provider role line** — e.g. "Provider: glm (CODING WORKER role)".
-- **Project + branch** — absolute project path; branch name + base SHA from `origin/main`.
-- **Invoke directive** — e.g. "INVOKE `droid exec` for the actual edits".
-- **Task** — point at the CHG path. Do NOT inline the full spec — the worker reads the file.
-- **High-level summary** — one paragraph stating intent.
-- **Implementation order** — numbered steps copied from CHG §Implementation Order.
-- **Constraints (must-haves)** — bullets that capture panel-derived non-negotiables (e.g. "regex MUST use `(?ims)` — all 4 panel reviewers caught the missing `s` flag in v2"). These are the things the worker MUST NOT regress.
-- **Verification** — fenced shell block listing exact commands: pytest, ruff check, ruff format --check, make verify-built (if providers/ changed), af validate.
-- **Expected outputs** — test count, lint clean, format clean, af 0 issues.
-- **Process constraints** — bullets:
-  - Do NOT push or commit. Orchestrator handles git ops.
-  - Do NOT update the CHG document — orchestrator adds the round history row.
-  - Spec ambiguities → prefer the more conservative interpretation, flag in report.
-- **Output** — request structured report: files modified, helpers added (file:line), modified signatures, test count + names, verification outputs, ambiguities resolved + how.
+### 6. Verify implementation
 
-**Worker dispatch contract** (do not omit):
-- Pass the CHG path; do not inline the spec.
-- Specify implementation order.
-- List exact verification commands.
-- Constrain: do NOT push or commit.
-- Ask for structured report.
-
-### 6. Verify worker
-
-Trust but verify. Worker output is a claim, not proof:
+Trust but verify. Whether the diff came from a worker or from the orchestrator's own direct edits, the same checks apply — every claim ("tests green", "lint clean") is a claim, not proof until you re-run it locally:
 
 ```bash
 grep -n "<each-helper-name>" scripts/<file>.py    # symbols exist
@@ -314,26 +304,34 @@ PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue
 
 ```mermaid
 flowchart TD
-    A[R<n> pushed] --> B[ScheduleWakeup<br/>delay=270s]
-    B --> C{CI green<br/>both runners?}
-    C -- No --> D[Read failing log<br/>fix → push R<n+1>]
+    A[R<n> pushed] --> B[Use ScheduleWakeup tool<br/>delay=270s]
+    B --> C{CI status?}
+    C -- "Green<br/>both runners" --> E{Bot reviewed<br/>this commit?}
+    C -- "Pending /<br/>queued" --> F0[Wait another 270s]
+    F0 --> C
+    C -- "Cancelled" --> F1[Re-trigger workflow<br/>then wait 270s]
+    F1 --> C
+    C -- "Timeout" --> T{3rd timeout<br/>this PR?}
+    T -- No --> F2[Log CI flake<br/>re-trigger + wait]
+    F2 --> C
+    T -- "Yes — 3 strikes" --> Tabort[Abort iterate loop<br/>surface to user]
+    C -- "Failed" --> D[Read failing log<br/>fix → push R<n+1>]
     D --> A
-    C -- Yes --> E{Bot reviewed<br/>this commit?}
     E -- No --> F[Wait another 270s]
     F --> E
-    E -- Yes --> G{Bot 👍<br/>no findings?}
-    G -- No --> H[Triage bot finding<br/>see phase 9]
+    E -- Yes --> G{Bot 👍<br/>no NEW findings<br/>since last poll?}
+    G -- No --> H[Triage bot finding<br/>see phase 9<br/>note: bot may post<br/>new findings on later<br/>commits — re-poll each R]
     H --> A
     G -- Yes --> I{Code-review<br/>panel run yet<br/>on this head?}
-    I -- No --> J[Dispatch 4-provider<br/>panel parallel]
-    J --> K{All 4 ≥ 9.0<br/>blocking == []?}
+    I -- No --> J[Dispatch panel<br/>parallel]
+    J --> K{All viable ≥ 9.0<br/>blocking == []?<br/>see Failure Modes<br/>for partial-panel rules}
     K -- No --> L[Triage panel findings<br/>see phase 9]
     L --> A
     K -- Yes --> M[Mergeable<br/>→ phase 10]
     I -- Yes --> M
 ```
 
-**Polling cadence rules** (from `ScheduleWakeup` doc):
+**Polling cadence rules** (from the `ScheduleWakeup` tool's documentation — `ScheduleWakeup` is a tool name, not a concept):
 - Default: 270s (stays inside 5-min cache window).
 - Never < 60s (rate limits, no signal benefit).
 - Never == 300s (cache-miss penalty without amortization).
@@ -343,9 +341,17 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Finding from bot or panel] --> B{Severity?}
+    A[Finding from bot or panel] --> P{Phase that<br/>produced this?}
+    P -- "plan-review" --> PR1{Architectural /<br/>contract / scope<br/>blocker?}
+    PR1 -- Yes --> PR2[Fix CHG document<br/>re-dispatch plan panel]
+    PR1 -- No --> PR3[Treat as advisory<br/>continue tree below]
+    P -- "code-review or bot" --> B
+    PR3 --> B
+    B{Severity?}
+    B -- "P0 / security /<br/>data loss" --> X0[Fix immediately<br/>may bypass batching<br/>can ship hotfix R]
     B -- "Blocking<br/>FIX in any reviewer" --> X1[Fix in next R<br/>panel did NOT pass]
     B -- "P2 / P3 from bot" --> C{Real bug?<br/>repros / wrong output / contract violation}
+    B -- "Hallucinated finding<br/>file:line not in diff" --> XH[Reject with note<br/>do NOT count toward<br/>convergence]
     C -- Yes --> X2[Fix in next R]
     C -- No --> D[Spec/UX nit]
     D --> E{Convergent<br/>≥2 reviewers<br/>flag same thing?}
@@ -355,6 +361,15 @@ flowchart TD
     F -- Yes --> X4[Note in PR body<br/>ship; file follow-up<br/>if worth it]
     F -- No --> X5[Batch into tail R<br/>or defer if marginal]
 ```
+
+**Severity vocabulary** (orient the tree):
+
+| Severity | Examples | Action |
+|----------|----------|--------|
+| P0 | Security hole, data loss, credential leak, rm -rf risk | Fix immediately; may bypass batching; hotfix R if PR already merged |
+| P1 | Correctness regression, contract widening, broken test | Fix in next R |
+| P2 | UX nit, missing error message, poor log line | Batch into tail R |
+| P3 | Cosmetic, naming preference, doc polish | Optional / defer |
 
 **Worked example** (PR #69 R3 → R4 triage):
 
@@ -377,19 +392,6 @@ When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 - Frank merges manually as repo owner. `ryosaeba1985` cannot merge under branch protection.
 - Do NOT spam `gh pr merge --auto` retries; the GraphQL endpoint will reject.
 - Move to phase 1 (auto-pick next issue).
-
----
-
-## Worker Dispatch Heuristic (detail)
-
-The 2-line threshold matters because every `droid exec` round-trip costs ~30-90s of latency plus the worker's own context window. For a typo fix that's a 95% loss; for a 200-line refactor that's a 95% gain (orchestrator context stays clean for the panel-review prompts).
-
-Edge cases:
-
-- **Symbol rename across N files**: worker, even if each per-file change is small.
-- **Coordinated edit to one section + one test**: orchestrator (still single conceptual change).
-- **5+ small fixes from a bot batch**: orchestrator, sequentially. Don't dispatch a worker for a list of grep-and-replaces.
-- **Investigation that may or may not require code**: orchestrator first; promote to worker only if the diagnosis grows.
 
 ---
 
@@ -455,8 +457,73 @@ Common pattern: panel-review ROI scales with surface size. PR #70 shipped clean 
 
 ---
 
+## Failure Modes
+
+The happy-path loop assumes 4 healthy providers, a responsive bot, and a stable CI. Each of these can fail. The orchestrator must handle every mode below explicitly — silent fall-through is how panels ship the wrong thing.
+
+### Reviewer timeout / API error / invalid JSON
+
+A provider call that times out, returns a non-2xx, or emits malformed JSON (no fenced block, missing keys, invalid types) does NOT count as a verdict. Protocol:
+
+1. Retry the failed provider once with the same prompt.
+2. If it still fails: mark the provider unavailable for this round and proceed with the remaining N-1 reviewers, **but only if** N-1 ≥ 3 AND the failed provider was not the dissenter on the previous round.
+3. Otherwise: abort the panel, surface the API outage to the user, and pause the loop.
+4. Always document the missing reviewer in the panel tally (e.g. "deepseek: API outage 2026-05-08; 3-of-3 PASS over the remaining viable providers"). The PR body should record it too.
+
+### CHG abandonment after R3 reveals wrong approach
+
+When 3+ rounds of review converge on "this approach is structurally wrong, not just buggy" (e.g. multiple reviewers flag the same architectural blocker in R3 that they raised in R1, with the same severity), do NOT loop indefinitely. Exit criterion:
+
+1. Orchestrator drafts a `## Lessons Learned` section in the CHG, summarising what went wrong and why the approach is unrecoverable.
+2. Set `Status: Abandoned` in the frontmatter.
+3. File a follow-up issue (or new CHG) sketching the alternative approach.
+4. Close the PR with a comment pointing at the follow-up. The abandoned CHG stays in `rules/` as a historical record — it is itself the artifact.
+
+### User override mid-loop
+
+The auto-pick mandate is checked at phase 1, but the user can revoke or redirect at any point. User messages mid-loop take priority over the current loop. Protocol:
+
+1. Save loop state: current phase number, R-number, panel verdicts collected so far, pending fixes, the active CHG path.
+2. Acknowledge the user message and answer / act on it.
+3. When the user signals "resume" (or implicitly resumes by silence after the side-task completes), restart from the saved phase + R-number — do NOT replay earlier phases.
+
+### Provider unavailability
+
+The panel must have ≥3 viable providers to enforce the gate meaningfully. Protocol:
+
+- 4 viable: standard all-individual ≥ 9.0 gate over all 4.
+- 3 viable: all-individual ≥ 9.0 over the 3 is the gate. Document the missing fourth in the PR body.
+- < 3 viable: abort the panel and notify the user. Do NOT proceed with 2-of-2 or 1-of-1 — the convergence signal collapses below 3 reviewers.
+
+### Post-handoff user rejection
+
+If Frank rejects a panel-passed PR (either pre-merge "don't merge this" or post-merge "revert this"), the loop resumes at phase 9 (triage) with the rejection note treated as a new finding. Additional protocol:
+
+- If the rejection cites scope or architectural issues the panel did not flag, also append a one-line entry to `samples/panel-blind-spots.md` (create the file if missing) describing what the panel missed. These entries feed future plan-review prompt updates so reviewers learn to look for the missed dimension.
+- A revert is itself a PR that inherits the original gate (per `## When NOT to Use`); the rejection does not require a re-panel of the revert itself.
+
+### CI timeout vs CI failure
+
+The iterate tree must distinguish four CI outcomes — conflating them produces false-positive "fix the code" cycles when the real issue is infrastructure:
+
+| CI status | Action |
+|-----------|--------|
+| Pending / queued | Wait another 270s; loop on status check |
+| Cancelled (e.g. manual cancel, branch update) | Re-trigger the workflow; wait |
+| Timeout (job killed at runtime limit) | Log + re-trigger ONCE per occurrence; if 3 timeouts hit on the same PR, abort the iterate loop and surface "consistent CI timeouts — likely test or infra regression" to the user |
+| Failed (assertion / exit code) | Read the failing log; fix in code; push R<n+1> |
+
+The 3-strikes rule prevents an infrastructure flake from masquerading as a code bug indefinitely.
+
+### Follow-up bot comments after initial 👍
+
+GitHub review bots can post additional findings on later commits even after they 👍'd an earlier commit. The iterate tree must re-poll the bot's reactions on **each** new R-push, not assume the prior 👍 carries forward. Specifically: at phase 8, when polling `gh pr view --json reviews,comments`, treat any bot comment whose `submitted_at` is after the current HEAD's push timestamp as a NEW finding to triage — even if the same bot 👍'd the previous head.
+
+---
+
 ## Change History
 
 | Date | Change | By |
 |------|--------|----|
-| 2026-05-08 | Initial draft (TRN-1008): captures multi-agent review loop developed across PR #66 → #72; intended for promotion to COR-1200 once stable | Claude Opus 4.7 |
+| 2026-05-08 | Initial draft (TRN-1008): captures multi-agent review loop developed across PR #66 → #73; intended for promotion to COR-1200 once stable | Claude Opus 4.7 |
+| 2026-05-08 | R3: applied 3-of-4 comprehensibility-review findings (gemini + codex + glm-reviewer); deepseek deferred due to API outage. PKG-promotion parameterisation deferred to a follow-up CHG. | Claude Opus 4.7 |
