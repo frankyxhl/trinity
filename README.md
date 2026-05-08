@@ -301,6 +301,13 @@ prepend rubric weights, calibration guidance, the 9.0 PASS threshold, and the
 findings / decision-matrix / weighted-average output schema to the prompt.
 SOP, rubric, threshold, and schema are recorded in `metadata.json`.
 
+**Structured review output** — when using a preset with `task_type: review`,
+Trinity appends a structured-output instruction to the prompt requesting
+providers emit a fenced JSON block (`decision`, `weighted_score`, `blocking`,
+`advisories`). Providers that comply produce enriched `synthesis.md` output
+with per-provider scores and a Findings section. Providers that don't emit
+the block continue to work via legacy returncode-based rendering. (#39)
+
 ### Update a PR after review fixes
 
 ```bash
