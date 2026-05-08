@@ -154,7 +154,7 @@ def test_review_max_parallel_one_keeps_sequential_behavior(tmp_path):
     assert starts["deepseek"] >= ends["glm"]
     raw = (review_dir_from(result) / "raw" / "glm.txt").read_text()
     assert "provider=glm" in raw
-    assert "[stderr]" in raw
+    assert "TRINITY-RAW-STDERR-BOUNDARY" in raw
     assert "stderr=glm" in raw
 
 

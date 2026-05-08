@@ -46,7 +46,7 @@ REVIEW_ONLY_INSTRUCTION = (
 )
 PROCESS_GROUP_KILL_GRACE_SECONDS = 5
 _REVIEW_PASS_THRESHOLD = 9.0
-_STDERR_SENTINEL = "\n[stderr]\n"
+_STDERR_SENTINEL = "\n%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%\n"
 STRICT_REVIEW_TEMPLATES = {
     ("COR-1602", "COR-1609"): {
         "pass_threshold": 9.0,
@@ -1398,15 +1398,13 @@ def cleanup_active_processes(registry):
 
 
 def raw_output(stdout, stderr):
-    # TRN-3022 coupling: the "\n[stderr]\n" sentinel written here is
-    # consumed by _strip_stderr_region — do NOT change the sentinel
-    # format without updating that helper and _STDERR_SENTINEL.
-    # Always append the sentinel (even with empty stderr) so the sentinel
-    # is unambiguously a delimiter, never absent. _strip_stderr_region
-    # uses rfind() to locate the last occurrence; without the always-write
-    # invariant, a stdout that mentions the sentinel string could be
-    # truncated when stderr was empty (no real delimiter to anchor against).
-    return (stdout or "") + "\n[stderr]\n" + (stderr or "")
+    # TRN-3022 coupling: the _STDERR_SENTINEL written here is consumed by
+    # _strip_stderr_region — do NOT change the sentinel format without
+    # updating both. The sentinel is a unique marker (random hex tag) so
+    # neither stdout nor stderr can plausibly contain a colliding string.
+    # Always append the sentinel (even with empty stderr) so the boundary
+    # exists unambiguously.
+    return (stdout or "") + _STDERR_SENTINEL + (stderr or "")
 
 
 def timeout_partial_output(exc, stdout=None, stderr=None):
@@ -1509,15 +1507,11 @@ _SCHEMA_BLOCK_RE = re.compile(
 def _strip_stderr_region(text):
     """Strip the stderr tail appended by raw_output().
 
-    TRN-3022 coupling: the sentinel _STDERR_SENTINEL ("\n[stderr]\n") is
-    written by raw_output() at this module. If the sentinel is present,
-    only the pre-sentinel region (stdout) is scanned for structured blocks.
-    If absent (custom raw-output writers), the full text is returned.
-
-    Uses rfind() (last match) rather than find() because stdout itself may
-    legitimately contain the sentinel string — e.g., a provider quoting the
-    raw-output delimiter while reviewing this file. The real boundary is
-    always the LAST occurrence (the one appended by raw_output()).
+    TRN-3022 coupling: the sentinel _STDERR_SENTINEL is a unique marker
+    written by raw_output() at this module. It contains a random hex tag,
+    so a colliding string in either stdout or stderr is astronomically
+    unlikely. The pre-sentinel region (stdout) is scanned for structured
+    blocks. If absent (custom raw-output writers), the full text is returned.
     """
     idx = text.rfind(_STDERR_SENTINEL)
     if idx == -1:

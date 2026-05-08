@@ -375,7 +375,7 @@ def test_a8d_stderr_block_ignored():
             "advisories": [],
         }
     )
-    text = f"```json\n{stdout_json}\n```\n[stderr]\n```json\n{stderr_json}\n```"
+    text = f"```json\n{stdout_json}\n```{_STDERR_SENTINEL}```json\n{stderr_json}\n```"
     result = parse_structured_review(text)
     assert result is not None
     assert result["weighted_score"] == 9.0
@@ -387,20 +387,20 @@ def test_a8d4_raw_output_always_appends_sentinel():
     sentinel being a real delimiter rather than possibly absent.
     """
     raw_output = codex_mod.raw_output
-    assert raw_output("hello", "") == "hello\n[stderr]\n"
-    assert raw_output("hello", None) == "hello\n[stderr]\n"
-    assert raw_output("hello", "err") == "hello\n[stderr]\nerr"
-    assert raw_output("", "err") == "\n[stderr]\nerr"
+    assert raw_output("hello", "") == "hello" + _STDERR_SENTINEL
+    assert raw_output("hello", None) == "hello" + _STDERR_SENTINEL
+    assert raw_output("hello", "err") == "hello" + _STDERR_SENTINEL + "err"
+    assert raw_output("", "err") == _STDERR_SENTINEL + "err"
     # No sentinel-in-stdout false-positive even with empty stderr:
-    raw = raw_output("a```json\n{}\n```\n[stderr]\nb", "")
-    assert raw.endswith("\n[stderr]\n"), "appended sentinel must be at the END"
+    raw = raw_output("a```json\n{}\n```\nfoo bar baz", "")
+    assert raw.endswith(_STDERR_SENTINEL), "appended sentinel must be at the END"
 
 
-def test_a8d3_stdout_quoting_stderr_sentinel_does_not_truncate():
-    """Stdout may legitimately contain the literal '\\n[stderr]\\n' string
-    (e.g., a provider quoting the delimiter while reviewing this file).
-    The real boundary is always the LAST occurrence (rfind), so the JSON
-    block emitted AFTER the quoted sentinel must still be parsed.
+def test_a8d3_stdout_quoting_legacy_marker_does_not_truncate():
+    """Stdout may contain the legacy '\\n[stderr]\\n' string (e.g., a
+    reviewer quoting prior raw-output format). The actual sentinel is a
+    unique hex-tagged marker, so legacy text in stdout cannot be confused
+    with the boundary.
     """
     real_json = json.dumps(
         {
@@ -412,12 +412,45 @@ def test_a8d3_stdout_quoting_stderr_sentinel_does_not_truncate():
     )
     text = (
         "Reviewer prose discussing the delimiter:\n[stderr]\nthen the actual\n"
-        f"verdict block follows.\n\n```json\n{real_json}\n```\n"
-        "[stderr]\nactual stderr content here"
+        f"verdict block follows.\n\n```json\n{real_json}\n```"
+        + _STDERR_SENTINEL
+        + "actual stderr content here"
     )
     result = parse_structured_review(text)
     assert result is not None
     assert result["weighted_score"] == 9.5
+
+
+def test_a8d5_stderr_side_json_block_ignored():
+    """Bot R9 scenario: stderr contains a fenced JSON block. The unique
+    sentinel guarantees rfind() locks onto the appended boundary, so
+    stderr-side blocks never enter the parse region.
+    """
+    stderr_json = json.dumps(
+        {
+            "decision": "FIX",
+            "weighted_score": 3.0,
+            "blocking": [{"title": "stderr-side noise", "evidence": "f:1"}],
+            "advisories": [],
+        }
+    )
+    # Stdout has no schema; stderr has a FIX verdict.
+    raw_output = codex_mod.raw_output
+    text = raw_output(
+        "ordinary review prose with no fenced verdict",
+        f"warning: deprecated\n```json\n{stderr_json}\n```",
+    )
+    result = parse_structured_review(text)
+    assert result is None, "stderr-side JSON must be ignored"
+
+
+def test_a8d6_sentinel_is_unique_marker():
+    """The sentinel must be unique enough that ordinary provider output
+    cannot collide with it (TRN-3022 R10 hardening).
+    """
+    assert "TRINITY-RAW-STDERR-BOUNDARY" in _STDERR_SENTINEL
+    # Any legacy-format text must NOT be the sentinel:
+    assert _STDERR_SENTINEL != "\n[stderr]\n"
 
 
 # ---------------------------------------------------------------------------
