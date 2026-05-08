@@ -49,6 +49,7 @@
 | 3000 | REF | Code Agent Wrapping Architectures |
 | 3020 | CHG | Consolidate Provider Config |
 | 3021 | CHG | Expand Doctor Preflight |
+| 3022 | CHG | Normalize Review Result Schema |
 | 3023 | CHG | Sanitize Provider Environment At Spawn Time |
 
 ---

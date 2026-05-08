@@ -44,6 +44,8 @@ REVIEW_ONLY_INSTRUCTION = (
     "on the provided diff, file snapshots, and review context.\n"
 )
 PROCESS_GROUP_KILL_GRACE_SECONDS = 5
+_REVIEW_PASS_THRESHOLD = 9.0
+_STDERR_SENTINEL = "\n[stderr]\n"
 STRICT_REVIEW_TEMPLATES = {
     ("COR-1602", "COR-1609"): {
         "pass_threshold": 9.0,
@@ -1215,7 +1217,9 @@ def render_strict_review_instructions(strict_review):
     return "\n".join(lines) + "\n"
 
 
-def render_prompt(config, root, scope, review_input, strict_review=None):
+def render_prompt(
+    config, root, scope, review_input, strict_review=None, *, task_type=None
+):
     diff = review_input["diff"]
     files = review_input["files"]
     template = config.get("review", {}).get("prompt_template", "{diff}\n\n{files}\n")
@@ -1226,14 +1230,18 @@ def render_prompt(config, root, scope, review_input, strict_review=None):
         .replace("{files}", files)
     )
     if strict_review is None:
-        return REVIEW_ONLY_INSTRUCTION + "\n" + prompt
-    return (
-        render_strict_review_instructions(strict_review)
-        + "\n"
-        + REVIEW_ONLY_INSTRUCTION
-        + "\n## Review Artifact\n\n"
-        + prompt
-    )
+        base = REVIEW_ONLY_INSTRUCTION + "\n" + prompt
+    else:
+        base = (
+            render_strict_review_instructions(strict_review)
+            + "\n"
+            + REVIEW_ONLY_INSTRUCTION
+            + "\n## Review Artifact\n\n"
+            + prompt
+        )
+    # TRN-3022: schema addendum appended AFTER all other sections so
+    # the "LAST in your output" instruction is truly at the bottom.
+    return base + _review_schema_addendum(task_type)
 
 
 def slugify(value):
@@ -1389,6 +1397,9 @@ def cleanup_active_processes(registry):
 
 
 def raw_output(stdout, stderr):
+    # TRN-3022 coupling: the "\n[stderr]\n" sentinel written here is
+    # consumed by _strip_stderr_region — do NOT change the sentinel
+    # format without updating that helper and _STDERR_SENTINEL.
     output = stdout or ""
     if stderr:
         output += "\n[stderr]\n" + stderr
@@ -1481,6 +1492,174 @@ def build_provider_env(base_env=None):
             continue
         sanitized[key] = value
     return sanitized
+
+
+# ---------------------------------------------------------------------------
+# TRN-3022: structured review result schema — parser + helpers
+# ---------------------------------------------------------------------------
+
+_SCHEMA_BLOCK_RE = re.compile(
+    r"(?ims)^```json\s*$\n(.*?)\n^```\s*$",
+)
+
+
+def _strip_stderr_region(text):
+    """Strip the stderr tail appended by raw_output().
+
+    TRN-3022 coupling: the sentinel _STDERR_SENTINEL ("\n[stderr]\n") is
+    written by raw_output() at this module. If the sentinel is present,
+    only the pre-sentinel region (stdout) is scanned for structured blocks.
+    If absent (custom raw-output writers), the full text is returned.
+    """
+    idx = text.find(_STDERR_SENTINEL)
+    if idx == -1:
+        return text
+    return text[:idx]
+
+
+def _safe_read_raw(path):
+    """Read a raw provider file, returning text or None on failure.
+
+    Catches OSError (file deleted/moved between run and synthesis) and
+    UnicodeDecodeError (corrupt bytes). Returns None on failure — caller
+    falls through to legacy rendering.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _validate_review_schema(data):
+    """Validate a parsed JSON dict against the TRN-3022 review schema.
+
+    Returns True if valid, False otherwise. Never raises.
+    Checks: top-level dict, required fields, types, ranges, finding shapes.
+    Unknown top-level and finding-level keys are ignored (forward-compat).
+    Rejects numeric bools (isinstance(True, int) is True in Python).
+    """
+    if not isinstance(data, dict):
+        return False
+
+    # decision
+    decision = data.get("decision")
+    if not isinstance(decision, str) or decision.upper() not in ("PASS", "FIX"):
+        return False
+
+    # weighted_score — reject bools (True/False are int subclasses)
+    ws = data.get("weighted_score")
+    if isinstance(ws, bool) or not isinstance(ws, (int, float)):
+        return False
+    if ws < 0.0 or ws > 10.0:
+        return False
+
+    # blocking and advisories
+    for key in ("blocking", "advisories"):
+        val = data.get(key)
+        if not isinstance(val, list):
+            return False
+        for item in val:
+            if not isinstance(item, dict):
+                return False
+            if not isinstance(item.get("title"), str):
+                return False
+            if not isinstance(item.get("evidence"), str):
+                return False
+            # fix is optional; if present must be str
+            fix = item.get("fix")
+            if fix is not None and not isinstance(fix, str):
+                return False
+
+    # confidence (optional)
+    conf = data.get("confidence")
+    if conf is not None:
+        if isinstance(conf, bool) or not isinstance(conf, (int, float)):
+            return False
+        if conf < 0.0 or conf > 1.0:
+            return False
+
+    return True
+
+
+def parse_structured_review(raw_text):
+    """Parse a structured review schema block from raw provider output.
+
+    Returns a dict with schema fields + effective_decision, or None on any
+    failure. Never raises — synthesis must work on malformed provider output.
+
+    Steps:
+      1. Strip stderr region via _strip_stderr_region.
+      2. Find last fenced ```json block via regex (DOTALL).
+      3. json.loads contents.
+      4. Validate via _validate_review_schema.
+      5. Coerce effective_decision if needed.
+    """
+    try:
+        stdout_region = _strip_stderr_region(raw_text)
+
+        matches = _SCHEMA_BLOCK_RE.findall(stdout_region)
+        if not matches:
+            return None
+
+        last_block = matches[-1]
+        data = json.loads(last_block)
+
+        if not _validate_review_schema(data):
+            return None
+
+        # Normalize decision to uppercase.
+        data["decision"] = data["decision"].upper()
+
+        # Effective-decision coercion.
+        if data["decision"] == "PASS" and (
+            data["blocking"] or data["weighted_score"] < _REVIEW_PASS_THRESHOLD
+        ):
+            data["effective_decision"] = "FIX"
+        else:
+            data["effective_decision"] = data["decision"]
+
+        return data
+    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def _review_schema_addendum(task_type):
+    """Return the structured-output prompt addendum for review task types.
+
+    Returns empty string for non-review task types (tdd, prp, general, None).
+    Addendum is appended at the end of the rendered prompt so providers emit
+    the JSON block as the LAST thing in their output.
+    """
+    if task_type != "review":
+        return ""
+
+    threshold = _REVIEW_PASS_THRESHOLD
+    return (
+        "\n## Required: Structured Output\n"
+        "\n"
+        "After your free-form review, emit EXACTLY ONE fenced JSON block at the END of your\n"
+        "output, matching this schema:\n"
+        "\n"
+        "```json\n"
+        "{\n"
+        f'  "decision": "PASS" | "FIX",\n'
+        f'  "weighted_score": <0.0-{threshold}>,\n'
+        f'  "blocking": [{{"title": "...", "evidence": "file:line", "fix": "..."}}],\n'
+        f'  "advisories": [{{"title": "...", "evidence": "file:line", "fix": "..."}}],\n'
+        f'  "confidence": <0.0-1.0, optional>\n'
+        "}\n"
+        "```\n"
+        "\n"
+        "Rules:\n"
+        f'- "decision" MUST be "PASS" only when "blocking" is empty AND "weighted_score" >= {threshold}.\n'
+        '  (If you write PASS while "blocking" is non-empty or score < '
+        f"{threshold}, Trinity will\n"
+        "  display your provider as FIX — the consistency is enforced.)\n"
+        '- "blocking" and "advisories" are required lists (use [] if empty, not null).\n'
+        '- "evidence" is required per finding; use "" for cross-cutting issues.\n'
+        "- This block must be the LAST fenced ```json block in your output. Trinity scans\n"
+        "  for the last match. Earlier illustrative JSON in your prose is fine.\n"
+    )
 
 
 def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
@@ -1686,7 +1865,114 @@ def write_incomplete(
     )
 
 
+def _sanitize_md(text):
+    """Strip embedded newlines from Markdown-rendered finding fields."""
+    return text.replace("\n", " ") if "\n" in text else text
+
+
+def _render_findings_for(result, parsed):
+    """Render a single provider's structured findings block.
+
+    Returns a list of lines for the Findings section, or an empty list
+    if the provider has no findings to render (structured-but-clean).
+    """
+    provider = result["provider"]
+    eff = parsed["effective_decision"]
+    score = parsed["weighted_score"]
+    blocking = parsed.get("blocking", [])
+    advisories = parsed.get("advisories", [])
+    lines = []
+    lines.append(
+        f"### {provider} — {eff} "
+        f"({score}, {len(blocking)} blocking, {len(advisories)} advisories)"
+    )
+    lines.append("")
+    if blocking:
+        lines.append("**Blocking:**")
+        for item in blocking:
+            title = _sanitize_md(item.get("title", ""))
+            evidence = _sanitize_md(item.get("evidence", ""))
+            fix = item.get("fix")
+            if fix:
+                fix = _sanitize_md(fix)
+            if evidence:
+                line = f"- **{title}** at `{evidence}`"
+            else:
+                line = f"- **{title}** (no evidence cited)"
+            if fix:
+                line += f" — {fix}"
+            lines.append(line)
+        lines.append("")
+    if advisories:
+        lines.append("**Advisories:**")
+        for item in advisories:
+            title = _sanitize_md(item.get("title", ""))
+            evidence = _sanitize_md(item.get("evidence", ""))
+            fix = item.get("fix")
+            if fix:
+                fix = _sanitize_md(fix)
+            if evidence:
+                line = f"- **{title}** at `{evidence}`"
+            else:
+                line = f"- **{title}** (no evidence cited)"
+            if fix:
+                line += f" — {fix}"
+            lines.append(line)
+        lines.append("")
+    return lines
+
+
 def write_synthesis(review_dir, scope, results):
+    # TRN-3022: parse structured review schema per provider.
+    # rc != 0 → FAIL <rc> regardless of structured content.
+    # rc == 0 + parsed → enriched status.
+    # rc == 0 + no parsed → legacy PASS.
+    parsed_per_provider = []
+    for result in results:
+        rc = result.get("returncode", -1)
+        if rc == 0:
+            raw_path = review_dir / result["raw"]
+            raw_text = _safe_read_raw(raw_path)
+            if raw_text is not None:
+                parsed_per_provider.append(parse_structured_review(raw_text))
+            else:
+                parsed_per_provider.append(None)
+        else:
+            parsed_per_provider.append(None)
+
+    any_structured = any(p is not None for p in parsed_per_provider)
+
+    # Legacy path: byte-identical to pre-TRN-3022 output.
+    if not any_structured:
+        lines = [
+            "# Trinity Review Synthesis",
+            "",
+            f"Scope: {scope or '.'}",
+            "",
+            "## Provider Status",
+            "",
+            "| Provider | Status | Raw Output |",
+            "|----------|--------|------------|",
+        ]
+        for result in results:
+            status = (
+                "PASS" if result["returncode"] == 0 else f"FAIL {result['returncode']}"
+            )
+            lines.append(f"| {result['provider']} | {status} | `{result['raw']}` |")
+        lines.extend(
+            [
+                "",
+                "## Notes",
+                "",
+                "This synthesis is deterministic. Inspect raw provider outputs for findings and conflicts.",
+                "",
+            ]
+        )
+        path = review_dir / "synthesis.md"
+        path.write_text("\n".join(lines) + "\n")
+        return
+
+    # Enriched path: at least one provider has structured output.
     lines = [
         "# Trinity Review Synthesis",
         "",
@@ -1698,8 +1984,37 @@ def write_synthesis(review_dir, scope, results):
         "|----------|--------|------------|",
     ]
     for result in results:
-        status = "PASS" if result["returncode"] == 0 else f"FAIL {result['returncode']}"
+        rc = result.get("returncode", -1)
+        if rc != 0:
+            # Returncode precedence: rc wins regardless of structured content.
+            status = f"FAIL {rc}"
+        else:
+            parsed = parsed_per_provider[results.index(result)]
+            if parsed is not None:
+                eff = parsed["effective_decision"]
+                score = parsed["weighted_score"]
+                n_blocking = len(parsed.get("blocking", []))
+                if eff == "FIX":
+                    status = f"FIX ({score}, {n_blocking} blocking)"
+                else:
+                    status = f"PASS ({score})"
+            else:
+                status = "PASS"
         lines.append(f"| {result['provider']} | {status} | `{result['raw']}` |")
+
+    # Findings section — only rc=0 providers with parsed results.
+    has_findings = False
+    for i, result in enumerate(results):
+        parsed = parsed_per_provider[i]
+        rc = result.get("returncode", -1)
+        if rc == 0 and parsed is not None:
+            if not has_findings:
+                lines.append("")
+                lines.append("## Findings")
+                lines.append("")
+                has_findings = True
+            lines.extend(_render_findings_for(result, parsed))
+
     lines.extend(
         [
             "",
@@ -1743,7 +2058,14 @@ def cmd_review(args):
     review_dir = make_review_dir(out_base, args.scope)
 
     try:
-        prompt = render_prompt(config, root, args.scope, review_input, strict_review)
+        prompt = render_prompt(
+            config,
+            root,
+            args.scope,
+            review_input,
+            strict_review,
+            task_type=preset_metadata.get("task_type") if preset_metadata else None,
+        )
         prompt_path = review_dir / "prompt.md"
         progress("writing prompt")
         prompt_path.write_text(prompt)

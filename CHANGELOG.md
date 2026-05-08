@@ -17,6 +17,13 @@
   surfaced (CHG passes panel + bot review but README/CHANGELOG drifts
   silently). Each new CHG's Acceptance Criteria table now references the
   relevant SOP sections by default. (#65)
+- Structured review output schema (TRN-3022): providers may emit a fenced
+  JSON block (`decision`, `weighted_score`, `blocking`, `advisories`) at
+  the end of review output. Synthesis enriches the Status column with
+  scores and renders a per-provider Findings section when structured data
+  is present. Free-form providers continue to work via legacy returncode
+  fallback. The addendum is code-side, gated on `task_type == "review"`.
+  Closes #39. Foundation for #55.
 
 ### Changed
 - `format_health_results` gains a `verbose` parameter (default False) plus
