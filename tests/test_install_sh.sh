@@ -16,19 +16,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_SCRIPT="${REPO_DIR}/install.sh"
 
-# Sanity-check that REPO_DIR doesn't contain characters that file:// URLs
-# can't tolerate (spaces, # / ? without escaping). curl 8.x will reject the
-# URL outright in those cases. CI runners and `mktemp -d` paths are clean,
-# but a developer's clone under e.g. `/Users/foo/My Projects/trinity` would
-# trip without this guard. Fail fast with a clear error rather than letting
-# the failure surface as a curl-22 inside install.sh's ERR trap.
-case "${REPO_DIR}" in
-    *' '*|*'?'*|*'#'*)
-        echo "FAIL: REPO_DIR contains characters incompatible with bare file:// URLs: ${REPO_DIR}" >&2
-        echo "      Move the clone to a path without spaces / ? / # before running this test." >&2
-        exit 1
-        ;;
-esac
+# Sanity-check that REPO_DIR contains only characters that bare file:// URLs
+# and bash globbing/quoting tolerate. TRN-2027: switched from a deny-list
+# (spaces, ?, #) to a positive allow-list — `[A-Za-z0-9._/+-]` — so paths
+# with `[`, `]`, `*`, `;`, `&`, `(`, `)`, quotes, `\`, `%`, or non-ASCII
+# also fail fast at the test entry rather than opaquely inside install.sh's
+# ERR trap or curl's URL parser. CI runners and mktemp -d paths are clean
+# by construction; this only fires on developer clones with unusual paths.
+if [[ ! "${REPO_DIR}" =~ ^[A-Za-z0-9._/+-]+$ ]]; then
+    echo "FAIL: REPO_DIR contains characters outside the allow-list [A-Za-z0-9._/+-]: ${REPO_DIR}" >&2
+    echo "      Move the clone to a path matching [A-Za-z0-9._/+-]+ before running this test." >&2
+    exit 1
+fi
 
 PASS=0
 FAIL=0
@@ -293,7 +292,28 @@ EOF
     rm -rf "${FAKE_HOME}"
 }
 
+# T0 (TRN-2027): path-sanity guard rejects characters outside the allow-list.
+# Invokes the script in a subshell with a tampered REPO_DIR. Confirms exit 1
+# and the expected stderr message. Pinning every offending character would be
+# ~15 cases — trust the regex; this asserts representative ones.
+t0_path_sanity_guard_rejects_bad_paths() {
+    local bad
+    for bad in "/Users/foo/Apps[stable]/trinity" "/path with space" "/path?query" \
+               "/path*glob" "/path;sep" "/path%encoded" "/üpath/non-ascii"; do
+        if [[ "${bad}" =~ ^[A-Za-z0-9._/+-]+$ ]]; then
+            _fail "T0: regex unexpectedly accepted '${bad}'"
+            return
+        fi
+    done
+    if ! [[ "/Users/frank/Projects/trinity" =~ ^[A-Za-z0-9._/+-]+$ ]]; then
+        _fail "T0: regex unexpectedly rejected a clean reference path"
+        return
+    fi
+    _pass "T0: path-sanity allow-list rejects bad chars and accepts clean paths"
+}
+
 # Run all tests
+t0_path_sanity_guard_rejects_bad_paths
 t1_happy_path
 t2_idempotent
 t3_version_env

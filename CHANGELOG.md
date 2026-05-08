@@ -26,6 +26,11 @@
   Closes #39. Foundation for #55.
 
 ### Changed
+- `tests/test_install_sh.sh` path-sanity guard switched from a deny-list
+  (`*' '*|*'?'*|*'#'*`) to a positive allow-list (`[A-Za-z0-9._/+-]+`).
+  Catches `[`, `]`, `*`, `;`, `&`, `(`, `)`, quotes, `\`, `%`, and
+  non-ASCII paths that bash globbing or `file://` URL parsing trip on.
+  TRN-2027. (#57)
 - `format_health_results` gains a `verbose` parameter (default False) plus
   `env_pollution` and `preset_metadata` kwargs. `cmd_doctor` calls with
   `verbose=True`; `cmd_review --check-providers` continues to use the
