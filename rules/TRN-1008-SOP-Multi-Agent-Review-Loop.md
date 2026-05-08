@@ -68,7 +68,7 @@ The loop has 10 phases:
 
 | Trigger | When | Mandate source |
 |---------|------|----------------|
-| **User-driven** | User explicitly says "pick next issue", "auto-pick", or similar in chat | Mandate granted by the message itself; rocket-gate still applies to the picked item |
+| **User-driven** | User explicitly says "pick next issue" / "do TRN-3025" / "auto-pick" in chat | Mandate granted by the message itself; **rocket-gate is BYPASSED** — the live chat input IS the consent signal, per the bypass clause below |
 | **Continuation** | Just-merged a PR while the user's prior auto-pick mandate is still in force | Mandate carried forward from prior user message; rocket-gate applies |
 | **Loop-driven** (Claude Code `/loop`) | `/loop <seconds>` schedules periodic re-fires (e.g. `/loop 1800` every 30 min); each tick re-runs phase 1 | Mandate is the `/loop` invocation itself; rocket-gate applies on every tick |
 
@@ -135,39 +135,62 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 
 verify_rocket_eligibility() {
   local issue_num="$1"
+  local prior_body_hash="${2:-}"   # optional; pass back from initial check on re-verify
 
-  # Step 1: issue must be OPEN and not locked.
-  # Fail-closed on ANY error (network, rate-limit, 5xx, malformed JSON, jq error).
-  local meta state locked body_updated
-  meta=$(gh issue view "$issue_num" --repo "$REPO" \
-           --json state,locked,updatedAt 2>/dev/null) || return 1
-  state=$(echo "$meta" | jq -r '.state // "UNKNOWN"' 2>/dev/null) || return 1
-  locked=$(echo "$meta" | jq -r '.locked // true' 2>/dev/null) || return 1
-  body_updated=$(echo "$meta" | jq -r '.updatedAt // ""' 2>/dev/null) || return 1
-  [[ "$state" == "OPEN" && "$locked" == "false" ]] || return 1
+  # Step 1: fetch issue via REST (not `gh issue view`).
+  # Reasons: (a) `gh issue view --json locked` is NOT a supported field
+  # per the gh CLI manual — using it makes the call fail-closed for ALL
+  # rocketed issues, breaking the gate end-to-end. (b) REST returns the
+  # full issue object including `locked`, `state`, and `body` in one call.
+  # Fail-closed on ANY error (network, rate-limit, 5xx, malformed JSON, jq).
+  local issue_json state locked body body_hash
+  issue_json=$(gh api "repos/$REPO/issues/$issue_num" 2>/dev/null) || return 1
+  state=$(echo "$issue_json" | jq -r '.state // "unknown"' 2>/dev/null) || return 1
+  locked=$(echo "$issue_json" | jq -r '.locked // true' 2>/dev/null) || return 1
+  body=$(echo "$issue_json" | jq -r '.body // ""' 2>/dev/null) || return 1
+  # REST returns lowercase state (`open`/`closed`); normalise.
+  [[ "${state,,}" == "open" && "$locked" == "false" ]] || return 1
 
-  # Step 2: paginated reaction check on the issue body (NOT comments).
-  # Without --paginate only page 1 (30 reactions) is returned —
-  # a reaction-spam DoS could push the trusted 🚀 off page 1.
+  # Step 2: body-content TOCTOU guard. We hash the body NOW; caller
+  # passes the prior hash on re-verify. If the hash differs, the body
+  # was edited and the rocket consents to a different body — fail-closed.
+  # This is body-specific (unlike `updatedAt` which advances on ANY
+  # activity, including the orchestrator's own claim comment). The
+  # claim-comment + TOCTOU controls no longer cancel each other out.
+  body_hash=$(printf '%s' "$body" | shasum -a 256 | cut -d' ' -f1)
+  if [[ -n "$prior_body_hash" && "$body_hash" != "$prior_body_hash" ]]; then
+    return 1   # body changed since rocket — re-rocket required
+  fi
+
+  # Step 3: paginated reaction check, slurped into ONE jq input.
+  # `gh api --paginate` outputs each page as a separate JSON value;
+  # without `jq -s` (slurp), `--jq` runs the filter PER PAGE. With no
+  # rocket on any page, that emits one `null` per page, and a naive
+  # non-empty test passes — letting the gate INCORRECTLY mark unrocketed
+  # issues eligible. We pipe pages through `jq -s 'flatten | …'` so the
+  # filter runs ONCE over the merged reaction list.
   # Filter is exact-match on login (rejects bot-suffix spoofs like
   # "frankyxhl[bot]") AND on content == "rocket" (rejects 🎉/👍/etc).
   local rocket_created
-  rocket_created=$(gh api "repos/$REPO/issues/$issue_num/reactions" --paginate \
-                     --jq "[.[] | select(.user.login == \"$TRUSTED_REACTOR\" and .content == \"rocket\")][0].created_at" \
-                     2>/dev/null) || return 1
-  [[ -n "$rocket_created" && "$rocket_created" != "null" ]] || return 1
+  rocket_created=$(gh api "repos/$REPO/issues/$issue_num/reactions" --paginate 2>/dev/null \
+                   | jq -rs --arg login "$TRUSTED_REACTOR" \
+                       'flatten | map(select(.user.login == $login and .content == "rocket"))
+                                | first | .created_at // empty') || return 1
+  [[ -n "$rocket_created" ]] || return 1
 
-  # Step 3: TOCTOU guard. If the body was edited AFTER the rocket,
-  # the rocket consents to a different body than the orchestrator
-  # will read at pick-time. Fail-closed; require re-rocket.
-  if [[ "$body_updated" > "$rocket_created" ]]; then
-    return 1   # body edited after rocket — re-rocket required
-  fi
-
-  return 0  # eligible
+  # On success, print body_hash so the caller can capture it for re-verify.
+  # Re-verify call: verify_rocket_eligibility <n> "<prior-hash>"
+  echo "$body_hash"
+  return 0
 }
 
-# Usage: verify_rocket_eligibility <issue-num> && proceed_to_scope_rank
+# Usage:
+#   body_hash=$(verify_rocket_eligibility <issue-num>) && \
+#     proceed_to_scope_rank
+#
+# On every git operation (branch create / push / PR open), re-verify:
+#   verify_rocket_eligibility <issue-num> "$body_hash" >/dev/null \
+#     || abort_with_state_save
 ```
 
 **Fail-closed semantics** (CRITICAL — the gate's security property depends on this):
@@ -214,7 +237,13 @@ git status --porcelain        # MUST be empty (covers tracked + untracked)
                               # if non-empty: stash with `git stash -u`,
                               # commit elsewhere, or abort
 git log origin/main --oneline -3   # verify expected merge state
-git checkout main && git pull origin main && git checkout -b codex/<slug>
+git switch -C codex/<slug> origin/main   # creates branch DIRECTLY off origin/main
+                                         # — bypasses local main entirely so any
+                                         # local-ahead / diverged commits cannot
+                                         # leak into the new branch. Replaces the
+                                         # earlier `checkout main && pull && checkout -b`
+                                         # pattern which `pull`-merged local commits
+                                         # silently if main was ahead.
 ```
 
 The `--porcelain` check is non-negotiable. It covers both tracked AND untracked files; an earlier draft of this SOP used `-uno` (tracked-only) which would silently destroy untracked drafts in `tmp/` or new sample files when `git checkout main` runs. If `--porcelain` reports anything, stash it (`git stash -u`) or move it before continuing. Branching off a local `main` that lags upstream produces phantom-reference bugs (where a panel reviewer references a file that's been moved/deleted on origin/main but still exists on the stale local).
@@ -693,3 +722,4 @@ Before posting its own claim, the orchestrator MUST re-poll the issue's comments
 | 2026-05-09 | R7: moved `rules/samples/` → `templates/` at repo root. Samples never followed Alfred ACID conventions (non-`<PREFIX>-<NNNN>-<TYPE>-*` filenames, not in TRN-0000 index, not subject to `af validate` structural rules) — squatting in `rules/` was a misuse of namespace. `templates/` is the right home. Also fixed Mermaid render error in §4 plan-review tree: literal `[]` in node labels (`all blocking == []?`) confused Mermaid's parser; rewrote as `all blocking empty?` (no special chars). Same fix for §8 iterate tree. User question prompted the audit; investigated 4-backtick-fence inlining first but af validate is pure regex on `^## ` — fences do not shield, so inlining `##`-headed templates is genuinely infeasible. Repo-root `templates/` is the cleanest workable layout. | Claude Opus 4.7 |
 | 2026-05-09 | R8: deleted `templates/` entirely. User question: "为什么我们需要这个 templates? 不能删掉吗?" Audit confirmed: throughout the entire R1-R7 session, the orchestrator (this Claude) never copy-pasted from any sample template — every panel-review and worker-dispatch prompt was constructed fresh from the SOP's normative description. The templates were insurance that never paid out. Both weights tables (code + doc) are already inline in §4 (lines 294, 304); JSON schema is described in §4; worker contract is in §5; CHG structure is in §3 bullet list. Templates contained nothing not derivable from the SOP itself. Replaced 3 SOP pointers with concrete inline guidance: §3 CHG-skeleton pointer → "see TRN-3022-CHG-* for worked instance"; §4 plan-review-prompt pointer → expanded inline with USE-TRN-1800 reminder + PASS-gate restatement; §5 worker-dispatch-prompt pointer → expanded with full dispatch contract. SOP is now self-contained; one source of truth, zero drift risk. | Claude Opus 4.7 |
 | 2026-05-09 | R9: added §1 "How phase 1 fires" subsection with three trigger patterns (user-driven, continuation, loop-driven via Claude Code `/loop`); user question "你有一个叫 loop 的概念" — yes, `/loop <seconds>` schedules periodic re-fires; this is the hands-off mode where user only needs to 🚀 an issue and the next tick auto-picks it. Documented 1800s (30min) as a reasonable cadence default. Also clarified §1 mermaid entry node from vague `Candidate item` → `Candidate item: open GitHub issue (any author) OR deferred TRN-* tech-debt note` per user feedback ("Candidate item 是什么意思?"). | Claude Opus 4.7 |
+| 2026-05-09 | R10: codex-bot R5-R9 findings — 3 P1 (rocket-gate end-to-end broken!) + 2 P2. P1 `gh issue view --json locked` is NOT a supported field per gh CLI manual; my R5 fail-closed-on-error caused EVERY rocketed issue to be rejected — the gate never opened. Fix: switched to `gh api repos/$REPO/issues/$N` (REST). P1 `--paginate --jq` filter runs PER PAGE; with no rocket, output was `null\nnull\nnull...` and non-empty test passed — gate INCORRECTLY marked unrocketed issues eligible. Fix: pipe pages through `jq -rs flatten | filter | first` so jq runs ONCE. P1 R5 TOCTOU vs R5 claim-comment cancelled each other out — claim comments bump `updatedAt`, every claimed auto-pick failed re-verify and aborted. Fix: replaced `updatedAt` comparison with body-content sha256 hash. P2 §2 `git checkout main && git pull` could inherit local-ahead divergence — replaced with `git switch -C codex/<slug> origin/main`. P2 §1 trigger table contradicted bypass clause for User-driven row — fixed. | Claude Opus 4.7 |
