@@ -95,13 +95,6 @@ Return to Claude:
 - Rounds: <number of CLI calls made>
 ```
 
-## Rules
-
-- Always manage sessions (read before, write after)
-- If the provider needs file contents, read the file yourself and include it in the prompt
-- If the provider produces code, verify it looks reasonable before returning
-- Keep your summary focused — Claude doesn't need the full conversation log
-
 ## Structured Review Output (TRN-3022)
 
 Trinity appends a structured-output instruction to review prompts. When the provider follows the instruction, it emits a fenced JSON block at the end of its output. Trinity's synthesis parser extracts the block and uses it for enriched status rendering and a per-provider Findings section in `synthesis.md`.
@@ -119,5 +112,12 @@ Providers that do not emit the block continue to work — synthesis falls back t
 ```
 
 Full spec: `rules/TRN-3022-CHG-Normalize-Review-Result-Schema.md`.
+
+## Rules
+
+- Always manage sessions (read before, write after)
+- If the provider needs file contents, read the file yourself and include it in the prompt
+- If the provider produces code, verify it looks reasonable before returning
+- Keep your summary focused — Claude doesn't need the full conversation log
 - Always use `gemini --model gemini-3.1-pro-preview -p` for non-interactive mode
 - For resume: `gemini --model gemini-3.1-pro-preview -r <index> -p "<prompt>"` (order matters: -r before -p)
