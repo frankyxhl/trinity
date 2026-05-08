@@ -381,6 +381,21 @@ def test_a8d_stderr_block_ignored():
     assert result["weighted_score"] == 9.0
 
 
+def test_a8d4_raw_output_always_appends_sentinel():
+    """raw_output() must ALWAYS append the sentinel, even when stderr is
+    empty, so _strip_stderr_region (which uses rfind) can rely on the
+    sentinel being a real delimiter rather than possibly absent.
+    """
+    raw_output = codex_mod.raw_output
+    assert raw_output("hello", "") == "hello\n[stderr]\n"
+    assert raw_output("hello", None) == "hello\n[stderr]\n"
+    assert raw_output("hello", "err") == "hello\n[stderr]\nerr"
+    assert raw_output("", "err") == "\n[stderr]\nerr"
+    # No sentinel-in-stdout false-positive even with empty stderr:
+    raw = raw_output("a```json\n{}\n```\n[stderr]\nb", "")
+    assert raw.endswith("\n[stderr]\n"), "appended sentinel must be at the END"
+
+
 def test_a8d3_stdout_quoting_stderr_sentinel_does_not_truncate():
     """Stdout may legitimately contain the literal '\\n[stderr]\\n' string
     (e.g., a provider quoting the delimiter while reviewing this file).

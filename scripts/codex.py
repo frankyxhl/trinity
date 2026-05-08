@@ -1401,10 +1401,12 @@ def raw_output(stdout, stderr):
     # TRN-3022 coupling: the "\n[stderr]\n" sentinel written here is
     # consumed by _strip_stderr_region — do NOT change the sentinel
     # format without updating that helper and _STDERR_SENTINEL.
-    output = stdout or ""
-    if stderr:
-        output += "\n[stderr]\n" + stderr
-    return output
+    # Always append the sentinel (even with empty stderr) so the sentinel
+    # is unambiguously a delimiter, never absent. _strip_stderr_region
+    # uses rfind() to locate the last occurrence; without the always-write
+    # invariant, a stdout that mentions the sentinel string could be
+    # truncated when stderr was empty (no real delimiter to anchor against).
+    return (stdout or "") + "\n[stderr]\n" + (stderr or "")
 
 
 def timeout_partial_output(exc, stdout=None, stderr=None):
