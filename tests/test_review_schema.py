@@ -209,6 +209,10 @@ def test_a5_enriched_pass_status(tmp_path):
     write_synthesis(tmp_path, "spikes/test", results)
     content = (tmp_path / "synthesis.md").read_text()
     assert "PASS (9.2)" in content
+    assert "## Summary" in content
+    assert "**Verdict**: ALL_PASS" in content
+    # Summary precedes Provider Status
+    assert content.index("## Summary") < content.index("## Provider Status")
 
 
 def test_a5_enriched_fix_status(tmp_path):
@@ -227,6 +231,8 @@ def test_a5_enriched_fix_status(tmp_path):
     write_synthesis(tmp_path, "spikes/test", results)
     content = (tmp_path / "synthesis.md").read_text()
     assert "FIX (7.1, 1 blocking)" in content
+    assert "## Summary" in content
+    assert "**Verdict**: NEEDS_FIXES" in content
 
 
 # ---------------------------------------------------------------------------
@@ -262,11 +268,11 @@ def test_a6_no_findings_when_all_legacy(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# A7: byte-identical legacy fallback
+# A7: legacy fallback renders LEGACY verdict summary (TRN-3028 relaxed byte-identical invariant)
 # ---------------------------------------------------------------------------
 
 
-def test_a7_byte_identical_legacy(tmp_path):
+def test_a7_legacy_renders_legacy_verdict_summary(tmp_path):
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     (raw_dir / "glm.txt").write_text("just prose")
@@ -277,6 +283,13 @@ def test_a7_byte_identical_legacy(tmp_path):
         "# Trinity Review Synthesis",
         "",
         "Scope: spikes/test",
+        "",
+        "## Summary",
+        "",
+        "- **Verdict**: LEGACY",
+        "- **Providers**: 1/1 PASS · 0 FIX · 0 FAIL",
+        "- **Findings**: —",
+        "- **Convergence**: —",
         "",
         "## Provider Status",
         "",
@@ -806,11 +819,11 @@ def test_case_insensitive_decision():
 
 
 # ---------------------------------------------------------------------------
-# Fix 4: Multi-provider all-legacy A7 byte-identical
+# Fix 4: Multi-provider all-legacy renders LEGACY verdict summary (TRN-3028)
 # ---------------------------------------------------------------------------
 
 
-def test_a7_multi_provider_all_legacy_byte_identical(tmp_path):
+def test_a7_multi_provider_all_legacy_renders_legacy_verdict_summary(tmp_path):
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     (raw_dir / "glm.txt").write_text("just prose from glm")
@@ -827,6 +840,13 @@ def test_a7_multi_provider_all_legacy_byte_identical(tmp_path):
         "# Trinity Review Synthesis",
         "",
         "Scope: spikes/test",
+        "",
+        "## Summary",
+        "",
+        "- **Verdict**: LEGACY",
+        "- **Providers**: 3/3 PASS · 0 FIX · 0 FAIL",
+        "- **Findings**: —",
+        "- **Convergence**: —",
         "",
         "## Provider Status",
         "",
