@@ -480,6 +480,34 @@ def wrapper_auth_check(provider):
     }
 
 
+def _is_canonical_wrapper(executable, provider):
+    """True if `executable` is the canonical wrapper script for `provider`.
+
+    Canonical wrappers live under one of these install roots and have the
+    name `<provider>` in a `bin/` directory:
+      - <HOME>/.claude/skills/trinity/bin/<provider>
+      - <HOME>/.codex/skills/trinity/bin/<provider>
+      - <repo>/providers/bin/<provider>
+
+    Test fixtures using `<tmp_path>/bin/<provider>` will NOT match —
+    that's the point: doctor's wrapper-auth check should only fire when
+    the user has actually installed the canonical wrapper.
+    """
+    if executable is None or provider not in _WRAPPER_AUTH_CONFIG:
+        return False
+    p = str(executable)
+    # Match the canonical install root pattern (claude or codex).
+    needle = f"/skills/trinity/bin/{provider}"
+    if needle in p:
+        return True
+    # Repo-relative dev path (running tests from the repo root with
+    # provider config pointing at providers/bin/<provider>).
+    repo_needle = f"/providers/bin/{provider}"
+    if p.endswith(repo_needle):
+        return True
+    return False
+
+
 def detect_env_pollution(base_env=None):
     """TRN-3021: scan parent env for vars that match the TRN-3023 clearlist.
 
@@ -568,17 +596,6 @@ def provider_health(provider, provider_config, root):
         )
         timeout_warning = True
 
-    auth = wrapper_auth_check(provider)
-    if auth is not None:
-        if auth["source"] == "missing":
-            issues.append(
-                f"auth missing: ${auth['env_var']} unset and {auth['file']} absent"
-            )
-        elif auth["source"] == "file" and auth["mode_ok"] is False:
-            issues.append(
-                f"auth file {auth['file']} has wrong mode (expected 600 or 400)"
-            )
-
     return _make_health_result(
         provider,
         ok=not issues,
@@ -587,7 +604,7 @@ def provider_health(provider, provider_config, root):
         executable=executable,
         timeout=timeout,
         cli=cli,
-        auth=auth,
+        auth=None,
         timeout_warning=timeout_warning,
     )
 
@@ -1768,6 +1785,27 @@ def cmd_doctor(args):
     for warning in resolver_warnings:
         print(warning, file=sys.stderr)
     health = provider_health_results(config, providers, root)
+    # TRN-3021: attach wrapper-auth check to results, but only for providers
+    # whose resolved executable matches the canonical wrapper path. Test
+    # fixtures with fake bin scripts won't trigger this, so cmd_review's
+    # preflight (which uses provider_health directly) is unaffected.
+    for h in health:
+        if not _is_canonical_wrapper(h.get("executable"), h["provider"]):
+            continue
+        auth = wrapper_auth_check(h["provider"])
+        if auth is None:
+            continue
+        h["auth"] = auth
+        if auth["source"] == "missing":
+            h["issues"].append(
+                f"auth missing: ${auth['env_var']} unset and {auth['file']} absent"
+            )
+            h["ok"] = False
+        elif auth["source"] == "file" and auth["mode_ok"] is False:
+            h["issues"].append(
+                f"auth file {auth['file']} has wrong mode (expected 600 or 400)"
+            )
+            h["ok"] = False
     env_pollution = detect_env_pollution()
     print(
         format_health_results(

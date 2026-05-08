@@ -198,27 +198,10 @@ def test_a5_claude_code_returns_none():
     assert wrapper_auth_check("claude-code") is None
 
 
-def test_a4c_wrong_mode_routes_to_issues_for_required(tmp_path, monkeypatch):
-    """A4c end-to-end: REQUIRED-provider with mode-644 auth file → result has
-    issues non-empty (FATAL, exit 1). Tightens the chain from
-    wrapper_auth_check unit test to provider_health layer (per codex
-    code-review advisory)."""
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    secrets = tmp_path / ".secrets"
-    secrets.mkdir()
-    key_file = secrets / "deepseek_api_key"
-    key_file.write_text("sk-test\n")
-    key_file.chmod(0o644)
-
-    config = {"providers": {"deepseek": {"cli": "echo", "timeout": 600}}}
-    results = provider_health_results(config, ["deepseek"], tmp_path)
-    # Wrong-mode auth must surface as a fatal `issue`, not just a `warning`.
-    assert results[0]["ok"] is False
-    assert any("wrong mode" in i for i in results[0]["issues"])
-    # And health_results_ok with no preset_metadata (treats all as REQUIRED)
-    # must return False (exit 1) — matching the wrapper's runtime exit-1.
-    assert health_results_ok(results) is False
+# Auth check moved to cmd_doctor for canonical-wrapper paths only — see
+# test_codex_doctor_* in test_codex_adapter.py for end-to-end coverage.
+# The wrapper_auth_check unit tests A4/A4b/A4c-mode-600/400/644 above already
+# cover the helper's behavior across all source/mode_ok permutations.
 
 
 # ---------------------------------------------------------------------------
