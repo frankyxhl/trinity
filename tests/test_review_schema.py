@@ -381,6 +381,30 @@ def test_a8d_stderr_block_ignored():
     assert result["weighted_score"] == 9.0
 
 
+def test_a8d3_stdout_quoting_stderr_sentinel_does_not_truncate():
+    """Stdout may legitimately contain the literal '\\n[stderr]\\n' string
+    (e.g., a provider quoting the delimiter while reviewing this file).
+    The real boundary is always the LAST occurrence (rfind), so the JSON
+    block emitted AFTER the quoted sentinel must still be parsed.
+    """
+    real_json = json.dumps(
+        {
+            "decision": "PASS",
+            "weighted_score": 9.5,
+            "blocking": [],
+            "advisories": [],
+        }
+    )
+    text = (
+        "Reviewer prose discussing the delimiter:\n[stderr]\nthen the actual\n"
+        f"verdict block follows.\n\n```json\n{real_json}\n```\n"
+        "[stderr]\nactual stderr content here"
+    )
+    result = parse_structured_review(text)
+    assert result is not None
+    assert result["weighted_score"] == 9.5
+
+
 # ---------------------------------------------------------------------------
 # A8d2: multi-line JSON regex (DOTALL) — uses §"Schema" example
 # ---------------------------------------------------------------------------

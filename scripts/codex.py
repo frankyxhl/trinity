@@ -1511,8 +1511,13 @@ def _strip_stderr_region(text):
     written by raw_output() at this module. If the sentinel is present,
     only the pre-sentinel region (stdout) is scanned for structured blocks.
     If absent (custom raw-output writers), the full text is returned.
+
+    Uses rfind() (last match) rather than find() because stdout itself may
+    legitimately contain the sentinel string — e.g., a provider quoting the
+    raw-output delimiter while reviewing this file. The real boundary is
+    always the LAST occurrence (the one appended by raw_output()).
     """
-    idx = text.find(_STDERR_SENTINEL)
+    idx = text.rfind(_STDERR_SENTINEL)
     if idx == -1:
         return text
     return text[:idx]
