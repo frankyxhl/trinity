@@ -579,6 +579,19 @@ def test_addendum_score_range_uses_full_domain():
     assert "<0.0-9.0>" not in addendum
 
 
+def test_oversized_int_weighted_score_rejected_without_raising():
+    """Huge ints would raise OverflowError in math.isfinite — must not propagate."""
+    huge = "9" * 1000
+    text = f'```json\n{{"decision": "PASS", "weighted_score": {huge}, "blocking": [], "advisories": []}}\n```'
+    assert parse_structured_review(text) is None
+
+
+def test_oversized_int_confidence_rejected_without_raising():
+    huge = "9" * 1000
+    text = f'```json\n{{"decision": "PASS", "weighted_score": 9.5, "blocking": [], "advisories": [], "confidence": {huge}}}\n```'
+    assert parse_structured_review(text) is None
+
+
 # ---------------------------------------------------------------------------
 # Markdown sanitization
 # ---------------------------------------------------------------------------

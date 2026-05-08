@@ -1547,11 +1547,15 @@ def _validate_review_schema(data):
     if not isinstance(decision, str) or decision.upper() not in ("PASS", "FIX"):
         return False
 
-    # weighted_score — reject bools (True/False are int subclasses) and NaN/Inf
+    # weighted_score — reject bools (True/False are int subclasses) and NaN/Inf.
+    # math.isfinite() on huge ints raises OverflowError, so guard with isinstance(float).
+    # Ints are always finite by definition; oversized ints fall through to range check.
     ws = data.get("weighted_score")
     if isinstance(ws, bool) or not isinstance(ws, (int, float)):
         return False
-    if not math.isfinite(ws) or ws < 0.0 or ws > 10.0:
+    if isinstance(ws, float) and not math.isfinite(ws):
+        return False
+    if ws < 0.0 or ws > 10.0:
         return False
 
     # blocking and advisories
@@ -1571,12 +1575,14 @@ def _validate_review_schema(data):
             if fix is not None and not isinstance(fix, str):
                 return False
 
-    # confidence (optional) — reject bools and NaN/Inf
+    # confidence (optional) — reject bools and NaN/Inf (same overflow guard as weighted_score).
     conf = data.get("confidence")
     if conf is not None:
         if isinstance(conf, bool) or not isinstance(conf, (int, float)):
             return False
-        if not math.isfinite(conf) or conf < 0.0 or conf > 1.0:
+        if isinstance(conf, float) and not math.isfinite(conf):
+            return False
+        if conf < 0.0 or conf > 1.0:
             return False
 
     return True
@@ -1620,7 +1626,7 @@ def parse_structured_review(raw_text):
             data["effective_decision"] = data["decision"]
 
         return data
-    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+    except (json.JSONDecodeError, TypeError, ValueError, AttributeError, OverflowError):
         return None
 
 
