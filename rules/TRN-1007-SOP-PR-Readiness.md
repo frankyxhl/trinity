@@ -73,7 +73,8 @@ PASS: every applicable item is ✅; skipped items have a one-line rationale; the
   - Skip rationale if N/A: "internal refactor only" / "test-only change"
 - **`CHANGELOG.md`** — has an entry under `## [Unreleased]` naming the user-facing change
   - Match existing entry shape (see CHANGELOG.md `## [3.2.0]` for the canonical format with `### Added` / `### Changed` / `### Fixed` groupings)
-  - Skip rationale if N/A: "rules/* docs only" / "test-only change"
+  - **Substantive `rules/*` changes** (new SOP, CHG/REF that introduces material content, amended workflow) **MUST have a CHANGELOG entry** — they shape how Trinity is operated and contributed to. The path-filter in `.github/workflows/test.yml` skips CI for `rules/**` and `*.md`, so there is no later gate.
+  - Skip rationale if N/A: "trivial docs edit (typo / formatting / one-line clarification)" / "test-only change" / "internal-only constant rename with no user-facing behavior change"
 - **`SKILL.md` / `providers/*.md` / `providers/*.delta.md`** — updated if provider behavior or CLI registration changed. **Complementary** to TRN-3020 §A3.f / §A3.g drift tests: those tests verify CLI-string consistency byte-for-byte; this SOP item catches semantic prose drift (e.g., a paragraph describing the OLD behavior the test can't see).
 
 ### §2. Tests + verification
@@ -163,7 +164,7 @@ If a CHG explicitly waives an item, document the rationale in one line (e.g., "t
 
 ```markdown
 - [➖] §1 README: N/A — internal helper refactor, no user-facing behavior change
-- [➖] §1 CHANGELOG: N/A — rules/* docs only
+- [➖] §1 CHANGELOG: N/A — typo fixes in three SOP docs, no material change to gate behavior
 ```
 
 ---
@@ -181,3 +182,4 @@ If a CHG explicitly waives an item, document the rationale in one line (e.g., "t
 |------|--------|----|
 | 2026-05-08 | Initial draft per issue #65; closes the documentation-drift gap PR #61 + PR #64 surfaced | Claude Opus 4.7 |
 | 2026-05-08 | Trinity panel review (3 of 4 — codex review hung after ~30 min, skipped per operator decision; same precedent as gemini-skipped on TRN-3020): glm 9.25 PASS, deepseek 9.2 PASS, gemini 9.5 PASS (mean 9.32). Adopted convergent advisories: (1) drop "30-second checklist" claim — replaced with "short pre-open verification scan" per all 3 reviewers; (2) add per-item "how to verify" hints under §4 6-step rule per deepseek A2; (3) document §1 provider-doc check as complementary (semantic) not redundant to TRN-3020 §A3.f/g drift tests (CLI-string) per glm A3; (4) clarify §3 fast-path framing per deepseek; (5) verified COR-1612/1614/1616 cross-refs exist via `af read` (PKG-layer SOPs in fx-alfred). Deferred: TRN-3029-REF extraction of 6-step rule (per glm A2 + deepseek: appropriate at 10+ citations or subsection growth, not yet); retroactive CHANGELOG backfill for PR #61/#64/#66 (separate small PR per "Companion follow-ups"). | Claude Opus 4.7 |
+| 2026-05-08 | PR #67 round 1 from Codex GitHub App bot — caught a **self-contradicting waiver** in the §1 CHANGELOG skip rationale. The original text "Skip rationale if N/A: 'rules/* docs only'" was too broad: substantive `rules/*` changes (new SOPs, material CHG/REF additions) shape how Trinity is operated and absolutely DO warrant CHANGELOG entries. Worse, `.github/workflows/test.yml`'s `paths-ignore` skips CI for `rules/**` and `*.md`, so there's no later gate. This very PR dogfooded a CHANGELOG entry for the SOP — but the SOP's waiver text would have permitted skipping it. **Fix**: narrow §1 CHANGELOG waiver to "trivial docs edit (typo / formatting / one-line clarification)" / "test-only change" / "internal-only constant rename with no user-facing behavior change". Substantive `rules/*` changes now MUST have a CHANGELOG entry. Same fix applied to the "Skip with rationale" example block. The 3-of-4 panel didn't catch this because all 3 reviewers focused on whether the SOP was internally coherent and well-scoped; the bot caught the self-contradicting case where the SOP's own change would have been allowed to skip the very gate it was being added to enforce. **Methodology gap logged**: future SOP/CHG dogfood pass should explicitly check whether the new SOP, applied to itself, would have caught its own omissions. | Claude Opus 4.7 |
