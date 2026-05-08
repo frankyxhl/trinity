@@ -51,6 +51,7 @@
 | 3021 | CHG | Expand Doctor Preflight |
 | 3022 | CHG | Normalize Review Result Schema |
 | 3023 | CHG | Sanitize Provider Environment At Spawn Time |
+| 3027 | CHG | SOP 1006 Registry Amendment |
 
 ---
 

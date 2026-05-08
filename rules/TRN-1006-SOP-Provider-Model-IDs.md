@@ -79,17 +79,17 @@ Trinity's wrappers always double-quote the assignment (see `providers/bin/deepse
 
 ## Where Model IDs Are Pinned
 
-Single source of truth per provider:
+Single source of truth per provider (post-TRN-3020 / TRN-3027):
 
-| Provider | Model pin location | Pinned value (as of 2026-05-06) |
+| Provider | Model pin location | Pinned value (as of 2026-05-08) |
 |----------|--------------------|----------------------------------|
-| `codex` | `Makefile` `install` target + `install.sh` `register codex --cli` | `codex exec --skip-git-repo-check -m gpt-5.5` (TRN-2005) |
-| `gemini` | `providers/gemini.delta.md` `### New session` invocation | `gemini-3.1-pro-preview` |
-| `glm` | `Makefile` / `install.sh` `register glm --cli`, `.agents/trinity.codex.json`, and `providers/glm.delta.md` | Claude Code install: `droid exec --auto medium --model glm-5.1 --reasoning-effort high`; Codex review: `droid exec --model glm-5.1 --reasoning-effort high` |
-| `deepseek` | `providers/bin/deepseek` env block | `ANTHROPIC_MODEL="deepseek-v4-pro[1m]"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash"` |
-| `openrouter` | `providers/bin/openrouter` env block | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
+| `codex` | `providers/registry.json` → `providers.codex.cli` | `codex exec --skip-git-repo-check -m gpt-5.5` (TRN-2005) |
+| `gemini` | `providers/gemini.delta.md` `### New session` invocation (registry deferred — TRN-3025) | `gemini-3.1-pro-preview` |
+| `glm` | `providers/registry.json` → `providers.glm.cli` + `.agents/trinity.codex.json` + `providers/glm.delta.md` | Claude Code install: `droid exec --auto medium --model glm-5.1 --reasoning-effort high`; Codex review: `droid exec --model glm-5.1 --reasoning-effort high` |
+| `deepseek` | Model: `providers/bin/deepseek` env block. Bin path: `providers/registry.json` → `providers.deepseek.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="deepseek-v4-pro[1m]"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash"` |
+| `openrouter` | Model: `providers/bin/openrouter` env block. Bin path: `providers/registry.json` → `providers.openrouter.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
 
-**Two distinct patterns**: native CLIs (codex, gemini, glm) take the model as a positional/flag argument in the registered `cli` string. Anthropic-compat wrappers (deepseek, openrouter) take it via `ANTHROPIC_MODEL` env var inside the bin script.
+**Two distinct patterns**: native CLIs (codex, gemini, glm) take the model as a positional/flag argument in the `cli` string registered via `providers/registry.json`. Anthropic-compat wrappers (deepseek, openrouter, claude-code) take it via `ANTHROPIC_MODEL` env var inside the bin script — the registry stores the bin-script wrapper path, not the model. The `Makefile install` target and `install.sh` both consume `providers/registry.json` via `scripts/install.py`; do NOT edit Makefile or install.sh `register` lines for model bumps — they derive from the registry.
 
 ---
 
@@ -99,15 +99,14 @@ The exact procedure depends on which pin location the provider uses. Section A c
 
 ### A. Native-CLI providers (codex, glm)
 
-1. Update the `--cli` value in `Makefile` `install` target.
-2. Update the matching `--cli` value in `install.sh`.
-3. If the provider has caller-side flags in its `.delta.md` (e.g., `gemini --model <X>`), update there too.
-4. Run `make build` (regenerates `providers/<name>.md` if `.delta.md` changed).
-5. Run `make verify-built` (must pass).
-6. Update any test asserting the registered `cli` string (search `tests/` for the old value).
-7. CHANGELOG `[Unreleased]` entry.
-8. Commit, bump VERSION (TRN-1003), `make release-prep`, push.
-9. Re-run `make install` locally to update `~/.claude/trinity.json`.
+1. Edit `providers/registry.json` → `providers.<name>.cli` field. The `Makefile install` target and `install.sh` both read this file via `scripts/install.py` — do NOT also edit `register` lines in those files (they no longer hardcode CLI strings post-TRN-3020).
+2. If the provider has caller-side flags in its `.delta.md` (e.g., `gemini --model <X>`) or in `.agents/trinity.codex.json`, update there too.
+3. Run `make build` (regenerates `providers/<name>.md` if `.delta.md` changed).
+4. Run `make verify-built` (must pass).
+5. Update any test asserting the registered `cli` string (search `tests/` for the old value, including `tests/test_install_sh.sh` T11 and `tests/test_codex_adapter.py` registry assertions).
+6. CHANGELOG `[Unreleased]` entry.
+7. Commit, bump VERSION (TRN-1003), `make release-prep`, push.
+8. Re-run `make install` against `HOME=$(mktemp -d)` to confirm the registered `cli` matches what's in registry.json.
 
 ### B. Anthropic-compat providers (deepseek, openrouter)
 
@@ -135,6 +134,7 @@ grep "ANTHROPIC_MODEL\|ANTHROPIC_SMALL_FAST_MODEL" ~/.claude/skills/trinity/bin/
 - **Never strip the `[…]` suffix** when copying from provider docs. If you see `[1m]`, it stays.
 - **Never write the model ID unquoted** in a shell context. Always use `"…"` or `'…'`.
 - **Never edit `providers/<name>.md` directly** for model changes — those are generated from `<name>.delta.md` (TRN-2004). For deepseek/openrouter, the model lives in `providers/bin/<name>`, not the agent .md.
+- **Never edit Makefile or install.sh `register` lines** for native-CLI model bumps — they derive from `providers/registry.json` via `scripts/install.py` (post-TRN-3020). Edit the registry instead.
 - **One provider per PR** when changing models. Don't bundle a deepseek pin change with an openrouter pin change unless the trigger is the same upstream event.
 - **Provider docs URL** belongs in the CHANGELOG entry, so the rationale ("upstream announced the 1M tier") is recoverable.
 
@@ -166,5 +166,6 @@ Tracked in `Makefile` install target and `install.sh` register call.
 
 | Date | Change | By |
 |------|--------|----|
+| 2026-05-08 | TRN-3027: amended pin-location table + Section A steps + Guard Rails to reflect `providers/registry.json` as authoritative source for native-CLI providers (codex, glm) post-TRN-3020 | Claude Opus 4.7 |
 | 2026-05-06 | Update GLM pin location/value for GLM-5.1 plus explicit highest supported reasoning effort | Codex |
 | 2026-04-26 | Initial version — bracket-suffix convention, pin locations, update steps | Claude Opus 4.7 |

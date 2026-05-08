@@ -26,6 +26,13 @@
   Closes #39. Foundation for #55.
 
 ### Changed
+- `rules/TRN-1006-SOP-Provider-Model-IDs.md` amended (TRN-3027): pin-location
+  table now references `providers/registry.json` as authoritative for
+  native-CLI providers (codex, glm); Section A steps replace "edit Makefile
+  + install.sh register lines" with "edit `providers/registry.json`" — the
+  install layer derives both from the registry post-TRN-3020. Wrapper
+  providers (deepseek, openrouter, claude-code) keep model pins in
+  `providers/bin/<name>` env blocks until TRN-3026 lands.
 - `tests/test_install_sh.sh` path-sanity guard switched from a deny-list
   (`*' '*|*'?'*|*'#'*`) to a positive allow-list (`[A-Za-z0-9._/+-]+`).
   Catches `[`, `]`, `*`, `;`, `&`, `(`, `)`, quotes, `\`, `%`, and
