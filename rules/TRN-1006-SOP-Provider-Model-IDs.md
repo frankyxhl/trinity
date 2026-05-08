@@ -89,24 +89,42 @@ Single source of truth per provider (post-TRN-3020 / TRN-3027):
 | `deepseek` | Model: `providers/bin/deepseek` env block. Bin path: `providers/registry.json` → `providers.deepseek.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="deepseek-v4-pro[1m]"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash"` |
 | `openrouter` | Model: `providers/bin/openrouter` env block. Bin path: `providers/registry.json` → `providers.openrouter.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
 
-**Two distinct patterns**: native CLIs (codex, gemini, glm) take the model as a positional/flag argument in the `cli` string registered via `providers/registry.json`. Anthropic-compat wrappers (deepseek, openrouter, claude-code) take it via `ANTHROPIC_MODEL` env var inside the bin script — the registry stores the bin-script wrapper path, not the model. The `Makefile install` target and `install.sh` both consume `providers/registry.json` via `scripts/install.py`; do NOT edit Makefile or install.sh `register` lines for model bumps — they derive from the registry.
+**Three patterns**:
+
+- **Registry-managed native CLIs** (codex, glm): model is part of the `cli` string in `providers/registry.json`. The `Makefile install` target and `install.sh` both consume the registry via `scripts/install.py`; do NOT edit Makefile or install.sh `register` lines for these — they derive from the registry.
+- **Registry-deferred native CLI** (gemini): registered separately in `Makefile` and `install.sh` as `gemini -p` (no model flag in the registered CLI). The model is selected inside the `.delta.md` prompt (`gemini -m <model>` invocation in the `### New session` block). Gemini joins the registry once TRN-3025 lands a canonical `cli` value.
+- **Anthropic-compat wrappers** (deepseek, openrouter, claude-code): model lives in `ANTHROPIC_MODEL` env var inside `providers/bin/<name>`. The registry stores the bin-script wrapper path, not the model.
 
 ---
 
 ## Steps
 
-The exact procedure depends on which pin location the provider uses. Section A covers native-CLI providers (codex, glm, gemini); Section B covers Anthropic-compat wrappers (deepseek, openrouter); Section C covers verification after `make install`.
+The exact procedure depends on which pin location the provider uses. **Section A** covers registry-managed native-CLI providers (codex, glm). **Section A-bis** covers gemini (registry-deferred). **Section B** covers Anthropic-compat wrappers (deepseek, openrouter, claude-code). **Section C** covers verification after `make install`.
 
-### A. Native-CLI providers (codex, glm)
+### A. Registry-managed native-CLI providers (codex, glm)
 
-1. Edit `providers/registry.json` → `providers.<name>.cli` field. The `Makefile install` target and `install.sh` both read this file via `scripts/install.py` — do NOT also edit `register` lines in those files (they no longer hardcode CLI strings post-TRN-3020).
-2. If the provider has caller-side flags in its `.delta.md` (e.g., `gemini --model <X>`) or in `.agents/trinity.codex.json`, update there too.
+1. Edit `providers/registry.json` → `providers.<name>.cli` field. The `Makefile install` target and `install.sh` both read this file via `scripts/install.py` — do NOT also edit `register` lines in those files (they no longer hardcode CLI strings for codex/glm post-TRN-3020).
+2. If the provider has caller-side flags in its `.delta.md` or in `.agents/trinity.codex.json`, update there too.
 3. Run `make build` (regenerates `providers/<name>.md` if `.delta.md` changed).
 4. Run `make verify-built` (must pass).
 5. Update any test asserting the registered `cli` string (search `tests/` for the old value, including `tests/test_install_sh.sh` T11 and `tests/test_codex_adapter.py` registry assertions).
 6. CHANGELOG `[Unreleased]` entry.
 7. Commit, bump VERSION (TRN-1003), `make release-prep`, push.
-8. Re-run `make install` against `HOME=$(mktemp -d)` to confirm the registered `cli` matches what's in registry.json.
+8. Re-run `make install` against `HOME=$(mktemp -d)` to confirm the registered `cli` matches what's in `providers/registry.json`.
+
+### A-bis. Gemini (registry-deferred until TRN-3025)
+
+Gemini is registered separately in `Makefile` (line ~63) and `install.sh` (line ~96) as `gemini -p`. The model itself is selected inside the `.delta.md` prompt, not in the registered CLI string.
+
+1. Edit `providers/gemini.delta.md` — update the model identifier in the `### New session` invocation (e.g. `gemini -m gemini-3.1-pro-preview -p ...`).
+2. Run `make build` (regenerates `providers/gemini.md`).
+3. Run `make verify-built` (must pass).
+4. Update any test asserting the gemini model string.
+5. CHANGELOG `[Unreleased]` entry.
+6. Commit, bump VERSION, `make release-prep`, push.
+7. Re-run `make install` to refresh `~/.claude/agents/trinity-gemini.md`.
+
+When TRN-3025 lands, this section folds back into Section A.
 
 ### B. Anthropic-compat providers (deepseek, openrouter)
 
