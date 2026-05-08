@@ -8,7 +8,7 @@
 ## Provider Role
 
 Provider: **<glm|codex|deepseek|gemini>** (CODING WORKER role).
-Project: `/Users/frank/Projects/trinity`.
+Project: `<repo-root> ($(pwd) at the orchestrator host)`.
 Branch: `<branch-name>` (head `<short-sha>`, off `origin/main` `<short-sha>`).
 
 INVOKE `droid exec` for the actual edits.
@@ -48,7 +48,7 @@ Run the following commands after implementation:
 .venv/bin/ruff check <changed-paths>
 .venv/bin/ruff format --check <changed-paths>
 make verify-built 2>&1 | tail -2   # only if providers/ changed
-af validate --root /Users/frank/Projects/trinity | tail -2
+af validate --root . | tail -2     # repo-relative; works on any clone
 ```
 
 ## Expected Outputs

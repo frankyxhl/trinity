@@ -7,7 +7,7 @@
 ---
 
 Provider: **<gemini|codex|glm|deepseek>** (CODE REVIEWER role).
-Project: `/Users/frank/Projects/trinity`.
+Project: `<repo-root> ($(pwd) at the orchestrator host)`.
 Branch: `<branch-name>` (head `<short-sha>`, off `origin/main` `<short-sha>`).
 
 INVOKE the `<provider>` CLI for the actual review.
