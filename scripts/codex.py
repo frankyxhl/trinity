@@ -1940,6 +1940,123 @@ def _render_findings_for(result, parsed):
     return lines
 
 
+def _compute_summary(results, parsed_per_provider):
+    """Aggregate counts + verdict from per-provider results.
+
+    Returns dict with: verdict, n_pass, n_fix, n_fail, total, mean_score
+    (or None), n_blocking, n_advisories, convergence_count.
+    """
+    n_pass = n_fix = n_fail = 0
+    scores = []
+    n_blocking = 0
+    n_advisories = 0
+    title_provider_pairs = []  # (title, provider_name) — for convergence
+
+    for i, result in enumerate(results):
+        rc = result.get("returncode", -1)
+        if rc != 0:
+            n_fail += 1
+            continue
+        parsed = parsed_per_provider[i]
+        if parsed is None:
+            n_pass += 1  # legacy rc=0 PASS
+            continue
+        eff = parsed.get("effective_decision", parsed.get("decision"))
+        if eff == "FIX":
+            n_fix += 1
+        else:
+            n_pass += 1
+        scores.append(parsed.get("weighted_score"))
+        prov = result["provider"]
+        for item in parsed.get("blocking", []):
+            n_blocking += 1
+            title = (item.get("title") or "").strip()
+            if title:
+                title_provider_pairs.append((title, prov))
+        for item in parsed.get("advisories", []):
+            n_advisories += 1
+            title = (item.get("title") or "").strip()
+            if title:
+                title_provider_pairs.append((title, prov))
+
+    total = len(results)
+    has_structured = any(p is not None for p in parsed_per_provider)
+
+    # Convergence: distinct titles appearing across >=2 distinct providers.
+    title_to_providers = {}
+    for title, prov in title_provider_pairs:
+        title_to_providers.setdefault(title, set()).add(prov)
+    convergence_count = sum(
+        1 for provs in title_to_providers.values() if len(provs) >= 2
+    )
+
+    # Verdict precedence: INCONCLUSIVE > LEGACY > NEEDS_FIXES > ALL_PASS.
+    if n_fail > 0:
+        verdict = "INCONCLUSIVE"
+    elif not has_structured:
+        verdict = "LEGACY"
+    elif n_fix > 0:
+        verdict = "NEEDS_FIXES"
+    else:
+        verdict = "ALL_PASS"
+
+    valid_scores = [s for s in scores if isinstance(s, (int, float))]
+    mean_score = sum(valid_scores) / len(valid_scores) if valid_scores else None
+
+    return {
+        "verdict": verdict,
+        "n_pass": n_pass,
+        "n_fix": n_fix,
+        "n_fail": n_fail,
+        "total": total,
+        "mean_score": mean_score,
+        "n_blocking": n_blocking,
+        "n_advisories": n_advisories,
+        "convergence_count": convergence_count,
+    }
+
+
+def _render_summary_block(summary):
+    """Render the aggregate Summary section as markdown lines."""
+    lines = ["## Summary", ""]
+    lines.append(f"- **Verdict**: {summary['verdict']}")
+    providers_line = (
+        f"{summary['n_pass']}/{summary['total']} PASS · "
+        f"{summary['n_fix']} FIX · "
+        f"{summary['n_fail']} FAIL"
+    )
+    if summary["mean_score"] is not None:
+        providers_line += f" (mean score {summary['mean_score']:.2f})"
+    lines.append(f"- **Providers**: {providers_line}")
+    if summary["verdict"] == "LEGACY":
+        lines.append("- **Findings**: —")
+        lines.append("- **Convergence**: —")
+    else:
+        lines.append(
+            f"- **Findings**: {summary['n_blocking']} blocking · "
+            f"{summary['n_advisories']} advisories"
+        )
+        conv = summary["convergence_count"]
+        conv_text = f"{conv} titles flagged by ≥2 providers" if conv else "none"
+        lines.append(f"- **Convergence**: {conv_text}")
+    return lines
+
+
+def _format_cli_summary(summary, synthesis_path):
+    """One-line stderr summary for cmd_review completion."""
+    providers = (
+        f"{summary['n_pass']}/{summary['total']} PASS · "
+        f"{summary['n_fix']} FIX · "
+        f"{summary['n_fail']} FAIL"
+    )
+    if summary["mean_score"] is not None:
+        providers += f" (mean {summary['mean_score']:.2f})"
+    return (
+        f"trinity review: {summary['verdict']} — "
+        f"{providers} — synthesis: {synthesis_path}"
+    )
+
+
 def write_synthesis(review_dir, scope, results):
     # TRN-3022: parse structured review schema per provider.
     # rc != 0 → FAIL <rc> regardless of structured content.
@@ -1960,18 +2077,28 @@ def write_synthesis(review_dir, scope, results):
 
     any_structured = any(p is not None for p in parsed_per_provider)
 
-    # Legacy path: byte-identical to pre-TRN-3022 output.
+    summary = _compute_summary(results, parsed_per_provider)
+    summary_lines = _render_summary_block(summary)
+
+    # Legacy path: same Provider Status table + Notes shape as pre-TRN-3022,
+    # but TRN-3028 prepends a Summary block (verdict=LEGACY) at the top.
     if not any_structured:
         lines = [
             "# Trinity Review Synthesis",
             "",
             f"Scope: {scope or '.'}",
             "",
-            "## Provider Status",
-            "",
-            "| Provider | Status | Raw Output |",
-            "|----------|--------|------------|",
         ]
+        lines.extend(summary_lines)
+        lines.extend(
+            [
+                "",
+                "## Provider Status",
+                "",
+                "| Provider | Status | Raw Output |",
+                "|----------|--------|------------|",
+            ]
+        )
         for result in results:
             status = (
                 "PASS" if result["returncode"] == 0 else f"FAIL {result['returncode']}"
@@ -1988,7 +2115,7 @@ def write_synthesis(review_dir, scope, results):
         )
         path = review_dir / "synthesis.md"
         path.write_text("\n".join(lines) + "\n")
-        return
+        return summary, path
 
     # Enriched path: at least one provider has structured output.
     lines = [
@@ -1996,11 +2123,17 @@ def write_synthesis(review_dir, scope, results):
         "",
         f"Scope: {scope or '.'}",
         "",
-        "## Provider Status",
-        "",
-        "| Provider | Status | Raw Output |",
-        "|----------|--------|------------|",
     ]
+    lines.extend(summary_lines)
+    lines.extend(
+        [
+            "",
+            "## Provider Status",
+            "",
+            "| Provider | Status | Raw Output |",
+            "|----------|--------|------------|",
+        ]
+    )
     for i, result in enumerate(results):
         rc = result.get("returncode", -1)
         if rc != 0:
@@ -2044,6 +2177,7 @@ def write_synthesis(review_dir, scope, results):
     )
     path = review_dir / "synthesis.md"
     path.write_text("\n".join(lines) + "\n")
+    return summary, path
 
 
 def cmd_review(args):
@@ -2112,7 +2246,11 @@ def cmd_review(args):
             json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
         )
         progress("writing synthesis")
-        write_synthesis(review_dir, args.scope, results)
+        summary, synthesis_path = write_synthesis(review_dir, args.scope, results)
+        # TRN-3028: emit the completion line directly to stderr without the
+        # `trinity: ` progress prefix so callers can key off the documented
+        # "trinity review: <verdict> — ..." prefix at the START of the line.
+        print(_format_cli_summary(summary, synthesis_path), file=sys.stderr)
     except KeyboardInterrupt:
         started_providers = providers if "results" in locals() else []
         write_incomplete(review_dir, "interrupted", providers, started_providers, {})

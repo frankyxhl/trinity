@@ -24,6 +24,11 @@
   is present. Free-form providers continue to work via legacy returncode
   fallback. The addendum is code-side, gated on `task_type == "review"`.
   Closes #39. Foundation for #55.
+- Synthesis aggregate summary (TRN-3028): `synthesis.md` now opens with a
+  `## Summary` block (verdict, provider counts, mean score, blocking +
+  advisory totals, convergence). `trinity review` also prints a one-line
+  stderr summary on completion. Builds on TRN-3022 structured output.
+  Closes #55.
 
 ### Changed
 - `tests/test_install_sh.sh` path-sanity guard switched from a deny-list

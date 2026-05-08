@@ -123,6 +123,10 @@ def test_review_runs_providers_in_parallel_and_preserves_result_order(tmp_path):
     assert "trinity: starting provider glm timeout=5s" in result.stderr
     assert "trinity: starting provider deepseek timeout=5s" in result.stderr
     assert "trinity: writing metadata" in result.stderr
+    # TRN-3028: completion line is printed without the `trinity: ` progress
+    # prefix so callers can key off the documented "trinity review:" prefix.
+    assert "\ntrinity review: " in "\n" + result.stderr
+    assert "trinity: trinity review:" not in result.stderr
 
 
 def test_review_max_parallel_one_keeps_sequential_behavior(tmp_path):
