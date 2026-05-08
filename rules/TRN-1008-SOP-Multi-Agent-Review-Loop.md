@@ -64,6 +64,18 @@ The loop has 10 phases:
 
 ### 1. Auto-pick
 
+**How phase 1 fires** (three trigger patterns):
+
+| Trigger | When | Mandate source |
+|---------|------|----------------|
+| **User-driven** | User explicitly says "pick next issue", "auto-pick", or similar in chat | Mandate granted by the message itself; rocket-gate still applies to the picked item |
+| **Continuation** | Just-merged a PR while the user's prior auto-pick mandate is still in force | Mandate carried forward from prior user message; rocket-gate applies |
+| **Loop-driven** (Claude Code `/loop`) | `/loop <seconds>` schedules periodic re-fires (e.g. `/loop 1800` every 30 min); each tick re-runs phase 1 | Mandate is the `/loop` invocation itself; rocket-gate applies on every tick |
+
+The **loop-driven** pattern is the "hands-off" mode: with `/loop` running, the user can react 🚀 to a tracking issue and the next tick auto-picks it. No chat input required. The orchestrator stays idle on ticks where no item is eligible (per `Z_GATE_B` in the tree below).
+
+For loop cadence: 1800s (30 min) is a reasonable default — long enough to amortise the cache-miss cost (the ScheduleWakeup doc notes the 5-min cache-TTL trap), short enough that a 🚀'd issue doesn't sit untouched for hours. Tune to user availability.
+
 **Identity & repo configuration** (single source of truth — used by every command in this section):
 
 - `TRUSTED_REACTOR=frankyxhl` — the trusted GitHub login whose 🚀 grants eligibility. Per the PKG-promotion form (§Threat Model), this becomes a project-config parameter `<repo-trusted-reactor-list>` on COR-1200 promotion (default: `[repo owner from gh repo view]`).
@@ -90,7 +102,7 @@ The 🚀 is an out-of-band consent signal: it lives outside the issue body (immu
 
 ```mermaid
 flowchart TD
-    A[Candidate item] --> G1{Tracking GitHub<br/>issue exists?}
+    A["Candidate item:<br/>open GitHub issue (any author)<br/>OR deferred TRN-* tech-debt note"] --> G1{Tracking GitHub<br/>issue exists?}
     G1 -- No --> Z_GATE_A[NOT eligible<br/>file an issue first]
     G1 -- Yes --> V[verify_rocket_eligibility<br/>see hardened command below]
     V -- Pass: 🚀 from $TRUSTED_REACTOR<br/>+ state OPEN + unlocked<br/>+ body not edited after rocket --> SCOPE[Continue to<br/>scope-rank tree]
@@ -680,3 +692,4 @@ Before posting its own claim, the orchestrator MUST re-poll the issue's comments
 | 2026-05-08 | R6: rebased onto current `origin/main` (resolves conflict from #71/#72 merges); applied 4 codex-bot R5 findings — (1) `af validate --root /Users/frank/Projects/trinity` → `af validate --root .` (repo-relative; works on CI/forks/non-frank machines), (2) all 3 sample prompts (`sample-{plan-review,code-review,worker-dispatch}-prompt.md`) parameterise hardcoded `/Users/frank/Projects/trinity` to `<repo-root> ($(pwd) at the orchestrator host)`, (3) §FM "Follow-up bot comments" `submitted_at` → `submittedAt`/`createdAt` with explicit camelCase-vs-snake_case note (gh CLI returns camelCase; REST API returns snake_case; jq filters using snake_case silently miss new findings), (4) nested JSON fence concern from R3 a2589db is moot — samples are now standalone files, no fence nesting. | Claude Opus 4.7 |
 | 2026-05-09 | R7: moved `rules/samples/` → `templates/` at repo root. Samples never followed Alfred ACID conventions (non-`<PREFIX>-<NNNN>-<TYPE>-*` filenames, not in TRN-0000 index, not subject to `af validate` structural rules) — squatting in `rules/` was a misuse of namespace. `templates/` is the right home. Also fixed Mermaid render error in §4 plan-review tree: literal `[]` in node labels (`all blocking == []?`) confused Mermaid's parser; rewrote as `all blocking empty?` (no special chars). Same fix for §8 iterate tree. User question prompted the audit; investigated 4-backtick-fence inlining first but af validate is pure regex on `^## ` — fences do not shield, so inlining `##`-headed templates is genuinely infeasible. Repo-root `templates/` is the cleanest workable layout. | Claude Opus 4.7 |
 | 2026-05-09 | R8: deleted `templates/` entirely. User question: "为什么我们需要这个 templates? 不能删掉吗?" Audit confirmed: throughout the entire R1-R7 session, the orchestrator (this Claude) never copy-pasted from any sample template — every panel-review and worker-dispatch prompt was constructed fresh from the SOP's normative description. The templates were insurance that never paid out. Both weights tables (code + doc) are already inline in §4 (lines 294, 304); JSON schema is described in §4; worker contract is in §5; CHG structure is in §3 bullet list. Templates contained nothing not derivable from the SOP itself. Replaced 3 SOP pointers with concrete inline guidance: §3 CHG-skeleton pointer → "see TRN-3022-CHG-* for worked instance"; §4 plan-review-prompt pointer → expanded inline with USE-TRN-1800 reminder + PASS-gate restatement; §5 worker-dispatch-prompt pointer → expanded with full dispatch contract. SOP is now self-contained; one source of truth, zero drift risk. | Claude Opus 4.7 |
+| 2026-05-09 | R9: added §1 "How phase 1 fires" subsection with three trigger patterns (user-driven, continuation, loop-driven via Claude Code `/loop`); user question "你有一个叫 loop 的概念" — yes, `/loop <seconds>` schedules periodic re-fires; this is the hands-off mode where user only needs to 🚀 an issue and the next tick auto-picks it. Documented 1800s (30min) as a reasonable cadence default. Also clarified §1 mermaid entry node from vague `Candidate item` → `Candidate item: open GitHub issue (any author) OR deferred TRN-* tech-debt note` per user feedback ("Candidate item 是什么意思?"). | Claude Opus 4.7 |
