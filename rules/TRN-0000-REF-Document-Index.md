@@ -46,6 +46,7 @@
 | 2028 | CHG | Add Trinity Status Latest Command |
 | 3000 | REF | Code Agent Wrapping Architectures |
 | 3020 | CHG | Consolidate Provider Config |
+| 3023 | CHG | Sanitize Provider Environment At Spawn Time |
 
 ---
 
