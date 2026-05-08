@@ -135,34 +135,21 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 
 verify_rocket_eligibility() {
   local issue_num="$1"
-  local prior_body_hash="${2:-}"   # optional; pass back from initial check on re-verify
 
   # Step 1: fetch issue via REST (not `gh issue view`).
   # Reasons: (a) `gh issue view --json locked` is NOT a supported field
   # per the gh CLI manual — using it makes the call fail-closed for ALL
   # rocketed issues, breaking the gate end-to-end. (b) REST returns the
-  # full issue object including `locked`, `state`, and `body` in one call.
+  # full issue object including `locked` and `state` in one call.
   # Fail-closed on ANY error (network, rate-limit, 5xx, malformed JSON, jq).
-  local issue_json state locked body body_hash
+  local issue_json state locked
   issue_json=$(gh api "repos/$REPO/issues/$issue_num" 2>/dev/null) || return 1
   state=$(echo "$issue_json" | jq -r '.state // "unknown"' 2>/dev/null) || return 1
   locked=$(echo "$issue_json" | jq -r '.locked // true' 2>/dev/null) || return 1
-  body=$(echo "$issue_json" | jq -r '.body // ""' 2>/dev/null) || return 1
   # REST returns lowercase state (`open`/`closed`); normalise.
   [[ "${state,,}" == "open" && "$locked" == "false" ]] || return 1
 
-  # Step 2: body-content TOCTOU guard. We hash the body NOW; caller
-  # passes the prior hash on re-verify. If the hash differs, the body
-  # was edited and the rocket consents to a different body — fail-closed.
-  # This is body-specific (unlike `updatedAt` which advances on ANY
-  # activity, including the orchestrator's own claim comment). The
-  # claim-comment + TOCTOU controls no longer cancel each other out.
-  body_hash=$(printf '%s' "$body" | shasum -a 256 | cut -d' ' -f1)
-  if [[ -n "$prior_body_hash" && "$body_hash" != "$prior_body_hash" ]]; then
-    return 1   # body changed since rocket — re-rocket required
-  fi
-
-  # Step 3: paginated reaction check, slurped into ONE jq input.
+  # Step 2: paginated reaction check, slurped into ONE jq input.
   # `gh api --paginate` outputs each page as a separate JSON value;
   # without `jq -s` (slurp), `--jq` runs the filter PER PAGE. With no
   # rocket on any page, that emits one `null` per page, and a naive
@@ -178,19 +165,41 @@ verify_rocket_eligibility() {
                                 | first | .created_at // empty') || return 1
   [[ -n "$rocket_created" ]] || return 1
 
-  # On success, print body_hash so the caller can capture it for re-verify.
-  # Re-verify call: verify_rocket_eligibility <n> "<prior-hash>"
-  echo "$body_hash"
+  # Step 3: TOCTOU guard via timeline-events API.
+  # PRIOR APPROACHES THAT FAILED:
+  #   - R5 used `body_updated > rocket_created` on issue-wide updatedAt
+  #     → cancelled by claim-comment which bumps updatedAt.
+  #   - R10 used body-content sha256 hash compared on re-verify
+  #     → fails when body is edited BETWEEN rocket-time and FIRST
+  #       verify call: initial hash captures the already-edited body,
+  #       all later re-verifies match that hash. Pre-pick edit attack
+  #       is not caught.
+  # CURRENT APPROACH: query GitHub's `/timeline` API for "edited" events
+  # and require none with created_at > rocket_created. This anchors
+  # against rocket_created (the rocket consent moment), not against
+  # any orchestrator-side state. Catches edits at any time after rocket.
+  local edits_after_rocket
+  edits_after_rocket=$(gh api "repos/$REPO/issues/$issue_num/timeline" --paginate 2>/dev/null \
+                        | jq -rs --arg rocket "$rocket_created" \
+                            'flatten | map(select(.event == "edited"
+                                                  and .created_at > $rocket))
+                                     | length') || return 1
+  [[ "$edits_after_rocket" -eq 0 ]] || return 1
+
+  # All checks passed: state OPEN + unlocked + 🚀 from $TRUSTED_REACTOR
+  # + no body edits after rocket consent. Eligible.
   return 0
 }
 
 # Usage:
-#   body_hash=$(verify_rocket_eligibility <issue-num>) && \
-#     proceed_to_scope_rank
+#   verify_rocket_eligibility <issue-num> && proceed_to_scope_rank
 #
 # On every git operation (branch create / push / PR open), re-verify:
-#   verify_rocket_eligibility <issue-num> "$body_hash" >/dev/null \
-#     || abort_with_state_save
+#   verify_rocket_eligibility <issue-num> || abort_with_state_save
+#
+# No state needs to be carried between calls: the timeline-events
+# check is anchored on rocket_created (queried each time from the
+# reactions API), so each call is self-contained.
 ```
 
 **Fail-closed semantics** (CRITICAL — the gate's security property depends on this):
@@ -237,13 +246,24 @@ git status --porcelain        # MUST be empty (covers tracked + untracked)
                               # if non-empty: stash with `git stash -u`,
                               # commit elsewhere, or abort
 git log origin/main --oneline -3   # verify expected merge state
-git switch -C codex/<slug> origin/main   # creates branch DIRECTLY off origin/main
-                                         # — bypasses local main entirely so any
-                                         # local-ahead / diverged commits cannot
-                                         # leak into the new branch. Replaces the
-                                         # earlier `checkout main && pull && checkout -b`
-                                         # pattern which `pull`-merged local commits
-                                         # silently if main was ahead.
+
+# Branch creation — `-c` (lowercase) is create-only and FAILS if the
+# branch already exists. This protects against silently overwriting
+# unpushed work from an aborted earlier attempt or a parallel session.
+# `-C` (uppercase, force-create-or-reset) was used in R10 but was
+# flagged: clean worktree + existing branch with unpushed commits =
+# `-C` resets that branch to origin/main and orphans the commits.
+git switch -c codex/<slug> origin/main || {
+    # If creation failed because the branch exists, decide explicitly:
+    #   1. If you intended to resume that branch → `git switch codex/<slug>`
+    #      and verify its base is current origin/main.
+    #   2. If you intended a fresh branch → `git branch -D codex/<slug>`
+    #      ONLY after confirming no unpushed commits matter, then re-run.
+    #   3. If the existing branch has unpushed work you forgot about →
+    #      stash/push that work elsewhere first, then choose 1 or 2.
+    echo "ERROR: branch codex/<slug> exists. Resolve per options above." >&2
+    return 1
+}
 ```
 
 The `--porcelain` check is non-negotiable. It covers both tracked AND untracked files; an earlier draft of this SOP used `-uno` (tracked-only) which would silently destroy untracked drafts in `tmp/` or new sample files when `git checkout main` runs. If `--porcelain` reports anything, stash it (`git stash -u`) or move it before continuing. Branching off a local `main` that lags upstream produces phantom-reference bugs (where a panel reviewer references a file that's been moved/deleted on origin/main but still exists on the stale local).
@@ -612,8 +632,8 @@ Without an allow-list signal, the auto-pick loop is open: any actor with public-
 | 🚀 added then removed mid-loop | Re-verification step before EVERY git operation (`RV` node in §1 tree); fail-closed re-runs `verify_rocket_eligibility` before branch creation, push, PR open. On mid-loop revocation: save state per §Failure Modes "User override mid-loop", abort, surface |
 | Closed issue with 🚀 (filer closed it after rocketing) | Step 1 of `verify_rocket_eligibility` checks `state == "OPEN"` — closed → fail-closed |
 | Locked issue with 🚀 (admin/maintainer locked it post-rocket) | Step 1 also checks `locked == false` — locked → fail-closed |
-| Reopened-with-stale-🚀 (closed → reopened; old rocket still present) | TOCTOU guard at step 3: `body_updated > rocket_created` → fail-closed; reopen bumps `updatedAt`, requires re-rocket |
-| Issue body edited after 🚀 (filer rockets benign body, then injects malicious content) | TOCTOU guard at step 3: `body_updated > rocket_created` → fail-closed; re-rocket required |
+| Reopened-with-stale-🚀 (closed → reopened; old rocket still present) | Step 1 state check rejects closed issues; if reopened, the timeline-events guard at step 3 catches any post-rocket body edit that accompanied the close/reopen |
+| Issue body edited after 🚀 (filer rockets benign body, then injects malicious content — at any time after rocket, including BEFORE the orchestrator's first verify) | Step 3 timeline-events guard: `gh api .../issues/N/timeline --paginate \| jq -rs '... select(.event == "edited" and .created_at > rocket_created)'`; ANY edit event with `created_at > rocket_created` → fail-closed. Anchored to rocket consent moment, not orchestrator-side state, so pre-pick edits ARE caught (R12 fix from R10's body-hash gap) |
 | Reaction-spam DoS pushes trusted 🚀 off page 1 | `--paginate` on the reaction API; full reaction list scanned regardless of count |
 | Bot-suffix login spoof: attacker registers `frankyxhl[bot]` or similar | Exact-match filter `.user.login == "frankyxhl"` — bot-suffix is a different login string, rejected |
 | GitHub login rename (legit user `frankyxhl` renamed to `frankxu`; or attacker registers freed `frankyxhl` post-rename) | `.user.login` returns CURRENT login at API call time; for Trinity (single-trustee, low-rename-risk), accepted residual risk. PKG-promotion form should pin by stable `node_id` instead — see Out-of-Scope below |
@@ -727,7 +747,7 @@ GitHub review bots can post additional findings on later commits even after they
 
 If `$TRUSTED_REACTOR` removes the 🚀 between auto-pick and PR open, the orchestrator MUST detect this before any further git operation. The §1 decision tree's `RV` (re-verify) node enforces this: `verify_rocket_eligibility` runs immediately before each of: branch creation, push, PR open. Any failure mid-loop means the 🚀 was revoked (or the issue's state/body changed) — save state per "User override mid-loop" above, abort, and surface to user with the specific issue number that lost eligibility. Do NOT continue the loop assuming prior eligibility carries forward.
 
-This also covers the converse: `$TRUSTED_REACTOR` may rocket a benign issue, then change their mind. The TOCTOU guard (`body_updated > rocket_created` plus state checks) makes the gate stick to the consent-snapshot moment; any subsequent state change requires re-rocket.
+This also covers the converse: `$TRUSTED_REACTOR` may rocket a benign issue, then change their mind. The TOCTOU guard (timeline-events check anchored to `rocket_created`, plus state checks) makes the gate stick to the consent-snapshot moment; any subsequent body edit OR state change requires re-rocket.
 
 ### Concurrent orchestrators
 
@@ -758,3 +778,4 @@ Before posting its own claim, the orchestrator MUST re-poll the issue's comments
 | 2026-05-09 | R9: added §1 "How phase 1 fires" subsection with three trigger patterns (user-driven, continuation, loop-driven via Claude Code `/loop`); user question "你有一个叫 loop 的概念" — yes, `/loop <seconds>` schedules periodic re-fires; this is the hands-off mode where user only needs to 🚀 an issue and the next tick auto-picks it. Documented 1800s (30min) as a reasonable cadence default. Also clarified §1 mermaid entry node from vague `Candidate item` → `Candidate item: open GitHub issue (any author) OR deferred TRN-* tech-debt note` per user feedback ("Candidate item 是什么意思?"). | Claude Opus 4.7 |
 | 2026-05-09 | R10: codex-bot R5-R9 findings — 3 P1 (rocket-gate end-to-end broken!) + 2 P2. P1 `gh issue view --json locked` is NOT a supported field per gh CLI manual; my R5 fail-closed-on-error caused EVERY rocketed issue to be rejected — the gate never opened. Fix: switched to `gh api repos/$REPO/issues/$N` (REST). P1 `--paginate --jq` filter runs PER PAGE; with no rocket, output was `null\nnull\nnull...` and non-empty test passed — gate INCORRECTLY marked unrocketed issues eligible. Fix: pipe pages through `jq -rs flatten | filter | first` so jq runs ONCE. P1 R5 TOCTOU vs R5 claim-comment cancelled each other out — claim comments bump `updatedAt`, every claimed auto-pick failed re-verify and aborted. Fix: replaced `updatedAt` comparison with body-content sha256 hash. P2 §2 `git checkout main && git pull` could inherit local-ahead divergence — replaced with `git switch -C codex/<slug> origin/main`. P2 §1 trigger table contradicted bypass clause for User-driven row — fixed. | Claude Opus 4.7 |
 | 2026-05-09 | R11: §8 expanded with concrete `ScheduleWakeup` usage. User question prompted: "ScheduleWakeup 是一个 skill 吗?" — no, it's a Claude Code runtime tool (primitive with typed schema). Documented (a) tool vs skill terminology distinction, (b) MUST-DO after every R-push (real SOP violation discovered post-R10 — orchestrator forgot to schedule wakeup, went idle), (c) the 3 parameters with constraints, (d) prompt-content requirements (PR/R/SHA + summary + trigger pattern), (e) relationship to `/loop` slash command (`/loop` is user-only; ScheduleWakeup works regardless), (f) cadence rules with 300s anti-pattern explicit, (g) chained-short-sleeps anti-pattern flagged as runtime-blocked, (h) full sample invocation showing R10 PR #73 poll. | Claude Opus 4.7 |
+| 2026-05-09 | R12: codex bot caught 2 more bugs in R10 fixes. P1 (line 162): R10 body-content sha256 hash fails when body is edited BETWEEN rocket-time and FIRST verify call — initial verify hashes the already-edited body, all later re-verifies match that edited hash, pre-pick edit attack escapes. Fix: replaced body-hash with timeline-events check — `gh api repos/$REPO/issues/$N/timeline --paginate \| jq -rs ... select(.event == "edited" and .created_at > rocket_created)`. Anchored to rocket_created (not orchestrator-side state), so edits at ANY time after rocket consent are caught. Function no longer takes prior_body_hash parameter; each call self-contained. P2 (line 240): R10 `git switch -C` (force-create) silently overwrote `codex/<slug>` if it existed with unpushed work from aborted earlier attempt or parallel session. Fix: `git switch -c` (create-only, fails on exist) + explicit error path with 3 resolution options (resume / delete / stash-elsewhere). Threat Model rows for body-edit + reopened-with-stale-🚀 updated to reference timeline-events instead of updatedAt. | Claude Opus 4.7 |
