@@ -1645,16 +1645,29 @@ def _review_schema_addendum(task_type):
     return (
         "\n## Required: Structured Output\n"
         "\n"
-        "After your free-form review, emit EXACTLY ONE fenced JSON block at the END of your\n"
-        "output, matching this schema:\n"
+        "After your free-form review, emit EXACTLY ONE fenced JSON block at the END\n"
+        'of your output. Required fields: `decision` ("PASS" or "FIX"),\n'
+        "`weighted_score` (number 0.0-10.0), `blocking` (list, may be `[]`),\n"
+        "`advisories` (list, may be `[]`). Optional: `confidence` (number 0.0-1.0).\n"
+        "Each finding in blocking/advisories is an object with `title` (str),\n"
+        '`evidence` (str, file:line, may be `""`), and optional `fix` (str).\n'
+        "\n"
+        "Concrete example — REPLACE values with your actual verdict; do NOT copy\n"
+        "this block verbatim:\n"
         "\n"
         "```json\n"
         "{\n"
-        f'  "decision": "PASS" | "FIX",\n'
-        '  "weighted_score": <0.0-10.0>,\n'
-        f'  "blocking": [{{"title": "...", "evidence": "file:line", "fix": "..."}}],\n'
-        f'  "advisories": [{{"title": "...", "evidence": "file:line", "fix": "..."}}],\n'
-        f'  "confidence": <0.0-1.0, optional>\n'
+        '  "decision": "FIX",\n'
+        '  "weighted_score": 7.5,\n'
+        '  "blocking": [\n'
+        "    {\n"
+        '      "title": "Race condition in worker shutdown",\n'
+        '      "evidence": "scripts/foo.py:142",\n'
+        '      "fix": "Acquire lock before signaling done"\n'
+        "    }\n"
+        "  ],\n"
+        '  "advisories": [],\n'
+        '  "confidence": 0.85\n'
         "}\n"
         "```\n"
         "\n"

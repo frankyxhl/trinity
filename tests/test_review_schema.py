@@ -575,8 +575,22 @@ def test_nan_confidence_rejected():
 def test_addendum_score_range_uses_full_domain():
     """Score domain (0.0-10.0) is independent of PASS threshold (9.0)."""
     addendum = _review_schema_addendum("review")
-    assert "<0.0-10.0>" in addendum
-    assert "<0.0-9.0>" not in addendum
+    assert "0.0-10.0" in addendum
+    assert "0.0-9.0" not in addendum
+
+
+def test_addendum_concrete_example_is_valid_json():
+    """The example block in the addendum must parse — providers may copy it."""
+    addendum = _review_schema_addendum("review")
+    import re
+
+    blocks = re.findall(r"```json\n(.*?)\n```", addendum, re.DOTALL)
+    assert blocks, "addendum must contain at least one ```json block"
+    for block in blocks:
+        data = json.loads(block)
+        assert _validate_review_schema(data), (
+            f"example block does not validate: {block}"
+        )
 
 
 def test_oversized_int_weighted_score_rejected_without_raising():
