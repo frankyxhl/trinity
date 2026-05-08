@@ -29,6 +29,12 @@
   advisory totals, convergence). `trinity review` also prints a one-line
   stderr summary on completion. Builds on TRN-3022 structured output.
   Closes #55.
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — captures the
+  end-to-end orchestrator loop developed across PRs #66-#72: auto-pick →
+  branch hygiene → plan → 4-provider plan-review (TRN-1800 weights,
+  all-individual ≥9.0) → worker dispatch heuristic → verify → PR open
+  → CI/bot/code-review panel iterate → triage → handoff. Drafted at
+  TRN-12xx scope; intended for COR-1200 promotion once stable.
 
 ### Changed
 - `rules/TRN-1006-SOP-Provider-Model-IDs.md` amended (TRN-3027): pin-location
