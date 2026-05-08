@@ -138,24 +138,6 @@ with open(sys.argv[1]) as f:
 " "$JSONL")
 ```
 
-### Structured Review Output (TRN-3022)
-
-Trinity appends a structured-output instruction to review prompts. When the provider follows the instruction, it emits a fenced JSON block at the end of its output. Trinity's synthesis parser extracts the block and uses it for enriched status rendering and a per-provider Findings section in `synthesis.md`.
-
-Providers that do not emit the block continue to work — synthesis falls back to returncode-based PASS/FAIL. The schema is:
-
-```json
-{
-  "decision": "PASS" | "FIX",
-  "weighted_score": 0.0-10.0,
-  "blocking": [{"title": "...", "evidence": "file:line", "fix": "..."}],
-  "advisories": [{"title": "...", "evidence": "file:line", "fix": "..."}],
-  "confidence": 0.0-1.0
-}
-```
-
-Full spec: `rules/TRN-3022-CHG-Normalize-Review-Result-Schema.md`.
-
 ## Instance Key
 
 Passed by Claude in the prompt. Format:
@@ -200,6 +182,24 @@ Return to Claude:
 - If the provider needs file contents, read the file yourself and include it in the prompt
 - If the provider produces code, verify it looks reasonable before returning
 - Keep your summary focused — Claude doesn't need the full conversation log
+
+## Structured Review Output (TRN-3022)
+
+Trinity appends a structured-output instruction to review prompts. When the provider follows the instruction, it emits a fenced JSON block at the end of its output. Trinity's synthesis parser extracts the block and uses it for enriched status rendering and a per-provider Findings section in `synthesis.md`.
+
+Providers that do not emit the block continue to work — synthesis falls back to returncode-based PASS/FAIL. The schema is:
+
+```json
+{
+  "decision": "PASS" | "FIX",
+  "weighted_score": 0.0-10.0,
+  "blocking": [{"title": "...", "evidence": "file:line", "fix": "..."}],
+  "advisories": [{"title": "...", "evidence": "file:line", "fix": "..."}],
+  "confidence": 0.0-1.0
+}
+```
+
+Full spec: `rules/TRN-3022-CHG-Normalize-Review-Result-Schema.md`.
 - Always use `run_deepseek -p` for non-interactive mode
 - For resume: `run_deepseek --resume <session_id> -p "<prompt>"`
 - Always read responses from the session JSONL file, never from stdout

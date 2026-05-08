@@ -1637,6 +1637,7 @@ def _review_schema_addendum(task_type):
     Addendum is appended at the end of the rendered prompt so providers emit
     the JSON block as the LAST thing in their output.
     """
+    task_type = (task_type or "").lower()
     if task_type != "review":
         return ""
 
@@ -1877,6 +1878,32 @@ def _sanitize_md(text):
     return text.replace("\n", " ") if "\n" in text else text
 
 
+def _render_finding_items(label, items):
+    """Render a labeled list of finding items (blocking or advisories).
+
+    Returns a list of lines including the **Label:** header, one bullet per
+    item, and a trailing blank line. Returns an empty list if items is empty.
+    """
+    if not items:
+        return []
+    lines = [f"**{label}:**"]
+    for item in items:
+        title = _sanitize_md(item.get("title", ""))
+        evidence = _sanitize_md(item.get("evidence", ""))
+        fix = item.get("fix")
+        if fix:
+            fix = _sanitize_md(fix)
+        if evidence:
+            line = f"- **{title}** at `{evidence}`"
+        else:
+            line = f"- **{title}** (no evidence cited)"
+        if fix:
+            line += f" — {fix}"
+        lines.append(line)
+    lines.append("")
+    return lines
+
+
 def _render_findings_for(result, parsed):
     """Render a single provider's structured findings block.
 
@@ -1894,38 +1921,8 @@ def _render_findings_for(result, parsed):
         f"({score}, {len(blocking)} blocking, {len(advisories)} advisories)"
     )
     lines.append("")
-    if blocking:
-        lines.append("**Blocking:**")
-        for item in blocking:
-            title = _sanitize_md(item.get("title", ""))
-            evidence = _sanitize_md(item.get("evidence", ""))
-            fix = item.get("fix")
-            if fix:
-                fix = _sanitize_md(fix)
-            if evidence:
-                line = f"- **{title}** at `{evidence}`"
-            else:
-                line = f"- **{title}** (no evidence cited)"
-            if fix:
-                line += f" — {fix}"
-            lines.append(line)
-        lines.append("")
-    if advisories:
-        lines.append("**Advisories:**")
-        for item in advisories:
-            title = _sanitize_md(item.get("title", ""))
-            evidence = _sanitize_md(item.get("evidence", ""))
-            fix = item.get("fix")
-            if fix:
-                fix = _sanitize_md(fix)
-            if evidence:
-                line = f"- **{title}** at `{evidence}`"
-            else:
-                line = f"- **{title}** (no evidence cited)"
-            if fix:
-                line += f" — {fix}"
-            lines.append(line)
-        lines.append("")
+    lines.extend(_render_finding_items("Blocking", blocking))
+    lines.extend(_render_finding_items("Advisories", advisories))
     return lines
 
 
@@ -1990,13 +1987,13 @@ def write_synthesis(review_dir, scope, results):
         "| Provider | Status | Raw Output |",
         "|----------|--------|------------|",
     ]
-    for result in results:
+    for i, result in enumerate(results):
         rc = result.get("returncode", -1)
         if rc != 0:
             # Returncode precedence: rc wins regardless of structured content.
             status = f"FAIL {rc}"
         else:
-            parsed = parsed_per_provider[results.index(result)]
+            parsed = parsed_per_provider[i]
             if parsed is not None:
                 eff = parsed["effective_decision"]
                 score = parsed["weighted_score"]

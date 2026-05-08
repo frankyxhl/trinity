@@ -429,9 +429,9 @@ def test_a8e_rc124_timeout_fail(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_a8e2_parser_returns_dict_for_rc124_raw():
+def test_a8e2_parser_accepts_well_formed_pass_regardless_of_caller_rc():
     """Parser is rc-agnostic: it returns the dict even for timeout output.
-    The caller (write_synthesis) decides to ignore it."""
+    The caller (write_synthesis) decides whether to use it."""
     result = parse_structured_review(WELL_FORMED_BLOCK)
     assert result is not None
     assert result["decision"] == "PASS"
@@ -717,3 +717,78 @@ def test_case_insensitive_decision():
     result = parse_structured_review(text)
     assert result is not None
     assert result["decision"] == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: Multi-provider all-legacy A7 byte-identical
+# ---------------------------------------------------------------------------
+
+
+def test_a7_multi_provider_all_legacy_byte_identical(tmp_path):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    (raw_dir / "glm.txt").write_text("just prose from glm")
+    (raw_dir / "codex.txt").write_text("just prose from codex")
+    (raw_dir / "deepseek.txt").write_text("just prose from deepseek")
+    results = [
+        _make_result("glm", returncode=0, raw="raw/glm.txt"),
+        _make_result("codex", returncode=0, raw="raw/codex.txt"),
+        _make_result("deepseek", returncode=0, raw="raw/deepseek.txt"),
+    ]
+    write_synthesis(tmp_path, "spikes/test", results)
+    content = (tmp_path / "synthesis.md").read_text()
+    expected_lines = [
+        "# Trinity Review Synthesis",
+        "",
+        "Scope: spikes/test",
+        "",
+        "## Provider Status",
+        "",
+        "| Provider | Status | Raw Output |",
+        "|----------|--------|------------|",
+        "| glm | PASS | `raw/glm.txt` |",
+        "| codex | PASS | `raw/codex.txt` |",
+        "| deepseek | PASS | `raw/deepseek.txt` |",
+        "",
+        "## Notes",
+        "",
+        "This synthesis is deterministic. Inspect raw provider outputs for findings and conflicts.",
+        "",
+    ]
+    assert content == "\n".join(expected_lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: _validate_review_schema NaN/Inf rejection
+# ---------------------------------------------------------------------------
+
+
+def test_validate_review_schema_rejects_nan_weighted_score():
+    data = {
+        "decision": "PASS",
+        "weighted_score": float("nan"),
+        "blocking": [],
+        "advisories": [],
+    }
+    assert _validate_review_schema(data) is False
+
+
+def test_validate_review_schema_rejects_inf_weighted_score():
+    data = {
+        "decision": "PASS",
+        "weighted_score": float("inf"),
+        "blocking": [],
+        "advisories": [],
+    }
+    assert _validate_review_schema(data) is False
+
+
+# ---------------------------------------------------------------------------
+# Fix 7: _review_schema_addendum accepts uppercase task_type
+# ---------------------------------------------------------------------------
+
+
+def test_review_schema_addendum_accepts_uppercase_task_type():
+    text = _review_schema_addendum("REVIEW")
+    assert text != ""
+    assert "decision" in text

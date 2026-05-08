@@ -106,15 +106,15 @@ Within each finding object:
 2. **Findings section** below the table — rendered ONLY when at least one rc=0 provider has a parsed structured block. For each such provider (in `results` iteration order, per deepseek A1):
    ```
    ### glm — FIX (7.5, 1 blocking, 2 advisories)
-   
+
    **Blocking:**
    - **Late-binding closure** at `scripts/foo.py:142-148` — Capture loop var via default arg
    - **Cross-cutting concern**  (no evidence cited)  — see review prose
-   
+
    **Advisories:**
    - **Style nit**  at `scripts/foo.py:33`
    ```
-   
+
    Rendering rules:
    - `fix` empty/missing → omit trailing ` — <fix>` to avoid dangling em-dash (per deepseek A2)
    - `evidence` empty → render bare title with `(no evidence cited)` annotation; no broken `at \`\`` markdown (per deepseek A3)
