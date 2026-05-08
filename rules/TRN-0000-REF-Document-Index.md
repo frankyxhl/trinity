@@ -36,6 +36,7 @@
 | 2015 | CHG | PR Base Head Review Mode |
 | 2016 | CHG | COR 1602 Strict Review Mode |
 | 2017 | CHG | PR Update Helper |
+| 2018 | CHG | Review Status Observability |
 | 2019 | CHG | Fast Review Parallelism and Progress |
 | 2020 | PRP | Improve Tests |
 | 2021 | PLN | Improve Tests Execution Contract |
@@ -47,6 +48,7 @@
 | 2028 | CHG | Add Trinity Status Latest Command |
 | 3000 | REF | Code Agent Wrapping Architectures |
 | 3020 | CHG | Consolidate Provider Config |
+| 3021 | CHG | Expand Doctor Preflight |
 | 3023 | CHG | Sanitize Provider Environment At Spawn Time |
 
 ---

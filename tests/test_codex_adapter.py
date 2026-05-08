@@ -312,6 +312,9 @@ def test_codex_review_explicit_preset_expands_required_and_optional_providers(
         "skipped_optional_providers": [
             {"provider": "missing", "reason": "missing config"}
         ],
+        # TRN-3021: REQUIRED/OPTIONAL provider lists for doctor metadata-aware rendering.
+        "providers": ["deepseek"],
+        "optional_providers": ["codex", "missing"],
     }
 
 
@@ -1609,6 +1612,12 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     assert os.access(home / ".local" / "bin" / "trinity", os.X_OK)
     assert not (home / ".claude").exists()
 
+    # TRN-3021 doctor now checks deepseek wrapper auth via env-or-file
+    # precedence (mirrors providers/bin/deepseek:10-31). Set the env var
+    # to satisfy the auth check without writing a real key file in the
+    # test environment.
+    doctor_env = dict(env)
+    doctor_env["DEEPSEEK_API_KEY"] = "test-key"
     rc, out, err = run_codex(
         [
             "doctor",
@@ -1617,7 +1626,7 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
             "--providers",
             "deepseek",
         ],
-        env=env,
+        env=doctor_env,
     )
 
     assert rc == 0, err

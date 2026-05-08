@@ -277,11 +277,19 @@ def resolve_preset_providers(config, requested, source):
     return (
         providers,
         {
+            # Existing 5 keys — semantics UNCHANGED:
             "requested": requested,
             "resolved": resolved,
             "source": source,
             "task_type": task_type,
             "skipped_optional_providers": skipped,
+            # TRN-3021: REQUIRED/OPTIONAL provider lists for doctor's
+            # metadata-aware rendering and exit-code decision. `providers`
+            # is the preset's required list; `optional_providers` is the
+            # full optional list (NOT just `skipped` — those that were
+            # config-eligible too).
+            "providers": list(required),
+            "optional_providers": list(optional),
         },
         warnings,
     )
@@ -370,6 +378,177 @@ def command_has_path(command):
     )
 
 
+_MIN_TIMEOUT_WARNING_SECONDS = 60
+
+# TRN-3021: per-provider auth-file paths for wrapper providers. Hardcoded
+# v1 because exactly 2 providers in providers/registry.json use this
+# pattern (verified: `grep KEY_FILE providers/bin/*` returns deepseek + openrouter).
+# Tagged tech-debt — declarative `auth_env` + `auth_file` registry fields
+# belong in TRN-3030 follow-up CHG.
+_WRAPPER_AUTH_CONFIG = {
+    "deepseek": {
+        "env_var": "DEEPSEEK_API_KEY",
+        "file": "~/.secrets/deepseek_api_key",
+    },
+    "openrouter": {
+        "env_var": "OPENROUTER_API_KEY",
+        "file": "~/.secrets/openrouter_api_key",
+    },
+}
+
+
+def _make_health_result(
+    provider,
+    *,
+    ok,
+    issues=(),
+    warnings=(),
+    executable=None,
+    timeout=None,
+    cli=None,
+    auth=None,
+    timeout_warning=False,
+):
+    """Construct a provider_health result dict with all TRN-3021 keys.
+
+    Used by all 3 sites that build result dicts: canonical at
+    provider_health (line ~413), synthetic-error branches at
+    provider_health_results (lines ~425, ~440). Defensive defaults
+    keep the dict additive — older consumers reading via .get() see
+    sensible values for new keys.
+    """
+    return {
+        "provider": provider,
+        "ok": ok,
+        "executable": executable,
+        "timeout": timeout,
+        "issues": list(issues),
+        # TRN-3021 additions:
+        "warnings": list(warnings),
+        "cli": cli,
+        "auth": auth,
+        "timeout_warning": timeout_warning,
+    }
+
+
+def wrapper_auth_check(provider):
+    """TRN-3021: check wrapper-provider auth via env-or-file precedence.
+
+    Mirrors providers/bin/<provider>:10-31 contract:
+      1. env var (DEEPSEEK_API_KEY / OPENROUTER_API_KEY) → source: "env"
+      2. file at ~/.secrets/<provider>_api_key with mode 600 or 400
+         → source: "file", mode_ok: True
+      3. file with wrong mode → source: "file", mode_ok: False
+         (wrapper exits 1 at runtime; severity is fatal for REQUIRED)
+      4. neither → source: "missing"
+
+    Returns None for non-wrapper providers (vendor login flow, no file).
+    """
+    if provider not in _WRAPPER_AUTH_CONFIG:
+        return None
+    config = _WRAPPER_AUTH_CONFIG[provider]
+    env_name = config["env_var"]
+    if os.environ.get(env_name):
+        return {
+            "source": "env",
+            "env_var": env_name,
+            "file": None,
+            "mode_ok": None,
+        }
+    file_path = Path(config["file"]).expanduser()
+    if not file_path.exists():
+        return {
+            "source": "missing",
+            "env_var": env_name,
+            "file": str(file_path),
+            "mode_ok": None,
+        }
+    try:
+        # Use lstat to match wrapper's `stat -c '%a' "$KEY_FILE"` behavior:
+        # on GNU/Linux that reports the symlink's own mode (typically 777),
+        # not the target's. Following the symlink (file_path.stat()) would
+        # report a 0600 target as ok while the wrapper still refuses to
+        # read the symlink at runtime — inconsistency caught by codex bot
+        # on PR #68.
+        mode = file_path.lstat().st_mode & 0o777
+    except OSError:
+        return {
+            "source": "file",
+            "env_var": env_name,
+            "file": str(file_path),
+            "mode_ok": False,
+        }
+    return {
+        "source": "file",
+        "env_var": env_name,
+        "file": str(file_path),
+        "mode_ok": mode in (0o600, 0o400),
+    }
+
+
+def _is_canonical_wrapper(executable, provider):
+    """True iff `executable` is the actual canonical wrapper script for `provider`.
+
+    The canonical wrapper lives at one of these EXACT paths (exact basename
+    match, no substring fuzzing):
+      - <HOME>/.claude/skills/trinity/bin/<provider>
+      - <HOME>/.codex/skills/trinity/bin/<provider>
+      - <repo>/providers/bin/<provider>  (when running tests from repo root)
+
+    Custom configs that reuse the provider name with a different executable
+    (e.g. `deepseek-test`) or a different path (e.g. `/tmp/skills/trinity/
+    bin/deepseek`) won't match, so cmd_doctor's wrapper-auth check stays
+    out of their way.
+
+    Compares against `Path(executable).resolve()` so a symlinked install
+    still matches the canonical target.
+    """
+    if executable is None or provider not in _WRAPPER_AUTH_CONFIG:
+        return False
+    try:
+        actual = Path(executable).resolve()
+    except (OSError, RuntimeError):
+        return False
+
+    home = Path(os.path.expanduser("~"))
+    candidates = [
+        home / ".claude" / "skills" / "trinity" / "bin" / provider,
+        home / ".codex" / "skills" / "trinity" / "bin" / provider,
+        Path(__file__).resolve().parent.parent / "providers" / "bin" / provider,
+    ]
+
+    for c in candidates:
+        try:
+            if c.resolve() == actual:
+                return True
+        except (OSError, RuntimeError):
+            continue
+    return False
+
+
+def detect_env_pollution(base_env=None):
+    """TRN-3021: scan parent env for vars that match the TRN-3023 clearlist.
+
+    Flag iff `_matches_any(key, _DEFAULT_ENV_CLEAR_PATTERNS) AND NOT
+    _is_essential(key)`. Essentials check first (defensive ordering, matches
+    `build_provider_env` at codex.py:_is_essential). Values truncated to
+    first 12 chars + "…" to avoid leaking corp hostnames / token-adjacent
+    strings. Returns list of (key, redacted_value) sorted alphabetically
+    by key for deterministic display.
+    """
+    if base_env is None:
+        base_env = os.environ
+    found = []
+    for key, value in base_env.items():
+        if _is_essential(key):
+            continue
+        if _matches_any(key, _DEFAULT_ENV_CLEAR_PATTERNS):
+            redacted = value if len(value) <= 12 else value[:12] + "…"
+            found.append((key, redacted))
+    found.sort(key=lambda kv: kv[0])
+    return found
+
+
 def executable_health(command, root):
     executable = command[0]
     if command_has_path(executable):
@@ -389,10 +568,26 @@ def executable_health(command, root):
 
 
 def provider_health(provider, provider_config, root):
+    """TRN-3021: extended preflight health check.
+
+    Returns a result dict with keys: provider, ok, executable, timeout,
+    issues, warnings, cli, auth, timeout_warning. See _make_health_result.
+
+    Severity routing:
+      - timeout-sanity (timeout < 60): always `warnings`
+      - wrapper-auth-MISSING / WRONG-MODE: REQUIRED → `issues` (fatal,
+        matches wrapper exit 1); OPTIONAL → demoted via metadata-aware
+        `health_results_ok` at exit-code time. This function reports
+        the auth fault into `issues` unconditionally; demotion happens
+        in health_results_ok based on preset_metadata.
+    """
     issues = []
+    warnings = []
     command = None
     executable = None
     timeout = None
+    cli = None
+    timeout_warning = False
 
     try:
         command = parse_provider_command(provider, provider_config)
@@ -403,6 +598,8 @@ def provider_health(provider, provider_config, root):
         executable, issue = executable_health(command, root)
         if issue:
             issues.append(issue)
+        if executable is not None:
+            cli = shlex.join([executable, *command[1:]])
 
     if isinstance(provider_config, dict):
         try:
@@ -410,26 +607,35 @@ def provider_health(provider, provider_config, root):
         except ValueError as exc:
             issues.append(str(exc))
 
-    return {
-        "provider": provider,
-        "ok": not issues,
-        "executable": executable,
-        "timeout": timeout,
-        "issues": issues,
-    }
+    if timeout is not None and timeout < _MIN_TIMEOUT_WARNING_SECONDS:
+        warnings.append(
+            f"timeout {timeout}s is below {_MIN_TIMEOUT_WARNING_SECONDS}s "
+            f"minimum recommended"
+        )
+        timeout_warning = True
+
+    return _make_health_result(
+        provider,
+        ok=not issues,
+        issues=issues,
+        warnings=warnings,
+        executable=executable,
+        timeout=timeout,
+        cli=cli,
+        auth=None,
+        timeout_warning=timeout_warning,
+    )
 
 
 def provider_health_results(config, providers, root):
     provider_configs = config.get("providers", {})
     if not isinstance(provider_configs, dict):
         return [
-            {
-                "provider": provider,
-                "ok": False,
-                "executable": None,
-                "timeout": None,
-                "issues": ["providers config must be an object"],
-            }
+            _make_health_result(
+                provider,
+                ok=False,
+                issues=["providers config must be an object"],
+            )
             for provider in providers
         ]
 
@@ -437,36 +643,160 @@ def provider_health_results(config, providers, root):
     for provider in providers:
         if provider not in provider_configs:
             results.append(
-                {
-                    "provider": provider,
-                    "ok": False,
-                    "executable": None,
-                    "timeout": None,
-                    "issues": ["unknown provider"],
-                }
+                _make_health_result(
+                    provider,
+                    ok=False,
+                    issues=["unknown provider"],
+                )
             )
             continue
         results.append(provider_health(provider, provider_configs[provider], root))
     return results
 
 
-def format_health_results(results):
+def _format_provider_block(result, *, optional=False):
+    """Render one provider's verbose block. Helper for format_health_results.
+
+    When optional=True, NOT-OK providers render as `WARN` instead of
+    `FAIL` because health_results_ok demotes their issues to warnings
+    (codex bot finding on PR #68 round 3).
+    """
+    provider = result["provider"]
+    fail_label = "WARN" if optional else "FAIL"
     lines = []
-    for result in results:
-        provider = result["provider"]
-        if result["ok"]:
-            lines.append(
-                f"{provider}: OK - {result['executable']} "
-                f"(timeout {result['timeout']}s)"
+    if result.get("ok"):
+        first = (
+            f"{provider}: OK - {result.get('executable')} "
+            f"(timeout {result.get('timeout')}s)"
+        )
+    else:
+        # First non-fatal warning OR first issue feeds the headline.
+        if result.get("issues"):
+            first = f"{provider}: {fail_label} - {result['issues'][0]}"
+        else:
+            first = (
+                f"{provider}: OK - {result.get('executable')} "
+                f"(timeout {result.get('timeout')}s)"
             )
-            continue
-        for issue in result["issues"]:
-            lines.append(f"{provider}: FAIL - {issue}")
-    return "\n".join(lines)
+    lines.append(first)
+    if result.get("cli"):
+        lines.append(f"    cli: {result['cli']}")
+    auth = result.get("auth")
+    if auth is not None:
+        if auth["source"] == "env":
+            lines.append(f"    auth: env ${auth['env_var']} set")
+        elif auth["source"] == "file" and auth["mode_ok"]:
+            lines.append(f"    auth: file {auth['file']} (mode ok)")
+        elif auth["source"] == "file":
+            lines.append(
+                f"    auth: file {auth['file']} (mode WRONG, expected 600/400)"
+            )
+        else:
+            lines.append(
+                f"    auth: missing — ${auth['env_var']} unset, {auth['file']} absent"
+            )
+    for w in result.get("warnings", []):
+        lines.append(f"    warning: {w}")
+    for issue in result.get("issues", []):
+        if first.startswith(f"{provider}: {fail_label} - {issue}"):
+            continue  # already in headline
+        lines.append(f"    issue: {issue}")
+    return lines
 
 
-def health_results_ok(results):
-    return all(result["ok"] for result in results)
+def format_health_results(
+    results, *, env_pollution=None, preset_metadata=None, verbose=False
+):
+    """Render provider health results.
+
+    Default (verbose=False) preserves the existing single-line shape
+    `{provider}: OK - {executable} (timeout Ns)` per provider — used by
+    `cmd_review --check-providers` (codex.py:1397-1403). Verbose mode
+    (cmd_doctor) adds REQUIRED/OPTIONAL split, indented detail rows, and
+    an ENV POLLUTION section. First line per provider stays grep-compatible.
+    """
+    if not verbose:
+        lines = []
+        for result in results:
+            provider = result["provider"]
+            if result["ok"]:
+                lines.append(
+                    f"{provider}: OK - {result['executable']} "
+                    f"(timeout {result['timeout']}s)"
+                )
+                continue
+            for issue in result["issues"]:
+                lines.append(f"{provider}: FAIL - {issue}")
+        return "\n".join(lines)
+
+    # Verbose mode.
+    optional_set = set()
+    if preset_metadata is not None:
+        # Subtract REQUIRED to match health_results_ok demotion logic
+        # (codex bot finding on PR #68): a provider in BOTH lists is
+        # treated as required.
+        required_set = set(preset_metadata.get("providers", []))
+        optional_set = set(preset_metadata.get("optional_providers", [])) - required_set
+
+    required_results = [r for r in results if r["provider"] not in optional_set]
+    optional_results = [r for r in results if r["provider"] in optional_set]
+
+    lines = []
+    if preset_metadata is not None and (required_results or optional_results):
+        if required_results:
+            lines.append("REQUIRED:")
+            for r in required_results:
+                lines.extend(_format_provider_block(r))
+                lines.append("")
+        if optional_results:
+            lines.append("OPTIONAL:")
+            for r in optional_results:
+                lines.extend(_format_provider_block(r, optional=True))
+                lines.append("")
+    else:
+        # No preset → single PROVIDERS section.
+        for r in results:
+            lines.extend(_format_provider_block(r))
+            lines.append("")
+
+    if env_pollution:
+        lines.append(
+            "ENV POLLUTION (would leak into provider spawn pre-TRN-3023; now stripped at spawn):"
+        )
+        for key, redacted in env_pollution:
+            if redacted:
+                lines.append(
+                    f"    ⚠️  {key} set in shell ({redacted}) — stripped at spawn"
+                )
+            else:
+                lines.append(f"    ⚠️  {key} set in shell — stripped at spawn")
+        lines.append("")
+
+    return "\n".join(lines).rstrip("\n")
+
+
+def health_results_ok(results, *, preset_metadata=None):
+    """TRN-3021: metadata-aware exit-code decision.
+
+    REQUIRED providers with `issues` non-empty → False (exit 1).
+    OPTIONAL providers with `issues` non-empty → demoted (don't fail).
+    `preset_metadata=None` (existing call sites in cmd_review --check-providers)
+    treats all providers as REQUIRED, preserving current semantics.
+    """
+    optional_set = set()
+    if preset_metadata is not None:
+        # Subtract REQUIRED first: if a provider appears in BOTH
+        # `providers` (required) and `optional_providers`, the required
+        # designation wins (resolve_preset_providers selects it as
+        # required first). Codex bot finding on PR #68: without this
+        # subtraction, an overlap silently demotes a fatal issue to
+        # warning-only and exits 0.
+        required_set = set(preset_metadata.get("providers", []))
+        optional_set = set(preset_metadata.get("optional_providers", [])) - required_set
+    for result in results:
+        if result.get("issues") and result["provider"] not in optional_set:
+            return False
+    return True
 
 
 def scope_pathspec(root, scope):
@@ -1484,12 +1814,43 @@ def cmd_review(args):
 def cmd_doctor(args):
     root = resolve_health_root(args.root)
     config = load_config(args.config)
-    providers, _, resolver_warnings = resolve_review_providers(args, config)
+    providers, preset_metadata, resolver_warnings = resolve_review_providers(
+        args, config
+    )
     for warning in resolver_warnings:
         print(warning, file=sys.stderr)
     health = provider_health_results(config, providers, root)
-    print(format_health_results(health))
-    return 0 if health_results_ok(health) else 1
+    # TRN-3021: attach wrapper-auth check to results, but only for providers
+    # whose resolved executable matches the canonical wrapper path. Test
+    # fixtures with fake bin scripts won't trigger this, so cmd_review's
+    # preflight (which uses provider_health directly) is unaffected.
+    for h in health:
+        if not _is_canonical_wrapper(h.get("executable"), h["provider"]):
+            continue
+        auth = wrapper_auth_check(h["provider"])
+        if auth is None:
+            continue
+        h["auth"] = auth
+        if auth["source"] == "missing":
+            h["issues"].append(
+                f"auth missing: ${auth['env_var']} unset and {auth['file']} absent"
+            )
+            h["ok"] = False
+        elif auth["source"] == "file" and auth["mode_ok"] is False:
+            h["issues"].append(
+                f"auth file {auth['file']} has wrong mode (expected 600 or 400)"
+            )
+            h["ok"] = False
+    env_pollution = detect_env_pollution()
+    print(
+        format_health_results(
+            health,
+            env_pollution=env_pollution,
+            preset_metadata=preset_metadata,
+            verbose=True,
+        )
+    )
+    return 0 if health_results_ok(health, preset_metadata=preset_metadata) else 1
 
 
 # ---------------------------------------------------------------------------
@@ -1717,6 +2078,7 @@ def cmd_status(args):
             file=sys.stderr,
         )
         return 1
+
     # Sort key: (timestamp_prefix, mtime). The fixed-width
     # %Y%m%d-%H%M%S prefix gives chronological order across distinct
     # seconds; mtime breaks ties for same-second creates where the
