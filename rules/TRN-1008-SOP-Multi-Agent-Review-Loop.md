@@ -64,12 +64,35 @@ The loop has 10 phases:
 
 ### 1. Auto-pick
 
-When the user grants the auto-pick mandate ("once current PR is mergeable, pick next issue without asking"):
+When the user grants the auto-pick mandate ("once current PR is mergeable, pick next issue without asking"), rank candidates by this tree:
 
-- Sort candidates by **smallest-clearest-scope first**: deferred TRN-* tech-debt < single-file CHGs < feature CHGs depending on just-shipped work < broad audits / large designs.
-- Open GitHub issues take priority over internal tech-debt only when the issue has clear scope.
-- Skip issues that depend on an unmerged PR; revisit when the dependency lands.
-- Decline issues whose scope is unbounded ("audit X codebase") unless the user explicitly asks.
+```mermaid
+flowchart TD
+    A[Candidate issue or tech-debt item] --> B{User granted<br/>auto-pick?}
+    B -- No --> Z1[Ask user before picking]
+    B -- Yes --> C{Depends on<br/>unmerged PR?}
+    C -- Yes --> Z2[Skip, revisit when<br/>dependency lands]
+    C -- No --> D{Scope statable<br/>in one sentence?}
+    D -- No --> Z3[Decline; ask user<br/>to scope or split]
+    D -- Yes --> E{Type?}
+    E -- Deferred TRN-* tech-debt --> R1[Strong candidate<br/>RANK 1]
+    E -- Issue unblocked by<br/>just-shipped PR --> R2[RANK 2]
+    E -- Single-file CHG --> R3[RANK 3]
+    E -- Multi-surface CHG<br/>with clear scope --> R4[RANK 4]
+    E -- Broad audit /<br/>large design --> Z4[Defer;<br/>ask user]
+```
+
+**Sample worked decision** (this session, post-#71-merge):
+
+| Candidate | Rank | Why |
+|-----------|------|-----|
+| TRN-3027 (deferred from PR #66 review) | 1 | doc-only, single-file, scope statable: "amend TRN-1006 §A to point to registry.json" |
+| TRN-3026 (env-var pins → registry) | 4 | medium, registry shape extension — clear but not smallest |
+| TRN-3025 (gemini canonical) | — | deferred until quota; one-sentence scope still uncertain |
+| #40 (audit codebase) | — | scope unbounded → ask user |
+| #63 (TRN-3024 MCP bridge) | — | large design → ask user |
+
+→ picked TRN-3027.
 
 ### 2. Branch hygiene (PR #68 lesson)
 
@@ -94,62 +117,172 @@ If the wrong account is active, abort. Public artifacts authored by the wrong id
 
 ### 3. Plan (draft CHG / spec)
 
-For substantive changes, write the CHG before code:
+```mermaid
+flowchart TD
+    A[Issue / tech-debt picked] --> B{LoC estimate?}
+    B -- ">30 LoC OR<br/>multi-file" --> C[Write full CHG in rules/]
+    B -- "≤30 LoC AND<br/>single file" --> D{Contract change?<br/>signature, schema, IO}
+    D -- Yes --> C
+    D -- No --> E{Issue scope-hint<br/>says no CHG?}
+    E -- Yes --> F[Inline CHG in PR body]
+    E -- No --> C
+    C --> G[Status: Proposed]
+    G --> H[Run plan-review panel<br/>see phase 4]
+    H --> I{Gate met?}
+    I -- No --> J[Iterate R2/R3+]
+    J --> H
+    I -- Yes --> K[Status: Approved]
+```
 
-- Title: `TRN-<NNNN>-CHG-<Kebab-Title>.md` in `rules/`.
-- Required sections: What / Why / Surfaces table / Acceptance Criteria (A1, A2, …) / Out of Scope / Change History.
-- Mark Status `Proposed` initially; flip to `Approved` only after panel passes.
-- Do NOT skip the CHG for non-trivial work. The plan-review panel scores the CHG; without it, plan-review is impossible.
+**CHG skeleton** (sections shown as bold labels; in a real CHG these are `##` headings — see e.g. `rules/TRN-3022-CHG-*.md` for a worked instance):
 
-For tiny scope (≤30 LoC, single file, no contract change), the CHG step can be inlined into the PR description per the issue's own scope hint. When in doubt, write the CHG.
+- **Frontmatter**: `Applies to`, `Last updated`, `Last reviewed`, `Status: Proposed`, `Date`, `Requested by`, `Priority`, `Change Type`, `Targets`, `Closes #<issue>`, `Builds on <prior TRN>`.
+- **What** — one paragraph: what changes.
+- **Why** — one paragraph: why this matters; cite session evidence / failed CI / PR-review finding.
+- **Out of Scope** — bullets; defer items to follow-up CHGs by name.
+- **Surfaces** — table: # | Surface | Change. One row per file or symmetric class (per CLD-1802).
+- **Acceptance Criteria** — bullets `A1: ...`, `A2: ...`. Each must be observable and testable.
+- **Implementation Order** — numbered steps; final step is verify + CHANGELOG + commit.
+- **Change History** — table: Date | Change | By.
+
+**Heuristic:** when in doubt, write the CHG. Five minutes drafting is cheaper than a panel reviewing the wrong thing.
 
 ### 4. Plan-review (4-provider panel)
 
-Dispatch all 4 in parallel via the `Agent` tool:
+Dispatch all 4 in parallel via the `Agent` tool. **Parallelism is required** — running serially burns 5x the wall-clock and fragments the cache window.
 
-- **gemini** (subagent_type `trinity-gemini`)
-- **codex** (subagent_type `trinity-codex`)
-- **glm** (subagent_type `trinity-glm`)
-- **deepseek** (subagent_type `trinity-deepseek`)
+```mermaid
+flowchart LR
+    A[CHG drafted<br/>Status: Proposed] --> B[Dispatch 4 in parallel]
+    B --> G1[gemini]
+    B --> G2[codex]
+    B --> G3[glm]
+    B --> G4[deepseek]
+    G1 --> J[Collect 4 verdicts]
+    G2 --> J
+    G3 --> J
+    G4 --> J
+    J --> K{All 4 individual<br/>≥ 9.0 AND<br/>all blocking == []?}
+    K -- Yes --> L[Status: Approved<br/>→ phase 5]
+    K -- No --> M[Triage findings<br/>see phase 9]
+    M --> N[Apply fixes to CHG]
+    N --> A
+```
 
-Each prompt must include:
-- The CHG path
-- The TRN-1800 weights table verbatim (Test 30 / Cross-platform 20 / Compression 20 / Scope 15 / Necessity 15)
-- The structured-output schema (per TRN-3022)
-- The PASS gate restated: `weighted_score ≥ 9.0 AND blocking == []`
+**Sample plan-review prompt** (template — fill the `<...>` slots):
 
-**Gate**: all-individual ≥ 9.0 AND every reviewer's `blocking` empty. Mean is informational; one PASS @ 9.0 with three at 9.5 is mean 9.375 but the 9.0 reviewer's findings still get triaged. A 3-of-4 PASS with one FIX is NOT a pass — fix the dissenter's blockers, re-dispatch.
+```
+Provider: <gemini|codex|glm|deepseek> (PLAN REVIEWER role).
+Project: /Users/frank/Projects/trinity.
+Branch: <branch-name> (head <short-sha>, off origin/main <short-sha>).
 
-Common R1 universal blockers (catalogue from past PRs):
+INVOKE the <provider> CLI for the actual review.
+
+TASK: Plan-review of <CHG-ID> at `rules/<CHG-file>.md`.
+Score per **TRN-1800 weights** (rules/TRN-1800-REF-Evolution-Philosophy.md):
+
+| Dimension | Weight |
+|-----------|--------|
+| Test coverage of changed surface | 30% |
+| Cross-platform parity | 20% |
+| Compression ratio | 20% (net-positive justified by new tests/SOP) |
+| Scope restraint | 15% |
+| Necessity | 15% |
+
+USE TRN-1800, NOT CLD-1800 (the .claude repo philosophy doesn't apply here).
+
+## What to scrutinize
+<bulleted list of the 3-5 things you most want this reviewer to check —
+e.g. "verdict precedence ordering", "stderr-sentinel boundary detection",
+"backwards-compat invariant in the legacy path">
+
+## Output schema (REQUIRED — emit at END)
+
+After concise free-form review, emit EXACTLY ONE fenced JSON block:
+
+```json
+{
+  "decision": "PASS" | "FIX",
+  "weighted_score": <0.0-10.0>,
+  "blocking": [{"title": "...", "evidence": "file:line", "fix": "..."}],
+  "advisories": [{"title": "...", "evidence": "file:line", "fix": "..."}],
+  "confidence": <0.0-1.0>
+}
+```
+
+Rules: PASS only when blocking == [] AND weighted_score >= 9.0.
+LAST fenced ```json block in your output.
+```
+
+**Common R1 universal blockers** (catalogue):
 - Returncode precedence undefined (TRN-3022)
-- I/O contract widening (TRN-3022)
+- I/O contract widening, e.g. write_synthesis return type (TRN-3022)
 - Static-template constraints incompatible with runtime gating (TRN-3022)
-- Stale-base reference / phantom file (TRN-3021)
+- Stale-base reference / phantom file (TRN-3021 — fixed by phase-2 branch hygiene)
+- Panel reviewing CLD-1800 weights instead of TRN-1800 (PR #69 R3 lesson)
 
-Iterate on R2/R3+ until gate met. CHG `Status: Approved` lands only after gate.
+**Gate enforcement**: all-individual ≥ 9.0 AND every reviewer's `blocking` empty. Mean is informational only.
+
+| Panel result | Action |
+|--------------|--------|
+| 4 PASS, mean ≥ 9.0, all blocking empty | Status: Approved → phase 5 |
+| 3 PASS + 1 FIX | NOT passed — fix dissenter's blockers, re-dispatch |
+| 4 PASS but one reviewer at 8.95 | NOT passed — 8.95 ≠ "near-pass"; fix or justify |
+| 4 PASS, blocking empty, advisories present | Passed — fix convergent advisories before code-review (phase 8) |
 
 ### 5. Dispatch — orchestrator vs worker
 
-**Heuristic (after PR #68 convergence):**
+```mermaid
+flowchart TD
+    A[Implementation task] --> B{Generated file<br/>regen only?}
+    B -- Yes --> O1[ORCHESTRATOR<br/>run make build]
+    B -- No --> C{≤ 2 lines in<br/>one function?}
+    C -- Yes --> O2[ORCHESTRATOR<br/>direct edit]
+    C -- No --> D{Signature change<br/>crossing call sites?}
+    D -- Yes --> W1[WORKER<br/>trinity-glm via droid exec]
+    D -- No --> E{New helpers /<br/>new files /<br/>multi-file refactor?}
+    E -- Yes --> W2[WORKER]
+    E -- No --> F{Test additions<br/>≥ 5 cases?}
+    F -- Yes --> W3[WORKER]
+    F -- No --> G{Single file<br/>AND no contract change?}
+    G -- Yes --> O3[ORCHESTRATOR]
+    G -- No --> H{Multi-section<br/>doc edit?}
+    H -- Yes --> W4[WORKER]
+    H -- No --> O4[ORCHESTRATOR]
+```
 
-| Change shape | Lane |
-|--------------|------|
-| ≤ 2-line surgical fix in one function | Orchestrator-direct |
-| Single file, no signature change, no new helper | Orchestrator-direct |
-| Signature change crossing call sites | Worker (`trinity-glm` via `droid exec`) |
-| New helpers / new files / multi-file refactor | Worker |
-| Test additions ≥ 5 cases | Worker |
-| Generated-file regeneration | Orchestrator-direct (run `make build`) |
-| Substantial doc edits affecting structure | Worker if multi-section; orchestrator if single section |
+**Why the threshold matters**: every `droid exec` round-trip costs ~30-90s + the worker's own context window. For a typo fix that's a 95% loss; for a 200-line refactor that's a 95% gain (orchestrator context stays clean for plan-review prompts).
 
-The orchestrator is faster for surgical fixes and avoids round-trip overhead. The worker scales for substantial changes and isolates the orchestrator's context from large diffs.
+**Edge cases not in the tree:**
 
-**Worker dispatch contract:**
-- Pass the CHG path; do not inline the spec into the prompt.
-- Specify the implementation order from the CHG.
-- List the exact verification commands (pytest, ruff, make verify-built, af validate).
-- Constrain: do NOT push or commit. Orchestrator owns git ops.
-- Ask for a structured report: files modified, helpers added, signature changes, test count, verification outputs, ambiguities resolved.
+- **Symbol rename across N files** → worker (even if each per-file change is small).
+- **Coordinated edit to one section + one test** → orchestrator (still single conceptual change).
+- **5+ small fixes from a bot batch** → orchestrator, sequentially. Don't dispatch a worker for a list of grep-and-replaces.
+- **Investigation that may or may not require code** → orchestrator first; promote to worker only if the diagnosis grows.
+
+**Sample worker dispatch prompt** (sections shown as bold labels; in the actual `Agent` tool prompt these can be `##` headings — see PR #69 / #71 dispatch transcripts for worked instances):
+
+- **Provider role line** — e.g. "Provider: glm (CODING WORKER role)".
+- **Project + branch** — absolute project path; branch name + base SHA from `origin/main`.
+- **Invoke directive** — e.g. "INVOKE `droid exec` for the actual edits".
+- **Task** — point at the CHG path. Do NOT inline the full spec — the worker reads the file.
+- **High-level summary** — one paragraph stating intent.
+- **Implementation order** — numbered steps copied from CHG §Implementation Order.
+- **Constraints (must-haves)** — bullets that capture panel-derived non-negotiables (e.g. "regex MUST use `(?ims)` — all 4 panel reviewers caught the missing `s` flag in v2"). These are the things the worker MUST NOT regress.
+- **Verification** — fenced shell block listing exact commands: pytest, ruff check, ruff format --check, make verify-built (if providers/ changed), af validate.
+- **Expected outputs** — test count, lint clean, format clean, af 0 issues.
+- **Process constraints** — bullets:
+  - Do NOT push or commit. Orchestrator handles git ops.
+  - Do NOT update the CHG document — orchestrator adds the round history row.
+  - Spec ambiguities → prefer the more conservative interpretation, flag in report.
+- **Output** — request structured report: files modified, helpers added (file:line), modified signatures, test count + names, verification outputs, ambiguities resolved + how.
+
+**Worker dispatch contract** (do not omit):
+- Pass the CHG path; do not inline the spec.
+- Specify implementation order.
+- List exact verification commands.
+- Constrain: do NOT push or commit.
+- Ask for structured report.
 
 ### 6. Verify worker
 
@@ -179,26 +312,62 @@ PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue
 
 ### 8. Iterate (CI + bot + code-review panel)
 
-After R1 push:
-- Wait for CI green on both runners (Linux + macOS).
-- Wait for codex bot review (`chatgpt-codex-connector[bot]`). Bot reacts 👍 on the PR (no findings) or posts inline comments.
-- Dispatch the 4-provider code-review panel (same shape as plan-review, but reviewing the diff, not the CHG).
+```mermaid
+flowchart TD
+    A[R<n> pushed] --> B[ScheduleWakeup<br/>delay=270s]
+    B --> C{CI green<br/>both runners?}
+    C -- No --> D[Read failing log<br/>fix → push R<n+1>]
+    D --> A
+    C -- Yes --> E{Bot reviewed<br/>this commit?}
+    E -- No --> F[Wait another 270s]
+    F --> E
+    E -- Yes --> G{Bot 👍<br/>no findings?}
+    G -- No --> H[Triage bot finding<br/>see phase 9]
+    H --> A
+    G -- Yes --> I{Code-review<br/>panel run yet<br/>on this head?}
+    I -- No --> J[Dispatch 4-provider<br/>panel parallel]
+    J --> K{All 4 ≥ 9.0<br/>blocking == []?}
+    K -- No --> L[Triage panel findings<br/>see phase 9]
+    L --> A
+    K -- Yes --> M[Mergeable<br/>→ phase 10]
+    I -- Yes --> M
+```
 
-Use `ScheduleWakeup` to poll without burning context. Default cadence: 270s (stays in 5-min cache window). Don't poll faster than every 60s.
+**Polling cadence rules** (from `ScheduleWakeup` doc):
+- Default: 270s (stays inside 5-min cache window).
+- Never < 60s (rate limits, no signal benefit).
+- Never == 300s (cache-miss penalty without amortization).
+- For long jobs (CI slow, panel slow): 1200-1800s.
 
 ### 9. Triage
 
-Bot/panel findings classification:
+```mermaid
+flowchart TD
+    A[Finding from bot or panel] --> B{Severity?}
+    B -- "Blocking<br/>FIX in any reviewer" --> X1[Fix in next R<br/>panel did NOT pass]
+    B -- "P2 / P3 from bot" --> C{Real bug?<br/>repros / wrong output / contract violation}
+    C -- Yes --> X2[Fix in next R]
+    C -- No --> D[Spec/UX nit]
+    D --> E{Convergent<br/>≥2 reviewers<br/>flag same thing?}
+    B -- Advisory --> E
+    E -- Yes --> X3[Fix in next R<br/>convergence = proven]
+    E -- No --> F{Stated as<br/>future-refactor /<br/>out-of-scope?}
+    F -- Yes --> X4[Note in PR body<br/>ship; file follow-up<br/>if worth it]
+    F -- No --> X5[Batch into tail R<br/>or defer if marginal]
+```
 
-| Severity | Action |
-|----------|--------|
-| Blocking (FIX in any reviewer) | Fix in next R (R2, R3, …); panel didn't pass |
-| P2 from bot | Real bug → fix in next R; spec/UX nit → batch with other advisories |
-| Convergent advisory (≥2 reviewers) | Fix in next R |
-| Single-reviewer advisory | Batch into a tail R; defer if marginal |
-| "Future refactor" / out-of-scope | Note in PR body, ship; file follow-up if needed |
+**Worked example** (PR #69 R3 → R4 triage):
 
-After each R fix push, the same loop runs (CI, bot, optionally re-dispatch panel). Re-dispatch the panel only when blockers were addressed; for advisory-only iterations, the prior gate score still holds.
+| Finding | Reviewer(s) | Severity | Decision |
+|---------|-------------|----------|----------|
+| `results.index(result)` fragile | codex + glm + deepseek | Convergent advisory | Fix R4 |
+| Surface 3 doc gap (3 of 6 providers miss section) | codex + deepseek | Convergent advisory | Fix R4 |
+| `_render_findings_for` duplicate logic | deepseek | Single advisory | Fix R4 (compression boost) |
+| Multi-provider all-legacy snapshot test | deepseek | Single advisory | Fix R4 |
+| `task_type` case normalization | deepseek | Single advisory | Fix R4 |
+| Future write_synthesis refactor | deepseek | Future-refactor | Note in PR body, ship |
+
+Re-dispatch the panel only when blockers (or convergent advisories) were addressed. Pure single-advisory polish doesn't need re-scoring — the prior gate stands.
 
 ### 10. Handoff
 
