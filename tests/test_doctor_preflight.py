@@ -173,6 +173,31 @@ def test_a4c_mode_644_NOT_ok(tmp_path, monkeypatch):
     assert result["mode_ok"] is False
 
 
+def test_a4c_symlink_uses_lstat(tmp_path, monkeypatch):
+    """Codex bot PR #68 finding: wrapper_auth_check must use lstat() so
+    symlinks report their OWN mode (typically 777), not the target's.
+    Otherwise doctor reports mode_ok=True for a symlink → 0600 target,
+    while the wrapper's `stat -c '%a'` on Linux would report 777 and
+    refuse to read."""
+    import os as _os
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    secrets = tmp_path / ".secrets"
+    secrets.mkdir()
+    target = tmp_path / "real_secret"
+    target.write_text("sk-target\n")
+    target.chmod(0o600)  # target is 0600
+    link = secrets / "deepseek_api_key"
+    _os.symlink(target, link)
+    result = wrapper_auth_check("deepseek")
+    # On Linux, lstat reports symlink mode as 0o777 — mode_ok should be False.
+    # On macOS, lstat reports 0o755 — also False.
+    # Either way the symlink's own mode is NOT 600 or 400.
+    assert result["source"] == "file"
+    assert result["mode_ok"] is False
+
+
 # ---------------------------------------------------------------------------
 # A5: non-wrapper providers
 # ---------------------------------------------------------------------------
@@ -264,6 +289,17 @@ def test_a14_metadata_none_treats_all_as_required():
     results = [_make_health_result("codex", ok=False, issues=["x"])]
     assert health_results_ok(results) is False
     assert health_results_ok(results, preset_metadata=None) is False
+
+
+def test_a14_overlap_required_wins(tmp_path):
+    """Codex bot PR #68 finding: a provider listed in BOTH `providers` and
+    `optional_providers` must be treated as REQUIRED for exit-code purposes.
+    Without subtraction, the optional set membership would silently demote
+    the issue and exit 0."""
+    results = [_make_health_result("glm", ok=False, issues=["auth missing"])]
+    metadata = {"providers": ["glm"], "optional_providers": ["glm", "codex"]}
+    # glm appears in BOTH lists; required wins → exit 1.
+    assert health_results_ok(results, preset_metadata=metadata) is False
 
 
 # ---------------------------------------------------------------------------

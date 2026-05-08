@@ -464,7 +464,13 @@ def wrapper_auth_check(provider):
             "mode_ok": None,
         }
     try:
-        mode = file_path.stat().st_mode & 0o777
+        # Use lstat to match wrapper's `stat -c '%a' "$KEY_FILE"` behavior:
+        # on GNU/Linux that reports the symlink's own mode (typically 777),
+        # not the target's. Following the symlink (file_path.stat()) would
+        # report a 0600 target as ok while the wrapper still refuses to
+        # read the symlink at runtime — inconsistency caught by codex bot
+        # on PR #68.
+        mode = file_path.lstat().st_mode & 0o777
     except OSError:
         return {
             "source": "file",
@@ -708,7 +714,11 @@ def format_health_results(
     # Verbose mode.
     optional_set = set()
     if preset_metadata is not None:
-        optional_set = set(preset_metadata.get("optional_providers", []))
+        # Subtract REQUIRED to match health_results_ok demotion logic
+        # (codex bot finding on PR #68): a provider in BOTH lists is
+        # treated as required.
+        required_set = set(preset_metadata.get("providers", []))
+        optional_set = set(preset_metadata.get("optional_providers", [])) - required_set
 
     required_results = [r for r in results if r["provider"] not in optional_set]
     optional_results = [r for r in results if r["provider"] in optional_set]
@@ -757,7 +767,14 @@ def health_results_ok(results, *, preset_metadata=None):
     """
     optional_set = set()
     if preset_metadata is not None:
-        optional_set = set(preset_metadata.get("optional_providers", []))
+        # Subtract REQUIRED first: if a provider appears in BOTH
+        # `providers` (required) and `optional_providers`, the required
+        # designation wins (resolve_preset_providers selects it as
+        # required first). Codex bot finding on PR #68: without this
+        # subtraction, an overlap silently demotes a fatal issue to
+        # warning-only and exits 0.
+        required_set = set(preset_metadata.get("providers", []))
+        optional_set = set(preset_metadata.get("optional_providers", [])) - required_set
     for result in results:
         if result.get("issues") and result["provider"] not in optional_set:
             return False
