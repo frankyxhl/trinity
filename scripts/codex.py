@@ -2246,7 +2246,10 @@ def cmd_review(args):
         )
         progress("writing synthesis")
         summary, synthesis_path = write_synthesis(review_dir, args.scope, results)
-        progress(_format_cli_summary(summary, synthesis_path))
+        # TRN-3028: emit the completion line directly to stderr without the
+        # `trinity: ` progress prefix so callers can key off the documented
+        # "trinity review: <verdict> — ..." prefix at the START of the line.
+        print(_format_cli_summary(summary, synthesis_path), file=sys.stderr)
     except KeyboardInterrupt:
         started_providers = providers if "results" in locals() else []
         write_incomplete(review_dir, "interrupted", providers, started_providers, {})
