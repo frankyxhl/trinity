@@ -351,6 +351,21 @@ def test_a15_verbose_no_preset_single_section():
     assert "glm: OK - /bin/droid" in out
 
 
+def test_optional_provider_issues_render_as_warn_not_fail():
+    """Codex bot PR #68 round-3 P2 finding: OPTIONAL provider with issues
+    must render as WARN headline (not FAIL), since health_results_ok
+    demotes the issue to non-fatal. Without this, doctor exits 0 but
+    display says FAIL — user-visible inconsistency."""
+    results = [
+        _make_health_result("codex", ok=False, issues=["command not found: codex"]),
+    ]
+    metadata = {"providers": ["glm"], "optional_providers": ["codex"]}
+    out = format_health_results(results, preset_metadata=metadata, verbose=True)
+    # Headline for optional provider must say WARN, not FAIL.
+    assert "codex: WARN -" in out
+    assert "codex: FAIL -" not in out
+
+
 def test_verbose_includes_env_pollution():
     results = [
         _make_health_result("glm", ok=True, executable="/bin/droid", timeout=360)

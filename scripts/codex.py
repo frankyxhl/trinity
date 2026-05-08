@@ -642,9 +642,15 @@ def provider_health_results(config, providers, root):
     return results
 
 
-def _format_provider_block(result):
-    """Render one provider's verbose block. Helper for format_health_results."""
+def _format_provider_block(result, *, optional=False):
+    """Render one provider's verbose block. Helper for format_health_results.
+
+    When optional=True, NOT-OK providers render as `WARN` instead of
+    `FAIL` because health_results_ok demotes their issues to warnings
+    (codex bot finding on PR #68 round 3).
+    """
     provider = result["provider"]
+    fail_label = "WARN" if optional else "FAIL"
     lines = []
     if result.get("ok"):
         first = (
@@ -654,7 +660,7 @@ def _format_provider_block(result):
     else:
         # First non-fatal warning OR first issue feeds the headline.
         if result.get("issues"):
-            first = f"{provider}: FAIL - {result['issues'][0]}"
+            first = f"{provider}: {fail_label} - {result['issues'][0]}"
         else:
             first = (
                 f"{provider}: OK - {result.get('executable')} "
@@ -680,7 +686,7 @@ def _format_provider_block(result):
     for w in result.get("warnings", []):
         lines.append(f"    warning: {w}")
     for issue in result.get("issues", []):
-        if first.startswith(f"{provider}: FAIL - {issue}"):
+        if first.startswith(f"{provider}: {fail_label} - {issue}"):
             continue  # already in headline
         lines.append(f"    issue: {issue}")
     return lines
@@ -733,7 +739,7 @@ def format_health_results(
         if optional_results:
             lines.append("OPTIONAL:")
             for r in optional_results:
-                lines.extend(_format_provider_block(r))
+                lines.extend(_format_provider_block(r, optional=True))
                 lines.append("")
     else:
         # No preset → single PROVIDERS section.
