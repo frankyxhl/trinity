@@ -5,6 +5,7 @@ import argparse
 import concurrent.futures
 import datetime as dt
 import difflib
+import fnmatch
 import importlib.util
 import json
 import os
@@ -1078,6 +1079,80 @@ def timeout_partial_output(exc, stdout=None, stderr=None):
     )
 
 
+_UNIVERSAL_ENV_KEEP_LITERAL = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "TERM",
+        "SHELL",
+        "TZ",
+        "TMPDIR",
+        "XDG_RUNTIME_DIR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "SSH_AUTH_SOCK",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "PWD",
+    }
+)
+_UNIVERSAL_ENV_KEEP_GLOB = ("LC_*", "GIT_*")
+_DEFAULT_ENV_CLEAR_PATTERNS = (
+    "*_BASE_URL",
+    "*_API_BASE",
+    "*_API_HOST",
+    "OTEL_*",
+    "TRINITY_DISABLE_DISPATCH",
+)
+
+
+def _matches_any(key, patterns):
+    return any(fnmatch.fnmatchcase(key, pat) for pat in patterns)
+
+
+def _is_essential(key):
+    if key in _UNIVERSAL_ENV_KEEP_LITERAL:
+        return True
+    return _matches_any(key, _UNIVERSAL_ENV_KEEP_GLOB)
+
+
+def build_provider_env(base_env=None):
+    """Build a sanitized env dict for spawning provider CLIs (TRN-3023).
+
+    Strips known-problematic patterns (vendor *_BASE_URL overrides, OTEL_*
+    telemetry leakage, TRINITY_DISABLE_DISPATCH from caller's shell).
+    Preserves universal essentials regardless of clear patterns. Returns
+    a fresh dict suitable for `subprocess.Popen(env=...)`.
+
+    Universal essentials are checked BEFORE the clearlist, so a future
+    clearlist pattern that happened to match an essential (e.g., a
+    pattern accidentally globbing PATH) would still preserve the
+    essential.
+
+    `base_env=None` resolves to `os.environ` at call time (avoids the
+    mutable-default antipattern if `os.environ` mutates between calls).
+
+    Patterns use `fnmatch.fnmatchcase` (case-sensitive — POSIX env
+    names ARE case-sensitive even on macOS/Windows).
+    """
+    if base_env is None:
+        base_env = os.environ
+    sanitized = {}
+    for key, value in base_env.items():
+        if _is_essential(key):
+            sanitized[key] = value
+            continue
+        if _matches_any(key, _DEFAULT_ENV_CLEAR_PATTERNS):
+            continue
+        sanitized[key] = value
+    return sanitized
+
+
 def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
     raw_path = review_dir / "raw" / f"{provider}.txt"
     cmd = provider_command(provider, provider_config) + [
@@ -1099,6 +1174,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             stderr=subprocess.PIPE,
             text=True,
             start_new_session=True,
+            env=build_provider_env(),
         )
         registry.add(provider, popen, started)
         stdout, stderr = popen.communicate(timeout=timeout)
