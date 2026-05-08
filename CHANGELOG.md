@@ -3,11 +3,28 @@
 ## [Unreleased]
 
 ### Added
+- `trinity doctor` now surfaces wrapper-provider auth state (env-or-file
+  precedence with mode 600/400 check, mirroring `providers/bin/<wrapper>`),
+  timeout sanity warnings (timeout < 60s), shell env pollution from the
+  TRN-3023 clearlist (so operators can audit `direnv` setups), and the
+  resolved CLI string per provider. Required-provider auth issues are fatal
+  (exit 1); optional-provider issues are demoted to warnings (exit 0). (#38)
+- `resolve_preset_providers` returns `providers` (REQUIRED) and
+  `optional_providers` keys in its metadata dict alongside the existing 5;
+  doctor uses these to render REQUIRED/OPTIONAL split.
 - `rules/TRN-1007-SOP-PR-Readiness.md` — gate checklist run by the author
   before opening a PR. Closes the documentation-drift gap PR #61 and PR #64
   surfaced (CHG passes panel + bot review but README/CHANGELOG drifts
   silently). Each new CHG's Acceptance Criteria table now references the
   relevant SOP sections by default. (#65)
+
+### Changed
+- `format_health_results` gains a `verbose` parameter (default False) plus
+  `env_pollution` and `preset_metadata` kwargs. `cmd_doctor` calls with
+  `verbose=True`; `cmd_review --check-providers` continues to use the
+  default and emits the existing single-line format unchanged.
+  First line per provider is still `{provider}: OK - {executable} (timeout Ns)`
+  for grep compatibility. (TRN-3021)
 
 ## [3.2.0] - 2026-05-07
 

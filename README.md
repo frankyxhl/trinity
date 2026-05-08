@@ -252,9 +252,20 @@ trinity doctor --preset fast-review
 trinity review --check-providers --preset dr
 ```
 
-Health checks validate config shape, CLI lookup, executable permissions, and
-timeouts. They do not call the provider, so API-key or quota errors can still
-surface during an actual review.
+Health checks validate config shape, CLI lookup, executable permissions,
+timeouts, **wrapper-provider auth files** (env-or-file precedence with mode
+600/400 check, mirroring `providers/bin/<wrapper>` behavior), **timeout
+sanity** (warns if `< 60s`), **shell env pollution** (lists vars matching
+the TRN-3023 spawn-time clearlist — `*_BASE_URL`, `OTEL_*`, etc. — so
+operators can audit their `direnv` / shell setup), and the resolved CLI
+string per provider. Output now splits **REQUIRED** vs **OPTIONAL** providers
+(driven by the active preset's metadata); REQUIRED-provider auth issues are
+fatal (exit 1), OPTIONAL-provider issues are demoted to warnings (exit 0).
+The first line per provider stays `{provider}: OK - {executable} (timeout Ns)`
+so existing `grep` patterns continue to work.
+
+Doctor still does not call the provider, so API-key or quota errors can
+still surface during an actual review.
 
 ### Run a review
 
