@@ -616,15 +616,15 @@ Two gate compositions, depending on trigger pattern (per §1 trigger-pattern tab
 
 **User-directed pick** (the user types "pick TRN-3025" / "next issue" in live chat): the live chat input IS the consent signal, and the rocket-gate is BYPASSED for the picked item per the §1 normative bypass clause. The user message both grants the mandate AND substitutes for 🚀.
 
-When the relevant gate is satisfied, scope-rank the queue:
+When the relevant gate is satisfied, scope-rank the queue. **Whether 🚀 is required depends on the trigger pattern (see §1 normative bypass clause); the rank rules below describe SCOPE precedence, not the consent signal.**
 
-1. **Deferred internal tech-debt** (e.g. TRN-3025/3026/3030) with a rocketed tracking issue — usually doc-only or single-file, well-scoped from prior PR review.
-2. **Issues unblocked by the just-shipped PR** — natural continuity (still requires 🚀).
-3. **Single-file CHGs in the open issue list** — TRN-2027-shaped work (still requires 🚀).
-4. **Multi-surface CHGs with clear scope** — TRN-3022-shaped work (still requires 🚀).
+1. **Deferred internal tech-debt** (e.g. TRN-3025/3026/3030) — usually doc-only or single-file, well-scoped from prior PR review.
+2. **Issues unblocked by the just-shipped PR** — natural continuity.
+3. **Single-file CHGs in the open issue list** — TRN-2027-shaped work.
+4. **Multi-surface CHGs with clear scope** — TRN-3022-shaped work.
 5. **Broad audits / large designs** — defer; ask user even if 🚀 (rocket signals consent to triage; doesn't autograft scope).
 
-Never pick something whose scope you can't state in one sentence. **For autonomous picks (continuation / loop-driven), never pick something without 🚀 from `$TRUSTED_REACTOR`** (configured at top of §1). User-directed picks (live chat input) bypass the rocket-gate per the §1 normative bypass clause — the user message is itself the consent signal.
+Never pick something whose scope you can't state in one sentence. Consent-signal requirements are governed by the §1 normative bypass clause (single source of truth for bypass semantics) — do not restate them here.
 
 ---
 
@@ -751,7 +751,21 @@ The 3-strikes rule prevents an infrastructure flake from masquerading as a code 
 
 ### Follow-up bot comments after initial 👍
 
-GitHub review bots can post additional findings on later commits even after they 👍'd an earlier commit. The iterate tree must re-poll the bot's reactions on **each** new R-push, not assume the prior 👍 carries forward. Specifically: at phase 8, when polling `gh pr view --json reviews,comments`, treat any bot comment whose `submittedAt` (for reviews) or `createdAt` (for issue comments) is after the current HEAD's push timestamp as a NEW finding to triage — even if the same bot 👍'd the previous head. **Note on field names**: `gh` returns camelCase JSON (`submittedAt`, `createdAt`) — NOT REST-API snake_case (`submitted_at`, `created_at`). A `--jq` filter using snake_case sees `null` and silently misses new findings.
+GitHub review bots can post additional findings on later commits even after they 👍'd an earlier commit. The iterate tree must re-poll the bot's reactions on **each** new R-push, not assume the prior 👍 carries forward.
+
+**Three endpoints to poll** (missing any one can leave inline blockers untriaged):
+
+| Source | Endpoint | What it carries |
+|--------|----------|-----------------|
+| Review summaries / approvals | `gh api repos/$REPO/pulls/$N/reviews` (or `gh pr view --json reviews`) | top-level review body + state (APPROVED / COMMENTED / CHANGES_REQUESTED) |
+| PR conversation comments | `gh api repos/$REPO/issues/$N/comments` (or `gh pr view --json comments`) | issue-thread comments on the PR (no path/line) |
+| **Inline (path/line) review comments** | `gh api repos/$REPO/pulls/$N/comments` | line-anchored review comments — **this is the form codex bot uses on this PR**; NOT served by `gh pr view --json comments` |
+
+The third endpoint is the one this SOP's iteration depends on most — every codex-bot finding in PR #73's R5-R14 came through `pulls/$N/comments`, not `issues/$N/comments`. A polling loop that only checks the first two endpoints would conclude "no new findings" while inline blockers accumulate.
+
+Poll all three on every R-push. Treat any comment whose `submittedAt` (for reviews) or `createdAt` (for issue/inline comments) is after the current HEAD's push timestamp as a NEW finding to triage — even if the same bot 👍'd the previous head.
+
+**Note on field names**: `gh` returns camelCase JSON (`submittedAt`, `createdAt`) — NOT REST-API snake_case (`submitted_at`, `created_at`). A `--jq` filter using snake_case sees `null` and silently misses new findings.
 
 ### Rocket revocation mid-loop
 
@@ -791,3 +805,4 @@ Before posting its own claim, the orchestrator MUST re-poll the issue's comments
 | 2026-05-09 | R12: codex bot caught 2 more bugs in R10 fixes. P1 (line 162): R10 body-content sha256 hash fails when body is edited BETWEEN rocket-time and FIRST verify call — initial verify hashes the already-edited body, all later re-verifies match that edited hash, pre-pick edit attack escapes. Fix: replaced body-hash with timeline-events check — `gh api repos/$REPO/issues/$N/timeline --paginate \| jq -rs ... select(.event == "edited" and .created_at > rocket_created)`. Anchored to rocket_created (not orchestrator-side state), so edits at ANY time after rocket consent are caught. Function no longer takes prior_body_hash parameter; each call self-contained. P2 (line 240): R10 `git switch -C` (force-create) silently overwrote `codex/<slug>` if it existed with unpushed work from aborted earlier attempt or parallel session. Fix: `git switch -c` (create-only, fails on exist) + explicit error path with 3 resolution options (resume / delete / stash-elsewhere). Threat Model rows for body-edit + reopened-with-stale-🚀 updated to reference timeline-events instead of updatedAt. | Claude Opus 4.7 |
 | 2026-05-09 | R13: codex bot caught 2 more in R12. P1 (line 185): R12 timeline filter only matched `event == "edited"` — closed→reopened cycle uses `closed`/`reopened` events (not `edited`), so a rocketed issue closed and reopened (potentially by an attacker if they have write access, OR by the rocketor changing their mind) keeps stale consent. Fix: extend filter to include `edited`, `closed`, `reopened`, `transferred`, `unlocked` — any state-affecting event after rocket invalidates. P2 (line 607): §Auto-Pick Policy detail still said "user mandate AND rocket-gate must both be satisfied" contradicting the §1 normative bypass clause. Fix: split into two gate compositions per trigger pattern — autonomous (continuation/loop) needs both mandate + rocket-gate; user-directed (live chat) bypasses rocket-gate, message itself is consent. Resolves a contradiction that survived R10's first attempt. | Claude Opus 4.7 |
 | 2026-05-09 | R14: codex bot caught 2 more in R13. P1 (line 188): R13 invalidator list missed `renamed` event — title changes after rocket consent slipped through. Per §1 bypass clause, title text is an untrusted non-user-directed channel; if the title can be changed after rocket and still pass the gate, the channel-trust assertion is broken. Fix: added `renamed` to the invalidator list (now: edited/renamed/closed/reopened/transferred/unlocked). P2 (line 627): the bypass-vs-rocket-gate contradiction surfaced for the THIRD time in a different location (§Auto-Pick Policy detail paragraph that says "Never pick something without 🚀") — same contradiction the §1 trigger table fix (R10) and §Auto-Pick Policy gate composition fix (R13) addressed in TWO other places. Fix: also qualified this third statement to be autonomous-only; user-directed bypass per §1 normative clause. Plus same fix in §Guard Rails for symmetry. The bypass clause now reads consistently across §1 trigger table + §1 normative paragraph + §Auto-Pick Policy gate composition + §Auto-Pick Policy "Never pick" rule + §Guard Rails. | Claude Opus 4.7 |
+| 2026-05-09 | R15: codex bot caught 2 more in R14. P2 (line 754) — META BUG: §8 polling instructions say "poll `gh pr view --json reviews,comments`" but that misses INLINE path/line review comments (the very form codex bot uses on this PR). Inline review comments live at `repos/$REPO/pulls/$N/comments` (NOT `/issues/$N/comments`). Every R5-R14 codex finding came through this missed endpoint. Fix: §"Follow-up bot comments" rewritten with 3-endpoint table (reviews / issue comments / inline review comments) and explicit note that all three must be polled. P2 (line 624) — bypass-vs-rocket contradiction surfaced for the **6th** time (§Auto-Pick Policy rank rows still said "(still requires 🚀)"). R10/R13/R14 each thought they had nailed it; the bot kept finding new locations because the rule was duplicated 6+ times throughout. Root-cause refactor: §1 normative bypass clause is now declared as the **single source of truth**; §Auto-Pick Policy rank rows stripped of their "(still requires 🚀)" parenthetical re-statements; §Auto-Pick Policy "Never pick" rule says "Consent-signal requirements are governed by the §1 normative bypass clause — do not restate them here." Future bypass-related changes touch §1 only; everything else references §1. | Claude Opus 4.7 |
