@@ -2080,7 +2080,8 @@ def write_synthesis(review_dir, scope, results):
     summary = _compute_summary(results, parsed_per_provider)
     summary_lines = _render_summary_block(summary)
 
-    # Legacy path: byte-identical to pre-TRN-3022 output.
+    # Legacy path: same Provider Status table + Notes shape as pre-TRN-3022,
+    # but TRN-3028 prepends a Summary block (verdict=LEGACY) at the top.
     if not any_structured:
         lines = [
             "# Trinity Review Synthesis",

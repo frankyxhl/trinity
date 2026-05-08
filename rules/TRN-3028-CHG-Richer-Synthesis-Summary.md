@@ -73,7 +73,7 @@ Trade-off: exact-string match misses paraphrases ("Race condition" vs "Race in w
 - **A1**: Summary block appears between scope line and Provider Status, in both legacy and enriched paths.
 - **A2**: Verdict precedence correct (INCONCLUSIVE wins over NEEDS_FIXES; LEGACY only when no structured).
 - **A3**: Provider counts equal `len(results)` in total; all-rc=0 + all-parsed-PASS → "N/N PASS · 0 FIX · 0 FAIL".
-- **A4**: Mean score computed only over rc=0 providers with parsed scores; "—" when none.
+- **A4**: Mean score computed only over rc=0 providers with parsed scores. When no score is available, the `(mean score X.XX)` parenthetical is OMITTED entirely (cleaner than rendering "—") in both the markdown block and the CLI line.
 - **A5**: Findings count = sum(len(blocking)+len(advisories)) across rc=0 parsed providers.
 - **A6**: Convergence count = number of distinct titles appearing in ≥2 providers' findings.
 - **A7**: Legacy path Summary block has Verdict=LEGACY and "—" for score/findings/convergence.

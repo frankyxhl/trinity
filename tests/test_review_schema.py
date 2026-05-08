@@ -215,6 +215,57 @@ def test_a5_enriched_pass_status(tmp_path):
     assert content.index("## Summary") < content.index("## Provider Status")
 
 
+def test_a5_enriched_all_pass_full_snapshot(tmp_path):
+    """TRN-3028 R3 (glm panel advisory): snapshot the full enriched
+    synthesis.md output for a minimal ALL_PASS case so accidental
+    whitespace/ordering drift in write_synthesis's enriched branch is
+    caught (mirrors the legacy snapshot tests).
+    """
+    block = json.dumps(
+        {
+            "decision": "PASS",
+            "weighted_score": 9.5,
+            "blocking": [],
+            "advisories": [],
+        }
+    )
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    (raw_dir / "glm.txt").write_text(f"```json\n{block}\n```")
+    results = [_make_result("glm", returncode=0, raw="raw/glm.txt")]
+    write_synthesis(tmp_path, "spikes/test", results)
+    content = (tmp_path / "synthesis.md").read_text()
+    expected = (
+        "# Trinity Review Synthesis\n"
+        "\n"
+        "Scope: spikes/test\n"
+        "\n"
+        "## Summary\n"
+        "\n"
+        "- **Verdict**: ALL_PASS\n"
+        "- **Providers**: 1/1 PASS · 0 FIX · 0 FAIL (mean score 9.50)\n"
+        "- **Findings**: 0 blocking · 0 advisories\n"
+        "- **Convergence**: none\n"
+        "\n"
+        "## Provider Status\n"
+        "\n"
+        "| Provider | Status | Raw Output |\n"
+        "|----------|--------|------------|\n"
+        "| glm | PASS (9.5) | `raw/glm.txt` |\n"
+        "\n"
+        "## Findings\n"
+        "\n"
+        "### glm — PASS (9.5, 0 blocking, 0 advisories)\n"
+        "\n"
+        "\n"
+        "## Notes\n"
+        "\n"
+        "This synthesis is deterministic. Inspect raw provider outputs for findings and conflicts.\n"
+        "\n"
+    )
+    assert content == expected, f"snapshot mismatch:\n---got---\n{content}\n---expected---\n{expected}"
+
+
 def test_a5_enriched_fix_status(tmp_path):
     fix_block = json.dumps(
         {
