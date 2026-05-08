@@ -190,15 +190,17 @@ git log origin/main --oneline -3   # verify expected merge state
 # flagged: clean worktree + existing branch with unpushed commits =
 # `-C` resets that branch to origin/main and orphans the commits.
 git switch -c codex/<slug> origin/main || {
-    # If creation failed because the branch exists, decide explicitly:
-    #   1. If you intended to resume that branch → `git switch codex/<slug>`
-    #      and verify its base is current origin/main.
-    #   2. If you intended a fresh branch → `git branch -D codex/<slug>`
-    #      ONLY after confirming no unpushed commits matter, then re-run.
-    #   3. If the existing branch has unpushed work you forgot about →
-    #      stash/push that work elsewhere first, then choose 1 or 2.
-    echo "ERROR: branch codex/<slug> exists. Resolve per options above." >&2
-    return 1
+    # If creation failed because the branch exists, ABORT and decide
+    # explicitly (the snippet does NOT auto-resolve — manual intervention
+    # is required, since auto-deletion could lose unpushed commits):
+    #   1. Resume → `git switch codex/<slug>` and verify base is origin/main
+    #   2. Fresh branch → `git branch -D codex/<slug>` (only after
+    #      confirming no unpushed commits matter), then re-run
+    #   3. Stash unpushed work elsewhere first, then choose 1 or 2
+    echo "ERROR: branch codex/<slug> exists. Manual intervention required (see options 1-3 above)." >&2
+    exit 1   # `exit` works at top-level scripts AND interactively;
+             # `return` would error outside a function and let the
+             # operator continue on the wrong branch unnoticed.
 }
 ```
 
@@ -538,7 +540,7 @@ The auto-pick loop must reject any candidate that wasn't explicitly consented to
 - **Never trust worker reports without spot-checking**. The worker says "done"; you verify "done".
 - **Never sleep > 270s when cache is warm and you're polling**. The 5-min prompt-cache TTL is a real cost.
 - **Never amend a published commit**. Add a new commit. The CHG history table tracks iterations.
-- **Never invent work when no candidate is rocket-eligible.** Idle silently; wait for the user to file or rocket an issue.
+- **For autonomous picks, never invent work when no candidate is rocket-eligible.** Idle silently; wait for the user to file/rocket an issue, OR for a live-chat user-directed instruction (which bypasses the rocket-gate per §1 normative bypass clause).
 - **Never skip the CHG for substantive changes**. Plan-review can't run without something to review.
 
 ---
@@ -614,3 +616,4 @@ Two orchestrators racing for the same rocketed issue: best-effort claim-comment 
 | 2026-05-09 | R15: codex bot caught 2 more in R14. P2 (line 754) — META BUG: §8 polling instructions say "poll `gh pr view --json reviews,comments`" but that misses INLINE path/line review comments (the very form codex bot uses on this PR). Inline review comments live at `repos/$REPO/pulls/$N/comments` (NOT `/issues/$N/comments`). Every R5-R14 codex finding came through this missed endpoint. Fix: §"Follow-up bot comments" rewritten with 3-endpoint table (reviews / issue comments / inline review comments) and explicit note that all three must be polled. P2 (line 624) — bypass-vs-rocket contradiction surfaced for the **6th** time (§Auto-Pick Policy rank rows still said "(still requires 🚀)"). R10/R13/R14 each thought they had nailed it; the bot kept finding new locations because the rule was duplicated 6+ times throughout. Root-cause refactor: §1 normative bypass clause is now declared as the **single source of truth**; §Auto-Pick Policy rank rows stripped of their "(still requires 🚀)" parenthetical re-statements; §Auto-Pick Policy "Never pick" rule says "Consent-signal requirements are governed by the §1 normative bypass clause — do not restate them here." Future bypass-related changes touch §1 only; everything else references §1. | Claude Opus 4.7 |
 | 2026-05-09 | R16: codex bot caught 2 more in R15. P2 (line 99) — bypass contradiction surfaced INSIDE §1 itself: the "🚀 ROCKET GATE" intro paragraph (lines 99) said "An item is eligible **only** when it has a tracked GitHub issue with a 🚀" — directly contradicting the bypass clause 13 lines above (lines 86-95). R15's "single source of truth" refactor missed that §1's own intro paragraph contradicted §1's own bypass clause. Fix: qualified the ROCKET GATE intro to "For autonomous auto-pick" + added explicit "User-directed picks bypass this gate per the bypass clause above" sentence. P2 (line 768) — R15 §8 polling: switched to `gh api` endpoints but kept R6's camelCase note (which was about `gh pr view --json`). `gh api` returns REST-raw snake_case (`submitted_at`/`created_at`); `gh pr view --json` returns gh-wrapper camelCase (`submittedAt`/`createdAt`). My R15 note told readers "use camelCase" but the new commands need snake_case. Fix: replaced the field-name note with a 5-row table mapping command form → field-name convention, plus rule-of-thumb "gh api = REST = snake_case; gh pr view = wrapper = camelCase" + recommendation to pick REST since inline-review-comments endpoint is only on `gh api`. R1 → R16 = 15 rounds. | Claude Opus 4.7 |
 | 2026-05-09 | R17: RADICAL SIMPLIFICATION (user direction: "感觉自己写的逻辑不通，是吧？" — yes, doc had accreted contradictions through R1-R16 incremental amendment). 819 → 615 lines (-25%). Cuts: (1) `verify_rocket_eligibility` 50-line bash function with inline comments → 5-row spec table describing the 4 checks (state OPEN+unlocked, 🚀 from $TRUSTED_REACTOR, no invalidating timeline events, fail-closed on errors), with a brief "history" paragraph noting why the spec is shaped this way (R5/R10/R12/R13 evolution). (2) Deleted §"Panel-Review Gate (detail)" — content already lived in §4. (3) Deleted §"Auto-Pick Policy (detail)" — bypass-vs-rocket gate composition was duplicated in §1; rank rules were duplicated in §1. (4) Threat Model 16-row table → 1 prose paragraph naming each attack class + defense. (5) §Failure Modes 9 subsections → 4 (merged Provider unavailability + Reviewer timeout; merged Rocket revocation + Post-handoff rejection into User override mid-loop; consolidated CI states + bot polling into single "Iterate-phase failures" subsection with both tables). RATIONALE: bot caught 6 bypass-clause contradictions across R10/R13/R14/R15/R16/R17 — not because each fix was wrong but because the rule was duplicated 6+ times. Each fix found one location; bot found the next. R15's single-source-of-truth refactor was correct direction but didn't go far enough. R17 collapses the duplications into one statement per concept. Bot iteration was working as designed (incremental discovery), but the SOP was over-specified — too many places asserting the same thing. | Claude Opus 4.7 |
+| 2026-05-09 | R18: codex bot caught 2 P2 in R17. (1) §2 git-switch error path used `return 1` which only works inside a function — at top-level shell or in a copy-pasted script, `return` errors and execution continues, leaving operator on the wrong branch. Fix: `exit 1` plus explicit "Manual intervention required" wording. (2) §Guard Rails "Never invent work when no candidate is rocket-eligible" was unqualified (8th bypass-rule contradiction across R10-R17). Fix: qualified to "For autonomous picks" + back-reference to §1 normative bypass clause. ITERATION HONEST READ: bot keeps finding tiny noise even after R17's radical simplification — the pattern is no longer surfacing P1 bugs (last P1 was R12→R13), only P2 wording inconsistencies. Recommendation in next iteration: stop after R18 unless P1 appears, or accept that 17 PR-review rounds is the natural floor for a security-meaningful spec written incrementally. | Claude Opus 4.7 |
