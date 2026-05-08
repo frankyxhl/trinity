@@ -172,19 +172,25 @@ verify_rocket_eligibility() {
   #   - R10 used body-content sha256 hash compared on re-verify
   #     → fails when body is edited BETWEEN rocket-time and FIRST
   #       verify call: initial hash captures the already-edited body,
-  #       all later re-verifies match that hash. Pre-pick edit attack
-  #       is not caught.
-  # CURRENT APPROACH: query GitHub's `/timeline` API for "edited" events
-  # and require none with created_at > rocket_created. This anchors
-  # against rocket_created (the rocket consent moment), not against
-  # any orchestrator-side state. Catches edits at any time after rocket.
-  local edits_after_rocket
-  edits_after_rocket=$(gh api "repos/$REPO/issues/$issue_num/timeline" --paginate 2>/dev/null \
+  #       all later re-verifies match that hash.
+  #   - R12 only matched `event == "edited"`
+  #     → fails on close→reopen sequence (events are `closed`/`reopened`,
+  #       NOT `edited`). Stale rocket survives a state-change cycle.
+  # CURRENT APPROACH: query GitHub's `/timeline` API for ANY of the
+  # state-affecting events — `edited`, `closed`, `reopened`, `transferred`,
+  # `unlocked` — and require none with created_at > rocket_created.
+  # Anchored to rocket_created (the consent moment), not orchestrator
+  # state. Catches body edits AND state cycles at any time after rocket.
+  local invalidating_events
+  invalidating_events=$(gh api "repos/$REPO/issues/$issue_num/timeline" --paginate 2>/dev/null \
                         | jq -rs --arg rocket "$rocket_created" \
-                            'flatten | map(select(.event == "edited"
-                                                  and .created_at > $rocket))
-                                     | length') || return 1
-  [[ "$edits_after_rocket" -eq 0 ]] || return 1
+                            '[ "edited", "closed", "reopened",
+                               "transferred", "unlocked" ] as $invalidators
+                             | flatten
+                             | map(select((.event | IN($invalidators[]))
+                                          and .created_at > $rocket))
+                             | length') || return 1
+  [[ "$invalidating_events" -eq 0 ]] || return 1
 
   # All checks passed: state OPEN + unlocked + 🚀 from $TRUSTED_REACTOR
   # + no body edits after rocket consent. Eligible.
@@ -604,9 +610,13 @@ When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 
 ## Auto-Pick Policy (detail)
 
-Two gates compose. The user must grant the auto-pick mandate ("once mergeable, pick the next issue without asking") AND each candidate item must independently pass the rocket-gate (§1, R4). The mandate is per-session; the rocket-gate is per-item.
+Two gate compositions, depending on trigger pattern (per §1 trigger-pattern table):
 
-When both gates are satisfied, scope-rank the queue:
+**Autonomous auto-pick** (continuation or loop-driven): the user must have granted an auto-pick mandate ("once mergeable, pick the next issue without asking") AND each candidate item must independently pass the rocket-gate (§1, R4). The mandate is per-session; the rocket-gate is per-item.
+
+**User-directed pick** (the user types "pick TRN-3025" / "next issue" in live chat): the live chat input IS the consent signal, and the rocket-gate is BYPASSED for the picked item per the §1 normative bypass clause. The user message both grants the mandate AND substitutes for 🚀.
+
+When the relevant gate is satisfied, scope-rank the queue:
 
 1. **Deferred internal tech-debt** (e.g. TRN-3025/3026/3030) with a rocketed tracking issue — usually doc-only or single-file, well-scoped from prior PR review.
 2. **Issues unblocked by the just-shipped PR** — natural continuity (still requires 🚀).
@@ -779,3 +789,4 @@ Before posting its own claim, the orchestrator MUST re-poll the issue's comments
 | 2026-05-09 | R10: codex-bot R5-R9 findings — 3 P1 (rocket-gate end-to-end broken!) + 2 P2. P1 `gh issue view --json locked` is NOT a supported field per gh CLI manual; my R5 fail-closed-on-error caused EVERY rocketed issue to be rejected — the gate never opened. Fix: switched to `gh api repos/$REPO/issues/$N` (REST). P1 `--paginate --jq` filter runs PER PAGE; with no rocket, output was `null\nnull\nnull...` and non-empty test passed — gate INCORRECTLY marked unrocketed issues eligible. Fix: pipe pages through `jq -rs flatten | filter | first` so jq runs ONCE. P1 R5 TOCTOU vs R5 claim-comment cancelled each other out — claim comments bump `updatedAt`, every claimed auto-pick failed re-verify and aborted. Fix: replaced `updatedAt` comparison with body-content sha256 hash. P2 §2 `git checkout main && git pull` could inherit local-ahead divergence — replaced with `git switch -C codex/<slug> origin/main`. P2 §1 trigger table contradicted bypass clause for User-driven row — fixed. | Claude Opus 4.7 |
 | 2026-05-09 | R11: §8 expanded with concrete `ScheduleWakeup` usage. User question prompted: "ScheduleWakeup 是一个 skill 吗?" — no, it's a Claude Code runtime tool (primitive with typed schema). Documented (a) tool vs skill terminology distinction, (b) MUST-DO after every R-push (real SOP violation discovered post-R10 — orchestrator forgot to schedule wakeup, went idle), (c) the 3 parameters with constraints, (d) prompt-content requirements (PR/R/SHA + summary + trigger pattern), (e) relationship to `/loop` slash command (`/loop` is user-only; ScheduleWakeup works regardless), (f) cadence rules with 300s anti-pattern explicit, (g) chained-short-sleeps anti-pattern flagged as runtime-blocked, (h) full sample invocation showing R10 PR #73 poll. | Claude Opus 4.7 |
 | 2026-05-09 | R12: codex bot caught 2 more bugs in R10 fixes. P1 (line 162): R10 body-content sha256 hash fails when body is edited BETWEEN rocket-time and FIRST verify call — initial verify hashes the already-edited body, all later re-verifies match that edited hash, pre-pick edit attack escapes. Fix: replaced body-hash with timeline-events check — `gh api repos/$REPO/issues/$N/timeline --paginate \| jq -rs ... select(.event == "edited" and .created_at > rocket_created)`. Anchored to rocket_created (not orchestrator-side state), so edits at ANY time after rocket consent are caught. Function no longer takes prior_body_hash parameter; each call self-contained. P2 (line 240): R10 `git switch -C` (force-create) silently overwrote `codex/<slug>` if it existed with unpushed work from aborted earlier attempt or parallel session. Fix: `git switch -c` (create-only, fails on exist) + explicit error path with 3 resolution options (resume / delete / stash-elsewhere). Threat Model rows for body-edit + reopened-with-stale-🚀 updated to reference timeline-events instead of updatedAt. | Claude Opus 4.7 |
+| 2026-05-09 | R13: codex bot caught 2 more in R12. P1 (line 185): R12 timeline filter only matched `event == "edited"` — closed→reopened cycle uses `closed`/`reopened` events (not `edited`), so a rocketed issue closed and reopened (potentially by an attacker if they have write access, OR by the rocketor changing their mind) keeps stale consent. Fix: extend filter to include `edited`, `closed`, `reopened`, `transferred`, `unlocked` — any state-affecting event after rocket invalidates. P2 (line 607): §Auto-Pick Policy detail still said "user mandate AND rocket-gate must both be satisfied" contradicting the §1 normative bypass clause. Fix: split into two gate compositions per trigger pattern — autonomous (continuation/loop) needs both mandate + rocket-gate; user-directed (live chat) bypasses rocket-gate, message itself is consent. Resolves a contradiction that survived R10's first attempt. | Claude Opus 4.7 |
