@@ -437,6 +437,26 @@ PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue
 
 ### 8. Iterate (CI + bot + code-review panel)
 
+**`ScheduleWakeup` is the iterate-phase mechanism.** It is a Claude Code **runtime tool** (not a skill, not a slash command) that schedules a future re-wake of the orchestrator with a specified prompt. The tool has three parameters:
+
+| Param | Purpose | Constraints |
+|-------|---------|-------------|
+| `delaySeconds` | When to wake up | runtime clamps to `[60, 3600]` |
+| `prompt` | What to fire on wake-up — usually a poll instruction referencing the just-pushed head SHA | self-contained (the wakeup is a fresh turn) |
+| `reason` | One-sentence telemetry shown to the user | be specific: `Poll PR #N R<m> bot review on head <sha>` |
+
+**MUST-DO after every R-push** — call `ScheduleWakeup` immediately. Forgetting this is a real SOP violation: the orchestrator goes idle and bot/CI signals accumulate unobserved. The only exceptions are (a) the user just instructed something else, OR (b) the PR is already mergeable and you're handing off.
+
+The `prompt` parameter MUST include:
+
+1. PR number + R-number + head SHA (so the woken orchestrator knows what to check)
+2. Summary of what this R fixed (so the woken orchestrator can spot regressions)
+3. Trigger pattern context — which of §1's three patterns this is operating under (continuation / loop-driven), since the woken orchestrator might re-evaluate auto-pick eligibility for follow-up work
+
+**Tool vs skill — terminology** (per the user question that prompted R11): tools are Claude Code runtime primitives with typed schemas (`Read`, `Edit`, `Bash`, `ScheduleWakeup`, `Agent`, `TaskCreate`). Skills are markdown-bundle workflows under `~/.claude/skills/` invoked via the `Skill` tool. `ScheduleWakeup` is a tool — it is not a skill, not a slash command, not a concept.
+
+**Relationship to `/loop`** — `/loop` is a slash command the *user* types (only the user can invoke it; the orchestrator cannot). `/loop <seconds>` runs cron-mode (fixed interval); `/loop` with no argument runs dynamic mode where the orchestrator self-paces using `ScheduleWakeup`. For PR-iteration (this phase), `ScheduleWakeup` works regardless of whether `/loop` is active — but in `/loop` dynamic mode the wakeups feed back into the loop's continuation; outside `/loop`, each wakeup completes when this conversation turn ends.
+
 ```mermaid
 flowchart TD
     A[R<n> pushed] --> B[Use ScheduleWakeup tool<br/>delay=270s]
@@ -466,11 +486,25 @@ flowchart TD
     I -- Yes --> M
 ```
 
-**Polling cadence rules** (from the `ScheduleWakeup` tool's documentation — `ScheduleWakeup` is a tool name, not a concept):
-- Default: 270s (stays inside 5-min cache window).
-- Never < 60s (rate limits, no signal benefit).
-- Never == 300s (cache-miss penalty without amortization).
-- For long jobs (CI slow, panel slow): 1200-1800s.
+**Polling cadence rules:**
+
+- **Default: 270s** — stays inside the 5-minute prompt-cache TTL. Most CI jobs + bot reviews complete in ≤ 5 min.
+- **Never < 60s** — runtime rate-limits, and no signal benefit (CI doesn't change that fast).
+- **Never == 300s** — exact cache-miss boundary; you pay the cache-miss cost without amortising it. Either drop to 270s (cache-warm) or jump to ≥ 1200s.
+- **Long-running jobs**: CI > 5 min OR panel review > 5 min → 1200–1800s. Pay one cache miss, get a longer wait.
+- **No work pending** (waiting for user reaction or upstream merge): 1800–3600s. Don't burn ticks on nothing.
+
+**Anti-pattern — chained short sleeps**: `ScheduleWakeup(60); ScheduleWakeup(60); ...` is detected and clamped/blocked by the runtime to prevent the cache-warm-fast-poll trap. Use a single longer delay.
+
+**Sample `ScheduleWakeup` invocation** (after pushing R10 of PR #73):
+
+```
+ScheduleWakeup(
+  delaySeconds=270,
+  reason="Poll PR #73 R10 bot review on head 760164d",
+  prompt="PR #73 (TRN-1008) R10 head 760164d poll. R10 fixed 3 P1 + 2 P2 (locked-field invalid → REST API; --paginate per-page bug → jq -rs slurp; TOCTOU vs claim-comment self-cancel → body-sha256-hash; git pull → git switch -C; trigger-table contradiction). Check (1) new bot comments on 760164d, (2) PR mergeable status, (3) bot 👍 reaction. If new findings, fix them. If clean, hand off to user for merge per §10. This poll is in §1 'Continuation' trigger mode."
+)
+```
 
 ### 9. Triage
 
@@ -723,3 +757,4 @@ Before posting its own claim, the orchestrator MUST re-poll the issue's comments
 | 2026-05-09 | R8: deleted `templates/` entirely. User question: "为什么我们需要这个 templates? 不能删掉吗?" Audit confirmed: throughout the entire R1-R7 session, the orchestrator (this Claude) never copy-pasted from any sample template — every panel-review and worker-dispatch prompt was constructed fresh from the SOP's normative description. The templates were insurance that never paid out. Both weights tables (code + doc) are already inline in §4 (lines 294, 304); JSON schema is described in §4; worker contract is in §5; CHG structure is in §3 bullet list. Templates contained nothing not derivable from the SOP itself. Replaced 3 SOP pointers with concrete inline guidance: §3 CHG-skeleton pointer → "see TRN-3022-CHG-* for worked instance"; §4 plan-review-prompt pointer → expanded inline with USE-TRN-1800 reminder + PASS-gate restatement; §5 worker-dispatch-prompt pointer → expanded with full dispatch contract. SOP is now self-contained; one source of truth, zero drift risk. | Claude Opus 4.7 |
 | 2026-05-09 | R9: added §1 "How phase 1 fires" subsection with three trigger patterns (user-driven, continuation, loop-driven via Claude Code `/loop`); user question "你有一个叫 loop 的概念" — yes, `/loop <seconds>` schedules periodic re-fires; this is the hands-off mode where user only needs to 🚀 an issue and the next tick auto-picks it. Documented 1800s (30min) as a reasonable cadence default. Also clarified §1 mermaid entry node from vague `Candidate item` → `Candidate item: open GitHub issue (any author) OR deferred TRN-* tech-debt note` per user feedback ("Candidate item 是什么意思?"). | Claude Opus 4.7 |
 | 2026-05-09 | R10: codex-bot R5-R9 findings — 3 P1 (rocket-gate end-to-end broken!) + 2 P2. P1 `gh issue view --json locked` is NOT a supported field per gh CLI manual; my R5 fail-closed-on-error caused EVERY rocketed issue to be rejected — the gate never opened. Fix: switched to `gh api repos/$REPO/issues/$N` (REST). P1 `--paginate --jq` filter runs PER PAGE; with no rocket, output was `null\nnull\nnull...` and non-empty test passed — gate INCORRECTLY marked unrocketed issues eligible. Fix: pipe pages through `jq -rs flatten | filter | first` so jq runs ONCE. P1 R5 TOCTOU vs R5 claim-comment cancelled each other out — claim comments bump `updatedAt`, every claimed auto-pick failed re-verify and aborted. Fix: replaced `updatedAt` comparison with body-content sha256 hash. P2 §2 `git checkout main && git pull` could inherit local-ahead divergence — replaced with `git switch -C codex/<slug> origin/main`. P2 §1 trigger table contradicted bypass clause for User-driven row — fixed. | Claude Opus 4.7 |
+| 2026-05-09 | R11: §8 expanded with concrete `ScheduleWakeup` usage. User question prompted: "ScheduleWakeup 是一个 skill 吗?" — no, it's a Claude Code runtime tool (primitive with typed schema). Documented (a) tool vs skill terminology distinction, (b) MUST-DO after every R-push (real SOP violation discovered post-R10 — orchestrator forgot to schedule wakeup, went idle), (c) the 3 parameters with constraints, (d) prompt-content requirements (PR/R/SHA + summary + trigger pattern), (e) relationship to `/loop` slash command (`/loop` is user-only; ScheduleWakeup works regardless), (f) cadence rules with 300s anti-pattern explicit, (g) chained-short-sleeps anti-pattern flagged as runtime-blocked, (h) full sample invocation showing R10 PR #73 poll. | Claude Opus 4.7 |
