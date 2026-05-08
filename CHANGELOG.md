@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- `rules/TRN-1007-SOP-PR-Readiness.md` — gate checklist run by the author
+  before opening a PR. Closes the documentation-drift gap PR #61 and PR #64
+  surfaced (CHG passes panel + bot review but README/CHANGELOG drifts
+  silently). Each new CHG's Acceptance Criteria table now references the
+  relevant SOP sections by default. (#65)
+
 ## [3.2.0] - 2026-05-07
 
 ### Added
