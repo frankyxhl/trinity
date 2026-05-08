@@ -454,3 +454,65 @@ def test_cli_field_uses_shlex_join(tmp_path):
     assert "echo" in cli
     assert "--foo" in cli
     assert "bar" in cli
+
+
+# ---------------------------------------------------------------------------
+# Canonical wrapper exact path match (PR #68 round-4)
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_wrapper_rejects_substring_match(tmp_path, monkeypatch):
+    """Codex bot PR #68 round-4 P2 finding: _is_canonical_wrapper must use
+    exact path match, not substring. A custom executable named
+    `deepseek-test` or under a non-canonical `/tmp/skills/trinity/bin/`
+    path must NOT trigger wrapper auth probing."""
+    from codex import _is_canonical_wrapper
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    fake_dir = tmp_path / ".codex" / "skills" / "trinity" / "bin"
+    fake_dir.mkdir(parents=True)
+    fake = fake_dir / "deepseek-test"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+    assert _is_canonical_wrapper(str(fake), "deepseek") is False, (
+        "deepseek-test must not match canonical deepseek wrapper"
+    )
+
+    other_dir = tmp_path / "tmp" / "skills" / "trinity" / "bin"
+    other_dir.mkdir(parents=True)
+    other = other_dir / "deepseek"
+    other.write_text("#!/bin/sh\n")
+    other.chmod(0o755)
+    assert _is_canonical_wrapper(str(other), "deepseek") is False, (
+        "non-canonical /tmp/skills/.../deepseek must not match"
+    )
+
+    real = fake_dir / "deepseek"
+    real.write_text("#!/bin/sh\n")
+    real.chmod(0o755)
+    assert _is_canonical_wrapper(str(real), "deepseek") is True, (
+        "canonical ~/.codex/skills/trinity/bin/deepseek must match"
+    )
+
+
+def test_canonical_wrapper_resolves_symlinks(tmp_path, monkeypatch):
+    """Symlinked install: if user has the real wrapper at a non-canonical
+    location and symlinks the canonical path to it, _is_canonical_wrapper
+    should still match (Path.resolve() follows the link)."""
+    import os as _os
+
+    from codex import _is_canonical_wrapper
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    real = tmp_path / "actual_wrapper"
+    real.write_text("#!/bin/sh\n")
+    real.chmod(0o755)
+
+    canonical_dir = tmp_path / ".claude" / "skills" / "trinity" / "bin"
+    canonical_dir.mkdir(parents=True)
+    canonical = canonical_dir / "deepseek"
+    _os.symlink(real, canonical)
+
+    assert _is_canonical_wrapper(str(canonical), "deepseek") is True

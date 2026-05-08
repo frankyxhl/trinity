@@ -487,30 +487,42 @@ def wrapper_auth_check(provider):
 
 
 def _is_canonical_wrapper(executable, provider):
-    """True if `executable` is the canonical wrapper script for `provider`.
+    """True iff `executable` is the actual canonical wrapper script for `provider`.
 
-    Canonical wrappers live under one of these install roots and have the
-    name `<provider>` in a `bin/` directory:
+    The canonical wrapper lives at one of these EXACT paths (exact basename
+    match, no substring fuzzing):
       - <HOME>/.claude/skills/trinity/bin/<provider>
       - <HOME>/.codex/skills/trinity/bin/<provider>
-      - <repo>/providers/bin/<provider>
+      - <repo>/providers/bin/<provider>  (when running tests from repo root)
 
-    Test fixtures using `<tmp_path>/bin/<provider>` will NOT match —
-    that's the point: doctor's wrapper-auth check should only fire when
-    the user has actually installed the canonical wrapper.
+    Custom configs that reuse the provider name with a different executable
+    (e.g. `deepseek-test`) or a different path (e.g. `/tmp/skills/trinity/
+    bin/deepseek`) won't match, so cmd_doctor's wrapper-auth check stays
+    out of their way.
+
+    Compares against `Path(executable).resolve()` so a symlinked install
+    still matches the canonical target.
     """
     if executable is None or provider not in _WRAPPER_AUTH_CONFIG:
         return False
-    p = str(executable)
-    # Match the canonical install root pattern (claude or codex).
-    needle = f"/skills/trinity/bin/{provider}"
-    if needle in p:
-        return True
-    # Repo-relative dev path (running tests from the repo root with
-    # provider config pointing at providers/bin/<provider>).
-    repo_needle = f"/providers/bin/{provider}"
-    if p.endswith(repo_needle):
-        return True
+    try:
+        actual = Path(executable).resolve()
+    except (OSError, RuntimeError):
+        return False
+
+    home = Path(os.path.expanduser("~"))
+    candidates = [
+        home / ".claude" / "skills" / "trinity" / "bin" / provider,
+        home / ".codex" / "skills" / "trinity" / "bin" / provider,
+        Path(__file__).resolve().parent.parent / "providers" / "bin" / provider,
+    ]
+
+    for c in candidates:
+        try:
+            if c.resolve() == actual:
+                return True
+        except (OSError, RuntimeError):
+            continue
     return False
 
 
