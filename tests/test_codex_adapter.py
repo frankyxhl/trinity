@@ -847,12 +847,7 @@ def test_codex_review_strict_cor1602_cor1609_prompt_and_metadata(tmp_path):
         "pass_threshold": 9.0,
         "calibration": "COR-1611",
         "decision_rule": (
-            # Note: decision_rule text comes from the global STRICT_REVIEW_DECISION_RULE
-            # constant, which CHG-3032 raised to 9.5 (Trinity project default — fast-review
-            # tier). The COR-1602/COR-1609 template's per-template `pass_threshold` stays
-            # at 9.0 (above) — this inconsistency is a known design tension; tracked for
-            # parameterized-per-template fix in a follow-up CHG.
-            "PASS when weighted_average >= 9.5 and no blocking findings remain; "
+            "PASS when weighted_average >= 9.0 and no blocking findings remain; "
             "otherwise FIX."
         ),
         "output_schema": [
@@ -1636,3 +1631,76 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
 
     assert rc == 0, err
     assert f"deepseek: OK - {deepseek_wrapper} (timeout 600s)" in out
+
+
+def test_strict_cor_reviewer_at_9_2_passes():
+    """Surface 9: under strict COR template (threshold 9.0), a 9.2/PASS verdict is NOT FIX-coerced."""
+    import json as _json
+    from pathlib import Path as _Path
+    import sys as _sys
+    _ROOT = _Path(__file__).resolve().parent.parent
+    if str(_ROOT / "scripts") not in _sys.path:
+        _sys.path.insert(0, str(_ROOT / "scripts"))
+    import codex as _codex_mod
+    payload = _json.dumps({
+        "decision": "PASS",
+        "weighted_score": 9.2,
+        "blocking": [],
+        "advisories": [],
+    })
+    raw = f"```json\n{payload}\n```"
+    result = _codex_mod.parse_structured_review(raw, pass_threshold=9.0)
+    assert result is not None
+    assert result["effective_decision"] == "PASS"
+
+
+def test_fast_review_panel_at_9_4_coerces_to_FIX():
+    """Surface 9b: with no strict template (default 9.5), 9.4/PASS is FIX-coerced."""
+    import json as _json
+    from pathlib import Path as _Path
+    import sys as _sys
+    _ROOT = _Path(__file__).resolve().parent.parent
+    if str(_ROOT / "scripts") not in _sys.path:
+        _sys.path.insert(0, str(_ROOT / "scripts"))
+    import codex as _codex_mod
+    payload = _json.dumps({
+        "decision": "PASS",
+        "weighted_score": 9.4,
+        "blocking": [],
+        "advisories": [],
+    })
+    raw = f"```json\n{payload}\n```"
+    result = _codex_mod.parse_structured_review(raw)
+    assert result is not None
+    assert result["effective_decision"] == "FIX"
+
+
+def test_parse_structured_review_default_threshold():
+    """Surface 9c: parse_structured_review with no kwarg uses _REVIEW_PASS_THRESHOLD (9.5)."""
+    import json as _json
+    from pathlib import Path as _Path
+    import sys as _sys
+    _ROOT = _Path(__file__).resolve().parent.parent
+    if str(_ROOT / "scripts") not in _sys.path:
+        _sys.path.insert(0, str(_ROOT / "scripts"))
+    import codex as _codex_mod
+    # Score 9.5 should PASS (>= 9.5)
+    payload_pass = _json.dumps({
+        "decision": "PASS",
+        "weighted_score": 9.5,
+        "blocking": [],
+        "advisories": [],
+    })
+    raw_pass = f"```json\n{payload_pass}\n```"
+    result_pass = _codex_mod.parse_structured_review(raw_pass)
+    assert result_pass["effective_decision"] == "PASS"
+    # Score 9.4 should FIX (< 9.5)
+    payload_fix = _json.dumps({
+        "decision": "PASS",
+        "weighted_score": 9.4,
+        "blocking": [],
+        "advisories": [],
+    })
+    raw_fix = f"```json\n{payload_fix}\n```"
+    result_fix = _codex_mod.parse_structured_review(raw_fix)
+    assert result_fix["effective_decision"] == "FIX"

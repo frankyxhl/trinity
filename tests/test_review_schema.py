@@ -950,3 +950,21 @@ def test_review_schema_addendum_accepts_uppercase_task_type():
     text = _review_schema_addendum("REVIEW")
     assert text != ""
     assert "decision" in text
+
+
+# ---------------------------------------------------------------------------
+# Surface 9d: addendum is tier-aware (strict template vs fast-review default)
+# ---------------------------------------------------------------------------
+
+
+def test_review_schema_addendum_tier_aware():
+    """Surface 9d: addendum emits >= 9.0 for strict template, >= 9.5 for fast-review tier."""
+    strict_text = _review_schema_addendum(
+        "review", strict_review={"pass_threshold": 9.0}
+    )
+    assert ">= 9.0" in strict_text
+    assert ">= 9.5" not in strict_text
+
+    default_text = _review_schema_addendum("review")
+    assert ">= 9.5" in default_text
+    assert ">= 9.0" not in default_text

@@ -54,6 +54,10 @@
   and 100+ issues forcing pagination. (TRN-3029, #85)
 
 ### Changed
+- `scripts/codex.py` — `STRICT_REVIEW_DECISION_RULE` parameterized per template
+  (decoupled from fast-review-tier 9.5 default). Strict COR-1602/COR-1609
+  reviews now correctly PASS at the template's `pass_threshold: 9.0`.
+  Closes #98.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §1 + NEW §1.5 + §5 + §7 + §8 + §Guard Rails + §Failure
   Modes + §Threat Model — orchestrator-discipline bundle: (1) §5
   worker dispatch is now DEFAULT (orchestrator-direct reserved for
