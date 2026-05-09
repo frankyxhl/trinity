@@ -207,9 +207,9 @@ After an issue passes the §1 rocket-gate's structural intake validation (5-chec
 
 Three outcomes:
 
-- **PROCEED** — all 6 points pass; continue to §2 branch hygiene.
-- **CLARIFY** — post structured comment with `- [ ]` checkbox questions; **defer pickup**; do NOT remove `blueprint-ready` label; re-evaluate on body edits or next phase-1 tick.
-- **REJECT** — post comment with rejection reasoning; add `needs-redesign` label; decline pickup.
+- **PROCEED** — all 6 points pass; **continue to §1's scope-rank tree** (the existing `B`/`C`/`D`/`E` nodes — mandate check, dependency check, one-sentence scope test, type/rank). Phase 2 (branch hygiene) is reached only after the scope-rank tree selects a valid candidate.
+- **CLARIFY** — **identity-gate first** (`gh auth status` MUST show `ryosaeba1985` active per §2 / user-level CLAUDE.md before any GH-visible write); then post structured comment with `- [ ]` checkbox questions; **defer pickup**; do NOT remove `blueprint-ready` label; re-evaluate on body edits or next phase-1 tick.
+- **REJECT** — **identity-gate first** (same `gh auth status` check as CLARIFY); then post comment with rejection reasoning; add `needs-redesign` label; decline pickup.
 
 **Comment template — CLARIFY:**
 
