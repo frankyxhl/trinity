@@ -89,6 +89,8 @@ The cron-driven recurrence is fragile and invisible. During #85 the cron was sto
 ## Reference Implementation
 
 ```
+# The leading `git rev-parse --abbrev-ref HEAD` check is the cancellation guard
+# (§1 mermaid prose, §Failure Modes); reuses git state as the cancel signal.
 # Surface 2 — §1 idle-with-retry invocation (fired when verify_rocket_eligibility
 # returns no eligible candidate AND no live-chat user-directed pick is pending).
 # The literal `idle wake N of 12` token is the prompt-embedded counter mechanism
@@ -97,7 +99,7 @@ The cron-driven recurrence is fragile and invisible. During #85 the cron was sto
 ScheduleWakeup(
   delaySeconds=1800,
   reason="TRN-1008 §1 idle-with-retry — no rocket-eligible candidate this tick",
-  prompt="TRN-1008 §1 phase-1 re-fire — idle wake 1 of 12. Re-run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is now eligible, proceed to scope-rank tree. If still idle, arm next 1800s wake with prompt containing `idle wake <N+1> of 12` unless §Failure Modes stop condition reached (12 consecutive idle wakes / user stop / session termination / ScheduleWakeup tool failure). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
+  prompt="TRN-1008 §1 phase-1 re-fire — idle wake 1 of 12. FIRST: run `git rev-parse --abbrev-ref HEAD`; if non-main, wake is no-op (active work in flight; do NOT enter phase 1). If on main: re-run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is now eligible, proceed to scope-rank tree. If still idle, arm next 1800s wake with prompt containing `idle wake <N+1> of 12` unless §Failure Modes stop condition reached (12 consecutive idle wakes / user stop / session termination / ScheduleWakeup tool failure). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
 )
 
 # Surface 4 — NEW §11 Loop restart invocation (fired at the end of the SOP,
@@ -105,7 +107,7 @@ ScheduleWakeup(
 ScheduleWakeup(
   delaySeconds=60,
   reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff",
-  prompt="TRN-1008 §11 loop restart. Prior PR is mergeable and handed off to Frank per §10. Re-enter phase 1: run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is rocket-eligible, proceed to scope-rank tree. If idle, arm §1 idle-with-retry (1800s wake). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
+  prompt="TRN-1008 §11 loop restart. FIRST: run `git rev-parse --abbrev-ref HEAD`; if non-main, wake is no-op (active work intervened post-handoff; do NOT enter phase 1). If on main: prior PR is mergeable and handed off to Frank per §10. Re-enter phase 1: run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is rocket-eligible, proceed to scope-rank tree. If idle, arm §1 idle-with-retry (1800s wake). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
 )
 ```
 
