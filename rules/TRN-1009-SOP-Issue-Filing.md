@@ -75,7 +75,7 @@ Then:
 1. Run `/blueprint` by posting it as a regular issue comment (`gh issue comment <N> --repo frankyxhl/trinity --body "/blueprint"`). The bot is webhook-driven on comment events and evaluates the intake against the 8-field structure.
 2. If `blueprint-requests-revision` is applied: read the bot's missing-fields list, edit the body, re-run `/blueprint` (revision round-trip). Repeat until `blueprint-ready` is applied.
 3. Confirm `iterwheel-stack[bot]` classification labels (Type / Area / Size / Risk). If `stack-needs-review` is applied, set them manually in the GitHub UI.
-4. Author (or any GitHub handle in `$TRUSTED_REACTOR` — see TRN-1008 §1 for the trusted-set definition) reacts 🚀 **on the issue body** (NOT on a comment) to enable autonomous auto-pick per TRN-1008 §1 rocket-gate (CHG-3029 5-check `verify_rocket_eligibility`).
+4. A trusted reactor (the repo owner `@frankyxhl`, or any handle in `$TRUSTED_REACTOR` — see TRN-1008 §1 for the trusted-set definition) reacts 🚀 **on the issue body** (NOT on a comment) to enable autonomous auto-pick per TRN-1008 §1 rocket-gate (CHG-3029 5-check `verify_rocket_eligibility`). The agent's `gh` CLI identity (`ryosaeba1985`) reacting does NOT satisfy the gate unless that handle is also in `$TRUSTED_REACTOR` — `verify_rocket_eligibility` check 2 requires the reaction to come from the trusted set, not from the issue author.
 
 ## Anti-patterns
 
@@ -139,3 +139,4 @@ No content duplicated below — pointers only.
 | 2026-05-09 | Initial version per issue #89; standardizes Blueprint intake + identity gate + post-filing 🚀 placement | Claude Opus 4.7 |
 | 2026-05-09 | Plan-review R1: nested Identity-Gate / Title / Body / AC / Post-filing under ## Steps to match TRN-1007's validator-friendly shape (instead of flat per spec). Content unchanged. | Claude (Opus 4.7) |
 | 2026-05-09 | Plan-review R2: rephrased #100 example to honestly reflect its title-fix round-trip (the SOP's own anti-pattern, in production); broadened §Anti-patterns item 2 header to cover missing-prefix and wrong-case-prefix; clarified `Requester:` vs `gh` identity in skeleton; replaced `#89 spec` historical reference in skeleton template. | Claude (Opus 4.7) |
+| 2026-05-09 | codex-bot R1 (PR #101): rephrased §Post-filing item 4 — only `$TRUSTED_REACTOR` reactions satisfy `verify_rocket_eligibility` check 2; agent's `gh` identity (`ryosaeba1985`) reacting does not pass the gate. | Claude (Opus 4.7) |
