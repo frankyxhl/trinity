@@ -99,16 +99,17 @@ Start: what kind of task is this?
 Run periodically (and as part of TRN-1801 evolve signal collection) to confirm every TRN SOP file on disk has a corresponding routing entry in the Decision Tree above:
 
 ```bash
-# Both sides canonicalized to TRN-NNNN tokens; LHS is filename-based (only actual
-# SOP files: 4-digit ACID + literal -SOP-), RHS is Decision-Tree-scoped (between
-# the two ## headings, so prose elsewhere in the file can't false-positive).
-# `comm -23` reports tokens present in LHS but missing from RHS — i.e., SOP files
-# on disk with no routing entry. (RHS may legitimately reference non-SOP TRN docs
-# such as TRN-1800 REF or TRN-2006 CHG; those are not drift.)
+# Both sides canonicalized to TRN-NNNN tokens. LHS is filename-based (only actual
+# SOP files: 4-digit ACID + literal -SOP-), excluding TRN-1000 itself (the routing
+# doc has no self-routing entry by design). RHS is Decision-Tree-scoped (range
+# stops BEFORE the Coverage audit section so the audit's own prose / snippet
+# filename can't false-positive). `comm -23` reports tokens present in LHS but
+# missing from RHS — i.e., SOP files on disk with no routing entry.
 comm -23 \
   <(ls rules/TRN-[0-9][0-9][0-9][0-9]-SOP-*.md \
+     | grep -v 'TRN-1000-SOP-Workflow-Routing' \
      | grep -oE 'TRN-[0-9]+' | sort -u) \
-  <(sed -n '/^## Project Decision Tree/,/^## Project Golden Rules/p' \
+  <(sed -n '/^## Project Decision Tree/,/^## Coverage audit/p' \
        rules/TRN-1000-SOP-Workflow-Routing-PRJ.md \
      | grep -oE 'TRN-[0-9]+' | sort -u)
 ```
