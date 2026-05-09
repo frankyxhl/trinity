@@ -28,6 +28,7 @@ test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 rel
 	bash tests/test_release_workflow.sh
 	bash tests/test_install_sh.sh
 	bash tests/test_make_bump.sh
+	bash tests/test_scan_rocket_issues.sh
 
 lint:           ## Check and format code (TRN-1002)
 	.venv/bin/ruff check dev/ scripts/ tests/

@@ -61,6 +61,8 @@ _download "scripts/session.py"        "${HOME}/.claude/skills/trinity/scripts/se
 _download "scripts/config.py"         "${HOME}/.claude/skills/trinity/scripts/config.py"
 _download "scripts/discover.py"       "${HOME}/.claude/skills/trinity/scripts/discover.py"
 _download "scripts/install.py"        "${HOME}/.claude/skills/trinity/scripts/install.py"
+_download "scripts/scan_rocket_issues.sh" "${HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh"
+chmod +x "${HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh"
 _download "providers/glm.md"          "${HOME}/.claude/agents/trinity-glm.md"
 _download "providers/codex.md"        "${HOME}/.claude/agents/trinity-codex.md"
 _download "providers/gemini.md"       "${HOME}/.claude/agents/trinity-gemini.md"

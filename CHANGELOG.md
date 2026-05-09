@@ -35,8 +35,30 @@
   all-individual ≥9.0) → worker dispatch heuristic → verify → PR open
   → CI/bot/code-review panel iterate → triage → handoff. Drafted at
   TRN-12xx scope; intended for COR-1200 promotion once stable.
+- `scripts/scan_rocket_issues.sh` — single-call GraphQL label-narrower
+  for the TRN-1008 §1 rocket-gate Phase 1 scan (TRN-3029, CHG-3029).
+  Returns OPEN issues with `blueprint-ready` label currently present;
+  per-candidate `verify_rocket_eligibility` (REST) is authoritative for
+  the full 5-check gate. Splitting narrowing from truth-checking avoids
+  GraphQL nested-connection truncation bugs (reactions, timeline,
+  labels) that any one-shot scanner would hit. Bash 3.2 compat; jq
+  required. Installed to `~/.claude/skills/trinity/scripts/`.
+- `tests/test_scan_rocket_issues.sh` — 8 mocked-`gh` test cases
+  (T1a-T1h) covering label-presence, pagination, REPO discovery
+  failure, `gh api` failure mid-pagination, empty repo, missing `jq`,
+  and 100+ issues forcing pagination. (TRN-3029, #85)
 
 ### Changed
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §1 rocket-gate now
+  evaluates a 5th check (TRN-3029, CHG-3029): `blueprint-ready` label
+  currently present AND most-recent `LABELED` event has `actor.login`
+  ∈ `{iterwheel-blueprint[bot], $TRUSTED_REACTOR}`. Two-layer gate:
+  intake quality (label) + consent (🚀). Mermaid `V` node and
+  fail-closed prose use generic "all checks (see spec table)" wording
+  — single source of truth. Bypass clause amended count-free: live
+  chat input subsumes both consent and intake-quality signals.
+  §Threat Model extended with the new attack/defense pair plus the
+  bot-timing-race note. Closes #85.
 - `rules/TRN-1006-SOP-Provider-Model-IDs.md` amended (TRN-3027): pin-location
   table now references `providers/registry.json` as authoritative for
   native-CLI providers (codex, glm); Section A steps replace "edit Makefile
