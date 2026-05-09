@@ -34,7 +34,7 @@ The §5 dispatch-heuristic mermaid and prose are rewritten to reflect this worke
 
 ### §1.5 NEW Comprehension check (#92)
 
-Inserts a new subsection **between §1 rocket-gate PASS branch and §2 branch hygiene**. After an issue passes the rocket-gate's structural intake validation (8-field `blueprint-ready`), the orchestrator runs a **6-point rubric** before creating any branch:
+Inserts a new subsection **between §1 rocket-gate PASS branch and §2 branch hygiene**. After an issue passes the §1 rocket-gate's structural intake validation (5-check `verify_rocket_eligibility`), the orchestrator runs a **6-point rubric** before creating any branch:
 
 1. **Scope clarity** — can the work be stated in one sentence?
 2. **Cross-section consistency** — do AC, Task Plan, and Expected Outcome agree?
