@@ -95,6 +95,18 @@
   watch tolerates user-directed picks during the wait + waits up to
   12h for late merges (was ~54min, then silent abandonment). CHG-3031
   (PR #96). Closes #95.
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §4 + §8 panel rules:
+  4 providers (gemini + codex + glm + deepseek) → 2 providers (glm +
+  deepseek); PASS gate raised from "all-individual ≥9.0" to "both
+  individual ≥9.5". §Failure Modes "≥3 viable providers" tiering
+  replaced with 2-provider availability rule (no fall-through).
+  §Guard Rails count-free per R17 SSOT. Codex's code-review
+  contribution preserved via post-push bot
+  (`chatgpt-codex-connector[bot]`); trinity-gemini signal lost
+  (accepted tradeoff). **Operator-visible**: future panels run 2
+  providers + ≥9.5 gate; expected ≥1 more R-iteration on average
+  vs prior 4-provider/9.0 (PR #87 R3 9.0/9.0 would have been FIX
+  under new rule). CHG-3032 (PR #N). Closes #88; supersedes #86.
 
 ## [3.2.0] - 2026-05-07
 
