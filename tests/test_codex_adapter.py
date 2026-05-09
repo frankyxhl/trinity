@@ -847,7 +847,12 @@ def test_codex_review_strict_cor1602_cor1609_prompt_and_metadata(tmp_path):
         "pass_threshold": 9.0,
         "calibration": "COR-1611",
         "decision_rule": (
-            "PASS when weighted_average >= 9.0 and no blocking findings remain; "
+            # Note: decision_rule text comes from the global STRICT_REVIEW_DECISION_RULE
+            # constant, which CHG-3032 raised to 9.5 (Trinity project default — fast-review
+            # tier). The COR-1602/COR-1609 template's per-template `pass_threshold` stays
+            # at 9.0 (above) — this inconsistency is a known design tension; tracked for
+            # parameterized-per-template fix in a follow-up CHG.
+            "PASS when weighted_average >= 9.5 and no blocking findings remain; "
             "otherwise FIX."
         ),
         "output_schema": [
