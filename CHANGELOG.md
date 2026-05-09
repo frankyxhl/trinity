@@ -106,7 +106,7 @@
   (accepted tradeoff). **Operator-visible**: future panels run 2
   providers + ≥9.5 gate; expected ≥1 more R-iteration on average
   vs prior 4-provider/9.0 (PR #87 R3 9.0/9.0 would have been FIX
-  under new rule). CHG-3032 (PR #N). Closes #88; supersedes #86.
+  under new rule). CHG-3032 (PR #97). Closes #88; supersedes #86.
 
 ## [3.2.0] - 2026-05-07
 
