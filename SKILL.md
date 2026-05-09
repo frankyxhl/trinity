@@ -319,7 +319,7 @@ Each agent gets its own instance key and independent session.
 
 1. Check `which <provider-cli>` → already in PATH → skip to step 4
 2. Try Homebrew: `brew search <provider>` → formula found → `brew install <formula>` → on failure fall through
-3. Try npm: `npm install -g <npm-package>` → on failure try pip (glm only) → on all failures: report ❌ + manual install link, abort
+3. Try npm: `npm install -g <npm-package>` → on failure try pip (glm and minimax — both droid-backed) → on all failures: report ❌ + manual install link, abort
 4. Copy agent template: `trinity/providers/<provider>.md` → `~/.claude/agents/trinity-<provider>.md`
 5. Register in `~/.claude/trinity.json` under `providers.<provider>` (atomic write: read → merge → write)
 6. Smoke test (Bash timeout 30s): `<cli> "Reply with exactly: trinity-ok"` → verify response contains `trinity-ok`
@@ -333,6 +333,7 @@ Each agent gets its own instance key and independent session.
 | codex  | `brew install codex`* | `npm i -g @openai/codex`      | —                      | OpenAI account    |
 | gemini | `brew install gemini-cli`* | `npm i -g @google/gemini-cli` | —             | Google account    |
 | glm    | —                     | —                             | `pip install factory-droid` | Factory AI account |
+| minimax| —                     | —                             | `pip install factory-droid` | Factory AI account |
 
 *Brew formula name verified at runtime via `brew search`; if no result or install fails, fall through to npm/pip.
 
