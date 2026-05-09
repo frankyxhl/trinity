@@ -62,6 +62,7 @@ t1_happy_path() {
         ".claude/skills/trinity/scripts/config.py"
         ".claude/skills/trinity/scripts/discover.py"
         ".claude/skills/trinity/scripts/install.py"
+        ".claude/skills/trinity/scripts/scan_rocket_issues.sh"
         ".claude/agents/trinity-glm.md"
         ".claude/agents/trinity-codex.md"
         ".claude/agents/trinity-gemini.md"
@@ -74,6 +75,10 @@ t1_happy_path() {
             _fail "T1: missing ${f}"; rm -rf "${FAKE_HOME}"; return
         fi
     done
+    # TRN-3029 A17: scan_rocket_issues.sh must be installed AND executable
+    if [ ! -x "${FAKE_HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh" ]; then
+        _fail "T1: scan_rocket_issues.sh not executable"; rm -rf "${FAKE_HOME}"; return
+    fi
     _pass "T1: happy path — all provider files installed"
     rm -rf "${FAKE_HOME}"
 }
