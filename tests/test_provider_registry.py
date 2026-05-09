@@ -40,7 +40,7 @@ README_PATH = ROOT / "README.md"
 SKILL_PATH = ROOT / "SKILL.md"
 PROVIDERS_DIR = ROOT / "providers"
 
-DIRECT_PROVIDERS = {"glm", "codex"}
+DIRECT_PROVIDERS = {"glm", "codex", "minimax"}
 WRAPPER_PROVIDERS = {"openrouter", "deepseek", "claude-code"}
 REGISTRY_PROVIDERS = DIRECT_PROVIDERS | WRAPPER_PROVIDERS
 

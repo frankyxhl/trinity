@@ -43,7 +43,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | bash
 ```
 
-This downloads all skill files to `~/.claude/` and registers the six default providers (glm, codex, gemini, openrouter, deepseek, claude-code) in `~/.claude/trinity.json`. Expected output ends with:
+This downloads all skill files to `~/.claude/` and registers the seven default providers (glm, minimax, codex, gemini, openrouter, deepseek, claude-code) in `~/.claude/trinity.json`. Expected output ends with:
 
 ```
 Trinity 3.2.0 installed to ~/.claude/
@@ -63,7 +63,7 @@ Trinity's skill (`SKILL.md`) is loaded by Claude Code at startup. The install ta
 /trinity status
 ```
 
-Expected output: glm, codex, gemini, openrouter, deepseek, and claude-code all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
+Expected output: glm, minimax, codex, gemini, openrouter, deepseek, and claude-code all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
 
 ### What was installed
 
@@ -72,6 +72,7 @@ Expected output: glm, codex, gemini, openrouter, deepseek, and claude-code all s
 | `~/.claude/skills/trinity/SKILL.md` | Trinity skill — loaded by Claude Code |
 | `~/.claude/skills/trinity/scripts/` | Python session/config/discover/install scripts |
 | `~/.claude/agents/trinity-glm.md` | GLM worker agent |
+| `~/.claude/agents/trinity-minimax.md` | MiniMax 2.7 worker agent |
 | `~/.claude/agents/trinity-codex.md` | Codex worker agent |
 | `~/.claude/agents/trinity-gemini.md` | Gemini worker agent |
 | `~/.claude/agents/trinity-openrouter.md` | OpenRouter worker agent |
@@ -161,6 +162,9 @@ cp trinity/providers/gemini.md ~/.claude/agents/trinity-gemini.md
 # GLM
 cp trinity/providers/glm.md ~/.claude/agents/trinity-glm.md
 
+# MiniMax 2.7
+cp trinity/providers/minimax.md ~/.claude/agents/trinity-minimax.md
+
 # OpenRouter
 cp trinity/providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
 
@@ -185,6 +189,7 @@ Then create `~/.claude/trinity.json`:
     "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
     "glm":        { "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high", "installed": true },
+    "minimax":    { "cli": "droid exec --auto medium --model minimax-m2.7 --reasoning-effort high", "installed": true },
     "openrouter":  { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p",  "installed": true },
     "deepseek":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",    "installed": true },
     "claude-code": { "cli": "/Users/<you>/.claude/skills/trinity/bin/claude-code -p", "installed": true }
@@ -566,6 +571,7 @@ Sessions persist in `.claude/trinity.json` (project-scoped). Clearing removes th
 
 ~/.claude/agents/
   trinity-glm.md                ← GLM worker agent
+  trinity-minimax.md            ← MiniMax 2.7 worker agent
   trinity-codex.md              ← Codex worker agent
   trinity-gemini.md             ← Gemini worker agent
   trinity-deepseek.md           ← DeepSeek (Anthropic-compat wrapper)
