@@ -94,7 +94,7 @@
   protected merges complete naturally. **Operator-visible**: merge-
   watch tolerates user-directed picks during the wait + waits up to
   12h for late merges (was ~54min, then silent abandonment). CHG-3031
-  (PR #N). Closes #95.
+  (PR #96). Closes #95.
 
 ## [3.2.0] - 2026-05-07
 
