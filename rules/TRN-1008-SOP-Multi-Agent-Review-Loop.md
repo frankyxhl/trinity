@@ -536,13 +536,16 @@ When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 - The orchestrator's job is done.
 - Frank merges manually as repo owner. `ryosaeba1985` cannot merge under branch protection.
 - Do NOT spam `gh pr merge --auto` retries; the GraphQL endpoint will reject.
-- **Proceed to §11 Loop restart.**
+- **After Frank merges** (detect via `gh pr view <N> --json mergedAt -q .mergedAt` non-null), perform mandatory cleanup BEFORE arming §11: `git switch main && git pull --ff-only origin main`. This is the explicit transition from "feature-branch in-flight" to "main, ready for next pick". The §11 wake's git-branch guard is the cancellation mechanism for OTHER paths (user-pick during the 60s wait); it is NOT a substitute for the explicit switch — without it, §11's first wake fires on the stale feature branch, the guard sees non-main, no-ops, and recurrence dies.
+- **Proceed to §11 Loop restart** (only after the switch + pull complete).
 
 ### 11. Loop restart
 
-After §10 Handoff completes, fire `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff", prompt="...")` to re-enter phase 1. The 60s delay is §8's hard minimum (`Never < 60s` per the §8 cadence rules); 60s captures the post-handoff burst window where the operator may 🚀 a queued issue immediately after merge.
+**Entry precondition (load-bearing)**: by the end of §10, the orchestrator MUST be on `main` with `origin/main` pulled. §11 fires under that precondition only. If §10's switch+pull failed (merge conflict, network error, missed merge detection), surface the failure to the user and do NOT arm the §11 wake — manual intervention required.
 
-The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, proceed to scope-rank tree (§1). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause. The same two-guard cancellation check applies (stop-marker + git-branch): on wake, if `.git/trinity-loop-stopped` exists OR `git rev-parse --abbrev-ref HEAD` returns non-main, the wake is a no-op (user has stopped the loop OR active work intervened post-handoff).
+After §10 completes (PR merged + main checked out + main pulled), fire `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff", prompt="...")` to re-enter phase 1. The 60s delay is §8's hard minimum (`Never < 60s` per the §8 cadence rules); 60s captures the post-handoff burst window where the operator may 🚀 a queued issue immediately after merge.
+
+The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, proceed to scope-rank tree (§1). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause. The same two-guard cancellation check applies (stop-marker + git-branch): on wake, if `.git/trinity-loop-stopped` exists OR `git rev-parse --abbrev-ref HEAD` returns non-main, the wake is a no-op (user has stopped the loop OR a user-directed pick switched off main during the 60s wait). The entry precondition above guarantees we ARM the wake on `main`; the guard catches the narrow window where a user-directed pick intervenes between §10's switch+pull and §11's 60s fire.
 
 **If a future retrospective phase is added (e.g., per issue #83), it inserts BEFORE this §11 step; renumber accordingly.** Retrospective-then-loop-restart is the natural pipeline order: reflect on the just-shipped PR, *then* start the next pick.
 

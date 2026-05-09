@@ -109,7 +109,7 @@ ScheduleWakeup(
 ScheduleWakeup(
   delaySeconds=60,
   reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff",
-  prompt="TRN-1008 §11 loop restart. FIRST: if -e .git/trinity-loop-stopped, wake is no-op (user-stop active). SECOND: run `git rev-parse --abbrev-ref HEAD`; if non-main, wake is no-op (active work intervened post-handoff; do NOT enter phase 1). If on main and no stop-marker: prior PR is mergeable and handed off to Frank per §10. Re-enter phase 1: run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is rocket-eligible, proceed to scope-rank tree. If idle, arm §1 idle-with-retry (1800s wake). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
+  prompt="TRN-1008 §11 loop restart. PRECONDITION (per §10/§11): this wake is armed AFTER §10's mandatory cleanup completed — `git switch main && git pull --ff-only origin main`. We are on main when this wake fires under the normal flow. FIRST: if -e .git/trinity-loop-stopped, wake is no-op (user-stop active). SECOND: run `git rev-parse --abbrev-ref HEAD`; if non-main, a user-directed pick switched off main during the 60s wait — wake is no-op (do NOT enter phase 1). If on main and no stop-marker: re-enter phase 1: run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility \"$N\" || continue; done. If a candidate is rocket-eligible, proceed to scope-rank tree. If idle, arm §1 idle-with-retry (1800s wake). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
 )
 ```
 
