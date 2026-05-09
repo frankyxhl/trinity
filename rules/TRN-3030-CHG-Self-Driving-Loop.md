@@ -89,10 +89,12 @@ The cron-driven recurrence is fragile and invisible. During #85 the cron was sto
 ## Reference Implementation
 
 ```
-# The leading checks (`.git/trinity-loop-stopped` then `git rev-parse --abbrev-ref HEAD`)
-# are the cancellation guards (§1 mermaid prose, §Failure Modes (c) for the stop-marker;
-# §1 mermaid prose, §Failure Modes for the git-branch guard); both reuse durable state
-# as cancel signals — no race window.
+# The leading checks (`$(git rev-parse --git-path trinity-loop-stopped)` then
+# `git rev-parse --abbrev-ref HEAD`) are the cancellation guards (§1 mermaid prose,
+# §Failure Modes (c) for the stop-marker; §1 mermaid prose for the git-branch guard);
+# both reuse durable state as cancel signals — no race window.
+# NOTE: git-path resolves correctly in linked worktrees (where .git is a file,
+# not a directory). Bare `.git/trinity-loop-stopped` would fail in worktrees.
 # Surface 2 — §1 idle-with-retry invocation (fired when verify_rocket_eligibility
 # returns no eligible candidate AND no live-chat user-directed pick is pending).
 # The literal `idle wake N of 12` token is the prompt-embedded counter mechanism
@@ -101,15 +103,25 @@ The cron-driven recurrence is fragile and invisible. During #85 the cron was sto
 ScheduleWakeup(
   delaySeconds=1800,
   reason="TRN-1008 §1 idle-with-retry — no rocket-eligible candidate this tick",
-  prompt="TRN-1008 §1 phase-1 re-fire — idle wake 1 of 12. FIRST: if -e .git/trinity-loop-stopped, wake is no-op (user-stop active; do NOT enter phase 1 or arm next wake). SECOND: run `git rev-parse --abbrev-ref HEAD`; if non-main, wake is no-op (active work in flight; do NOT enter phase 1). If on main and no stop-marker: re-run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is now eligible, proceed to scope-rank tree. If still idle, arm next 1800s wake with prompt containing `idle wake <N+1> of 12` unless §Failure Modes stop condition reached (12 consecutive idle wakes / user stop / session termination / ScheduleWakeup tool failure). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
+  prompt="TRN-1008 §1 phase-1 re-fire — idle wake 1 of 12. FIRST: if -e $(git rev-parse --git-path trinity-loop-stopped), wake is no-op (user-stop active; do NOT enter phase 1 or arm next wake). SECOND: run `git rev-parse --abbrev-ref HEAD`; if non-main, wake is no-op (active work in flight; do NOT enter phase 1). If on main and no stop-marker: re-run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is now eligible, proceed to scope-rank tree. If still idle, arm next 1800s wake with prompt containing `idle wake <N+1> of 12` unless §Failure Modes stop condition reached (12 consecutive idle wakes / user stop / session termination / ScheduleWakeup tool failure). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
 )
 
-# Surface 4 — NEW §11 Loop restart invocation (fired at the end of the SOP,
-# immediately after §10 Handoff completes):
+# Surface 4 — §10 merge-watch invocation (armed at the end of §10 when PR is
+# mergeable; polls for Frank's merge. On merge detected: cleanup + arm §11).
+# The `merge-watch wake N of 12` token is the prompt-embedded counter (§Failure
+# Modes (b)); N==12 at ~54 min @ 270s → surface to user.
+ScheduleWakeup(
+  delaySeconds=270,
+  reason="TRN-1008 §10 merge-watch — polling PR #<N> mergedAt",
+  prompt="TRN-1008 §10 merge-watch wake — merge-watch wake 1 of 12. FIRST: if -e $(git rev-parse --git-path trinity-loop-stopped), wake is no-op. SECOND: gh pr view <N> --json mergedAt -q .mergedAt. If non-null (merged): git switch main && git pull --ff-only origin main; then arm §11 loop-restart wake. If null (still pending): arm next merge-watch wake with prompt containing 'merge-watch wake <N+1> of 12' unless N==12 (surface to user: merge-watch timed out on PR #N)."
+)
+
+# Surface 5 — §11 Loop restart invocation (armed after §10 merge-watch detects
+# the merge and cleanup completes; NOT armed directly from §10 anymore).
 ScheduleWakeup(
   delaySeconds=60,
   reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff",
-  prompt="TRN-1008 §11 loop restart. PRECONDITION (per §10/§11): this wake is armed AFTER §10's mandatory cleanup completed — `git switch main && git pull --ff-only origin main`. We are on main when this wake fires under the normal flow. FIRST: if -e .git/trinity-loop-stopped, wake is no-op (user-stop active). SECOND: run `git rev-parse --abbrev-ref HEAD`; if non-main, a user-directed pick switched off main during the 60s wait — wake is no-op (do NOT enter phase 1). If on main and no stop-marker: re-enter phase 1: run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility \"$N\" || continue; done. If a candidate is rocket-eligible, proceed to scope-rank tree. If idle, arm §1 idle-with-retry (1800s wake). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
+  prompt="TRN-1008 §11 loop restart. PRECONDITION (per §10/§11): this wake is armed AFTER §10's merge-watch detected the merge and cleanup completed — `git switch main && git pull --ff-only origin main`. We are on main when this wake fires under the normal flow. FIRST: if -e $(git rev-parse --git-path trinity-loop-stopped), wake is no-op (user-stop active). SECOND: run `git rev-parse --abbrev-ref HEAD`; if non-main, a user-directed pick switched off main during the 60s wait — wake is no-op (do NOT enter phase 1). If on main and no stop-marker: re-enter phase 1: run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is rocket-eligible, proceed to scope-rank tree. If idle, arm §1 idle-with-retry (1800s wake). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
 )
 ```
 
