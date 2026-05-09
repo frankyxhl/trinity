@@ -47,7 +47,7 @@ This SOP is also the foundation for cross-project reuse — when promoted to COR
 
 ## Steps
 
-The loop has 10 phases:
+The loop has 11 phases:
 
 ```
 1. Auto-pick      ← user's auto-pick policy
@@ -60,6 +60,7 @@ The loop has 10 phases:
 8. Iterate        ← CI poll, bot poll, code-review panel
 9. Triage         ← real bug → fix; advisory → batch into R3+
 10. Handoff       ← "mergeable" = orchestrator done; user merges
+11. Loop restart  ← 60s wake → re-enter phase 1
 ```
 
 ### 1. Auto-pick
@@ -106,7 +107,7 @@ flowchart TD
     G1 -- No --> Z_GATE_A[NOT eligible<br/>file an issue first]
     G1 -- Yes --> V[verify_rocket_eligibility<br/>see hardened command below]
     V -- Pass: ALL checks<br/>(see spec table below) --> SCOPE[Continue to<br/>scope-rank tree]
-    V -- Fail: any check fails<br/>OR gh exits non-zero<br/>fail-closed --> Z_GATE_B[NOT eligible<br/>idle silently<br/>do not invent work]
+    V -- Fail: any check fails<br/>OR gh exits non-zero<br/>fail-closed --> Z_GATE_B[NOT eligible this tick<br/>arm idle-with-retry]
     SCOPE --> B{User granted<br/>auto-pick mandate?}
     B -- No --> Z1[Ask user before picking]
     B -- Yes --> C{Depends on<br/>unmerged PR?}
@@ -125,7 +126,12 @@ flowchart TD
     R4 --> RV
     RV -- Pass --> EXEC[Proceed]
     RV -- Fail --> Z_GATE_B
+    Z_GATE_B --> WAIT[wait 1800s<br/>ScheduleWakeup]
+    WAIT -- on wake --> A
+    WAIT -- live chat input --> USER_PICK[user-directed pick path<br/>per §1 normative bypass clause]
 ```
+
+The `live chat input` edge represents the §1 normative bypass clause: a user-directed pick during the wait pre-empts the wake (the orchestrator handles the pick, the pending wake becomes a no-op when it fires).
 
 **Gate spec — `verify_rocket_eligibility(issue_num)`** (run for every autonomous candidate before scope-rank, AND re-run before each git operation per the `RV` node above). The gate evaluates the checks listed below; ALL must pass; fail-closed on any error:
 
@@ -154,6 +160,8 @@ Splitting the responsibilities (narrower vs gate) avoids nested-connection trunc
 
 - Any check failure (mismatch, non-zero `gh` exit, malformed JSON, `jq` error) → NOT eligible. Checks are documented in the spec table above.
 - The orchestrator MUST treat "could not verify" as "not eligible". Never fail-open. Never assume a previously-eligible item is still eligible without re-running the full check.
+
+**Idle-with-retry behavior.** When `verify_rocket_eligibility` returns zero eligible candidates and no live-chat user-directed pick is pending, phase 1 arms `ScheduleWakeup(delaySeconds=1800, …)` and re-runs itself on wake. The 1800s default cadence aligns with §8's "no work pending: 1800-3600s" rule (cache-miss is amortised against operator-availability latency). On wake, the FULL phase 1 re-runs — `scripts/scan_rocket_issues.sh` re-scans for newly-rocketed/labeled issues, then per-candidate `verify_rocket_eligibility` evaluates the gate. A live-chat user-directed pick during the wait pre-empts the wake per §1 normative bypass clause; the pending `ScheduleWakeup` becomes a no-op when it fires. Stop conditions documented in §Failure Modes "ScheduleWakeup unavailable / loop stop conditions".
 
 **Where the 🚀 must be placed.** Only reactions on the issue **body** (not on comments) count. The verification command queries `/issues/<n>/reactions` (issue-body reactions only) — comment reactions live at `/issues/comments/<id>/reactions` and are NOT consulted. The tracking-issue helper below instructs the user to react on the issue body itself, not on a comment. If the user reacts to a comment by mistake, the gate stays closed.
 
@@ -528,7 +536,17 @@ When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 - The orchestrator's job is done.
 - Frank merges manually as repo owner. `ryosaeba1985` cannot merge under branch protection.
 - Do NOT spam `gh pr merge --auto` retries; the GraphQL endpoint will reject.
-- Move to phase 1 (auto-pick next issue).
+- **Proceed to §11 Loop restart.**
+
+### 11. Loop restart
+
+After §10 Handoff completes, fire `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff", prompt="...")` to re-enter phase 1. The 60s delay is §8's hard minimum (`Never < 60s` per the §8 cadence rules); 60s captures the post-handoff burst window where the operator may 🚀 a queued issue immediately after merge.
+
+The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, proceed to scope-rank tree (§1). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause.
+
+**If a future retrospective phase is added (e.g., per issue #83), it inserts BEFORE this §11 step; renumber accordingly.** Retrospective-then-loop-restart is the natural pipeline order: reflect on the just-shipped PR, *then* start the next pick.
+
+Replaces the informal "Move to phase 1 (auto-pick next issue)" line in §10's prior wording (now a pointer to §11).
 
 ---
 
@@ -550,7 +568,7 @@ The auto-pick loop must reject any candidate that wasn't explicitly consented to
 - **Never trust worker reports without spot-checking**. The worker says "done"; you verify "done".
 - **Never sleep > 270s when cache is warm and you're polling**. The 5-min prompt-cache TTL is a real cost.
 - **Never amend a published commit**. Add a new commit. The CHG history table tracks iterations.
-- **For autonomous picks, never invent work when no candidate is rocket-eligible.** Idle silently; wait for the user to file/rocket an issue, OR for a live-chat user-directed instruction (which bypasses the rocket-gate per §1 normative bypass clause).
+- **For autonomous picks, never invent work when no candidate is rocket-eligible.** Idle is not exit — phase 1 arms idle-with-retry per §1 "Idle-with-retry behavior" until interrupted (live-chat user-directed pick) or stopped per §Failure Modes "ScheduleWakeup unavailable / loop stop conditions". A user-directed instruction bypasses the gate per §1 normative bypass clause.
 - **Never skip the CHG for substantive changes**. Plan-review can't run without something to review.
 
 ---
@@ -567,6 +585,7 @@ This session — 2026-05-08 (auto-picks marked **(pre-rocket-gate)** are grandfa
 | #72 | TRN-3027 (deferred) **(pre-rocket-gate auto-pick — under R4 would need a tracking issue + 🚀)** | Orchestrator-direct | Inline-CHG (doc-only) | Bot only | R1-R2 | Bot caught real Section A inconsistency in R1 |
 | #73 | TRN-1008 (this SOP) **(direct user request — gate-bypass authorised inline)** | Mixed | Comprehensibility-review (3-of-4) | Self-application via panel after R4 | R1-R4 | This SOP's own creation |
 | (#85) | TRN-3029 GraphQL scan + blueprint-ready gate | Orchestrator-direct | 4-round (mean R3 9.275) + R4 polish | TBD | R1-R3 plan-review | Canonical "rocket + blueprint-ready" eligible state — the first issue picked under the post-CHG-3029 gate semantics (5-check `verify_rocket_eligibility`). |
+| (#90) | TRN-3030 (this PR) | Worker (multi-section SOP) | 3-round (R1 mean 7.85, R2 mean 9.245, R3 mean 9.55) | (TBD at code-review time) | R1-R3 | First SOP self-perpetuation: §1 idle-with-retry + §11 loop-restart; external `/loop` cron now optional. |
 
 Common pattern: panel-review ROI scales with surface size. PR #70 shipped clean without panel because the issue itself scoped it as 5 lines. PR #69 ran 10 R-iterations because the schema was new and got 6 architectural blockers in R1. **Under R4, none of #69/#70/#71/#72 would have been auto-pickable without a 🚀**; #73 was a direct user-instruction (an explicit user message is itself the consent signal; the rocket-gate applies to autonomous picks, not user-directed ones).
 
@@ -600,6 +619,22 @@ CI status must be split four ways — conflating them produces false-positive "f
 | Failed | Read the failing log; fix in code; push R<n+1> |
 
 **Bot polling — three endpoints (missing any one leaves inline blockers untriaged):** `gh api repos/$REPO/pulls/$N/reviews` (review summaries — REST snake_case `submitted_at`, includes `commit_id`), `gh api repos/$REPO/issues/$N/comments` (PR conversation — REST snake_case `created_at`, no commit anchor), `gh api repos/$REPO/pulls/$N/comments` (**inline path/line review comments — the form codex bot uses; NOT served by `gh pr view --json comments`**; includes `commit_id`). **Filter by current HEAD before considering "bot reviewed this commit?":** for `pulls/$N/reviews` and `pulls/$N/comments`, require `.commit_id == "$(git rev-parse HEAD)"`; for `issues/$N/comments` (no commit anchor), require `.updated_at > <timestamp of current HEAD push>` — use `updated_at` not `created_at` to also catch bots that EDIT a sticky comment per R-push (created_at stays on the first round; updated_at advances). Without these filters, R<n-1>'s stale bot evidence satisfies the "bot reviewed?" check on R<n> and the orchestrator hands off prematurely. Re-poll all three on every R-push; bot 👍 doesn't carry forward across R-pushes. **Field-name rule**: `gh api` = REST = `snake_case`; `gh pr view --json` = gh wrapper = `camelCase`. Pick one form (REST is recommended — only `gh api` exposes the inline-review endpoint) and stick with it; mixing produces null timestamps and silent misses.
+
+### ScheduleWakeup unavailable / loop stop conditions
+
+§1 idle-with-retry and §11 loop-restart depend on the `ScheduleWakeup` runtime tool. Five stop / failure conditions:
+
+**(a) ScheduleWakeup tool failure** (runtime unavailable, schema rejection, ≥3 consecutive arm failures): fall back to manual operator re-run. Surface to user: "Idle wake could not be armed; please re-trigger phase 1 manually when ready."
+
+**(b) Max-consecutive-idle stop**: After 12 consecutive idle wakes (12 × 1800s = 6 hours), surface to user: "Loop has been idle for 6 hours; pausing. 🚀 an issue or instruct phase 1 manually to resume." MUST be 12 (not "suggested") to bound idle wall-clock.
+
+**(c) User stop chat input**: If the user types `stop`, `pause`, `hold`, or any explicit halt instruction, exit cleanly without arming the next wake. Resumption requires explicit user instruction.
+
+**(d) Session termination**: `ScheduleWakeup` jobs die with the Claude session (per the tool's existing semantics). After session restart, the operator must re-invoke phase 1 manually to resume the loop.
+
+**(e) Cron + idle-retry concurrency**: If both an external `/loop` cron AND §1 idle-with-retry are armed simultaneously (e.g., during the cron's death-rattle before 7-day session expiry), both can fire phase 1 within the same minute. Coordination relies on the existing §Failure Modes "Concurrent orchestrators" claim-comment debounce — no new mechanism needed:
+
+> Each orchestrator posts `🤖 Auto-pick claim: <id> at <ISO-8601>` on the tracking issue at branch-creation time, after re-polling for an existing claim within the last 10 min.
 
 ### Concurrent orchestrators
 
@@ -637,3 +672,4 @@ Two orchestrators racing for the same rocketed issue: best-effort claim-comment 
 | 2026-05-08 | R25: codex bot caught a sticky-comment hole in R24's fix. R24 said for `issues/$N/comments` (no commit anchor) filter by `created_at > HEAD push timestamp` — but if a bot uses a SINGLE sticky PR-conversation comment and EDITS it per R-push (rather than posting new comments), `created_at` stays on the first round forever while `updated_at` advances. R24's filter would silently miss every sticky-comment update. Fix: use `updated_at` instead of `created_at`. Catches both new comments AND edited stickies. R24 was a real fix; R25 closes its own subtle gap. | Claude Opus 4.7 |
 | 2026-05-08 | R26: codex bot caught a same-second edge case in the timeline-events filter. GitHub REST timestamps are second-granular; `created_at > rocket_created` lets through a body-edit/rename/close that happens in the same second as the rocket. For a fail-closed gate, we want to REJECT same-second mutations (treat them as "after consent"). Fix: `> $rocket` → `>= $rocket`. Note: the §8 bot-polling filter at line 591 keeps `>` because its fail-closed direction is opposite (we want stricter = require strictly later commit/comment, NOT count same-second as fresh). The two filters look symmetric but their fail-closed semantics differ. | Claude Opus 4.7 |
 | 2026-05-09 | TRN-3029 (CHG-3029, PR #85): two-layer rocket-gate. §1 spec table grows to add check 5 = `blueprint-ready` label currently present AND most-recent `LABELED` event has `actor.login` ∈ {`iterwheel-blueprint[bot]`, `$TRUSTED_REACTOR`}; same-second ties on label/unlabel events fail closed (parallel to R26). Mermaid `V` node + fail-closed prose use generic "all checks (see spec table)" wording — single source of truth (extends R17 SSOT to cover the new check). §1 normative bypass clause amended count-free: "User-directed picks bypass ALL `verify_rocket_eligibility` checks" + "Live chat input subsumes both consent and intake-quality signals". §1 also gains a Phase 1 candidate-narrowing subsection pointing at `scripts/scan_rocket_issues.sh` (label-narrower; gate is authoritative — splitting these responsibilities avoids nested-connection truncation in GraphQL). §Threat Model paragraph extended with the new attack/defense pair + bot-timing-race note + `iterwheel-blueprint[bot]` accepted residual. §Guard Rails "Never AUTONOMOUSLY auto-pick" rewritten to defer to §1 spec table (drops the "four checks" hardcoded count — eliminates the same drift class as R23). §Examples gains the canonical "rocket + blueprint-ready" eligible-state row. CHG-3029 plan-review: gemini 9.9 / codex 9.2 / glm 9.0 / deepseek 9.0 (mean 9.275 across R3, all-individual ≥9.0 + blocking empty); R3 architecture pivot from R2 (script = label-narrower; gate owns lifecycle) closed all 4 R2 codex blockers. R4 polish applied trivial advisories from convergent reviewers. | Claude Opus 4.7 |
+| 2026-05-09 | TRN-3030 (CHG-3030, PR #90): SOP self-perpetuation. §1 idle-with-retry (1800s `ScheduleWakeup`) replaces terminal `Z_GATE_B` idle node — phase 1 self-rearms until interrupted or stopped. NEW §11 "Loop restart" (60s wake, §8 hard floor) makes post-§10 loop-back executable. §Steps preamble bumped from "10 phases" to "11 phases" with new TOC row. §Failure Modes gains "ScheduleWakeup unavailable / loop stop conditions" subsection (5 cases). §Guard Rails "never invent work" extended count-free per R17 SSOT to "idle = wait+retry until interrupted or stopped". External `/loop 10m` cron becomes optional. CHG-3030 plan-review: glm 9.55 / deepseek 9.55 (mean 9.55, R3, fast-review tier ≥9.5 + zero blocking → gate MET). | Claude Opus 4.7 |
