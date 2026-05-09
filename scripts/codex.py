@@ -36,7 +36,7 @@ STRICT_REVIEW_OUTPUT_SCHEMA = [
     "**Weighted Average: X.X/10 - PASS/FIX**",
 ]
 STRICT_REVIEW_DECISION_RULE = (
-    "PASS when weighted_average >= 9.0 and no blocking findings remain; otherwise FIX."
+    "PASS when weighted_average >= 9.5 and no blocking findings remain; otherwise FIX."
 )
 REVIEW_ONLY_INSTRUCTION = (
     "## Review-Only Mode\n\n"
@@ -45,7 +45,7 @@ REVIEW_ONLY_INSTRUCTION = (
     "on the provided diff, file snapshots, and review context.\n"
 )
 PROCESS_GROUP_KILL_GRACE_SECONDS = 5
-_REVIEW_PASS_THRESHOLD = 9.0
+_REVIEW_PASS_THRESHOLD = 9.5
 _STDERR_SENTINEL = "\n%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%\n"
 STRICT_REVIEW_TEMPLATES = {
     ("COR-1602", "COR-1609"): {

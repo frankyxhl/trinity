@@ -51,7 +51,7 @@ _STDERR_SENTINEL = codex_mod._STDERR_SENTINEL
 SCHEMA_EXAMPLE = json.dumps(
     {
         "decision": "PASS",
-        "weighted_score": 9.2,
+        "weighted_score": 9.5,
         "blocking": [],
         "advisories": [
             {
@@ -87,7 +87,7 @@ def test_a1_well_formed_returns_dict():
     result = parse_structured_review(WELL_FORMED_BLOCK)
     assert result is not None
     assert result["decision"] == "PASS"
-    assert result["weighted_score"] == 9.2
+    assert result["weighted_score"] == 9.5
     assert result["effective_decision"] == "PASS"
     assert result["advisories"][0]["title"] == "Late-binding closure in helper X"
 
@@ -208,7 +208,7 @@ def test_a5_enriched_pass_status(tmp_path):
     results = [_make_result("glm", returncode=0, raw="raw/glm.txt")]
     write_synthesis(tmp_path, "spikes/test", results)
     content = (tmp_path / "synthesis.md").read_text()
-    assert "PASS (9.2)" in content
+    assert "PASS (9.5)" in content
     assert "## Summary" in content
     assert "**Verdict**: ALL_PASS" in content
     # Summary precedes Provider Status
@@ -529,7 +529,7 @@ def test_a8d2_multiline_json_parsed():
     result = parse_structured_review(text)
     assert result is not None
     assert result["decision"] == "PASS"
-    assert result["weighted_score"] == 9.2
+    assert result["weighted_score"] == 9.5
     assert result["confidence"] == 0.85
 
 
@@ -546,7 +546,7 @@ def test_a8e_rc_nonzero_fail_regardless_of_structured(tmp_path):
     write_synthesis(tmp_path, "spikes/test", results)
     content = (tmp_path / "synthesis.md").read_text()
     assert "FAIL 1" in content
-    assert "PASS (9.2)" not in content
+    assert "PASS (9.5)" not in content
 
 
 def test_a8e_rc124_timeout_fail(tmp_path):
@@ -709,10 +709,11 @@ def test_nan_confidence_rejected():
 
 
 def test_addendum_score_range_uses_full_domain():
-    """Score domain (0.0-10.0) is independent of PASS threshold (9.0)."""
+    """Score domain (0.0-10.0) is independent of PASS threshold (9.5)."""
     addendum = _review_schema_addendum("review")
     assert "0.0-10.0" in addendum
     assert "0.0-9.0" not in addendum
+    assert "0.0-9.5" not in addendum
 
 
 def test_addendum_concrete_example_is_valid_json():

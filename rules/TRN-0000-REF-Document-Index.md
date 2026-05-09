@@ -57,6 +57,7 @@
 | 3029 | CHG | GraphQL Scan And Blueprint Gate |
 | 3030 | CHG | Self Driving Loop |
 | 3031 | CHG | Merge Watch Cancel Cap |
+| 3032 | CHG | Fast Review Tier |
 
 ---
 
