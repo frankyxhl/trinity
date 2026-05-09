@@ -85,6 +85,16 @@
   covering 5 cases. **After a PR is handed off, the orchestrator
   automatically resumes picking without waiting for a cron tick.** External
   `/loop 10m` cron becomes optional. CHG-3030 (PR #90). Closes #90.
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §10 merge-watch loop —
+  fixes two correctness bugs from PR #93 R7 codex-bot review: (1)
+  active-work cancellation: merge-watch wake's `prompt=` now embeds
+  watched-branch token; mismatch on wake → wake is no-op (no auto-
+  switch-and-pull). (2) Cap extended: `merge-watch wake N of 12` (270s
+  × 12 = 54min) → `N of 24` (1800s × 24 = 12h) so async / branch-
+  protected merges complete naturally. **Operator-visible**: merge-
+  watch tolerates user-directed picks during the wait + waits up to
+  12h for late merges (was ~54min, then silent abandonment). CHG-3031
+  (PR #N). Closes #95.
 
 ## [3.2.0] - 2026-05-07
 
