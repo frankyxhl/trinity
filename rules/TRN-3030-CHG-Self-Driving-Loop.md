@@ -90,11 +90,14 @@ The cron-driven recurrence is fragile and invisible. During #85 the cron was sto
 
 ```
 # Surface 2 — §1 idle-with-retry invocation (fired when verify_rocket_eligibility
-# returns no eligible candidate AND no live-chat user-directed pick is pending):
+# returns no eligible candidate AND no live-chat user-directed pick is pending).
+# The literal `idle wake N of 12` token is the prompt-embedded counter mechanism
+# (§Failure Modes (b)); on wake the orchestrator reads N, increments for next
+# wake, or fires stop on N==12.
 ScheduleWakeup(
   delaySeconds=1800,
   reason="TRN-1008 §1 idle-with-retry — no rocket-eligible candidate this tick",
-  prompt="TRN-1008 §1 phase-1 re-fire. Re-run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is now eligible, proceed to scope-rank tree. If still idle, arm next 1800s wake unless §Failure Modes stop condition reached (12 consecutive idle wakes / user stop / session termination / ScheduleWakeup tool failure). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
+  prompt="TRN-1008 §1 phase-1 re-fire — idle wake 1 of 12. Re-run scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done. If a candidate is now eligible, proceed to scope-rank tree. If still idle, arm next 1800s wake with prompt containing `idle wake <N+1> of 12` unless §Failure Modes stop condition reached (12 consecutive idle wakes / user stop / session termination / ScheduleWakeup tool failure). Pre-empt: any live-chat user instruction cancels the wake per §1 normative bypass clause."
 )
 
 # Surface 4 — NEW §11 Loop restart invocation (fired at the end of the SOP,
