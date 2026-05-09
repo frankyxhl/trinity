@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+- `rules/TRN-1000-SOP-Workflow-Routing-PRJ.md` — Decision Tree gains routing
+  entries for TRN-1007 (PR Readiness), TRN-1008 (Multi-Agent Review Loop),
+  TRN-1009 (Issue Filing). New `## Coverage audit` section with `comm -23`
+  drift-detection snippet (every TRN-NNNN-SOP file must have a routing
+  entry). Pre-existing staleness fixed: `pytest trinity/tests/` →
+  `pytest tests/`; §What Is It? scope updated. Closes #104.
+
 ### Added
 - `providers/minimax.delta.md` + `providers/minimax.md` (auto-built) — new trinity-minimax worker provider backed by MiniMax 2.7 via `droid exec --model minimax-m2.7`. Mirrors the GLM-5.1 wiring; second non-Anthropic non-OpenAI voice for review/dispatch. Closes #103.
 - `rules/TRN-1009-SOP-Issue-Filing.md` — canonical checklist for filing GitHub

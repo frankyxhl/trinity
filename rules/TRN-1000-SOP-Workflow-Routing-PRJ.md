@@ -1,15 +1,15 @@
 # SOP-1000: Workflow Routing PRJ — Trinity
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
+**Last updated:** 2026-05-09
+**Last reviewed:** 2026-05-09
 **Status:** Active
 
 ---
 
 ## What Is It?
 
-Project-level routing SOP for Trinity. Supplements the PKG (COR-1103) and USR (ALF-2207) routing layers. Defines how to route tasks specific to Trinity: testing, linting, releasing, versioning, and skill installation.
+Project-level routing SOP for Trinity. Supplements the PKG (COR-1103) and USR (ALF-2207) routing layers. Defines how to route tasks specific to Trinity: testing, linting, releasing, versioning, skill installation, model-ID management, evolve cycles, PR readiness, multi-agent review, and issue filing.
 
 ---
 
@@ -22,8 +22,7 @@ Trinity has concrete operational tasks (test, lint, release, version bump) that 
 ## When to Use
 
 - At the start of any Trinity development session
-- When running tests, linting, releasing, or bumping version
-- When deciding which SOP to follow for a given task
+- When deciding which SOP to follow for a given task (see Decision Tree below)
 
 ## When NOT to Use
 
@@ -49,7 +48,7 @@ Trinity has concrete operational tasks (test, lint, release, version bump) that 
 Start: what kind of task is this?
 
 1. Running / writing tests?
-   └── TRN-1001 (Test SOP) — pytest trinity/tests/ -v
+   └── TRN-1001 (Test SOP) — pytest tests/ -v
 
 2. Linting / formatting code?
    └── TRN-1002 (Lint SOP) — ruff check + ruff format
@@ -73,15 +72,49 @@ Start: what kind of task is this?
        → Trigger: "run evolve", "audit trinity", before any minor/major release,
                   or > 2 months since last evolve cycle
 
-8. New feature / design work?
-   └── COR-1102 (PRP) → COR-1602 strict review → COR-1101 (CHG)
+8. Opening a PR / pre-PR readiness check?
+   └── TRN-1007 (PR Readiness SOP) — branch hygiene, tests/lint green, CHANGELOG updated, PR body checklist
 
-9. Bug / incident?
-   └── INC → COR-1101 (CHG)
+9. Running a full PR cycle / auto-pick / orchestrating an issue?
+   └── TRN-1008 (Multi-Agent Review Loop) — end-to-end loop:
+       auto-pick → branch → plan → panel-review → dispatch → verify → PR → iterate → handoff
 
-10. Code change (any)?
+10. Filing a new issue / bug report / feature request?
+    └── TRN-1009 (Issue Filing SOP) — ISSUE_TEMPLATE field-label alignment, repro steps, acceptance criteria
+
+11. New feature / design work?
+    └── COR-1102 (PRP) → COR-1602 strict review → COR-1101 (CHG)
+
+12. Bug / incident?
+    └── INC → COR-1101 (CHG)
+
+13. Code change (any)?
     └── COR-1500 (TDD) overlay always applies
 ```
+
+---
+
+## Coverage audit
+
+Run periodically (and as part of TRN-1801 evolve signal collection) to confirm every TRN SOP file on disk has a corresponding routing entry in the Decision Tree above:
+
+```bash
+# Both sides canonicalized to TRN-NNNN tokens. LHS is filename-based (only actual
+# SOP files: 4-digit ACID + literal -SOP-), excluding TRN-1000 itself (the routing
+# doc has no self-routing entry by design). RHS is Decision-Tree-scoped (range
+# stops BEFORE the Coverage audit section so the audit's own prose / snippet
+# filename can't false-positive). `comm -23` reports tokens present in LHS but
+# missing from RHS — i.e., SOP files on disk with no routing entry.
+comm -23 \
+  <(ls rules/TRN-[0-9][0-9][0-9][0-9]-SOP-*.md \
+     | grep -v 'TRN-1000-SOP-Workflow-Routing' \
+     | grep -oE 'TRN-[0-9]+' | sort -u) \
+  <(sed -n '/^## Project Decision Tree/,/^## Coverage audit/p' \
+       rules/TRN-1000-SOP-Workflow-Routing-PRJ.md \
+     | grep -oE 'TRN-[0-9]+' | sort -u)
+```
+
+**Expected output**: empty. Non-empty output = a TRN SOP file exists on disk without a corresponding Decision Tree routing entry. That is a drift defect; add the routing entry in the same PR that adds the SOP.
 
 ---
 
@@ -110,3 +143,4 @@ This is a routing SOP — no procedural steps. See the Project Decision Tree abo
 | 2026-03-21 | Initial version | Frank + Claude Code |
 | 2026-04-26 | Decision tree path 4: release flow now `release-prep` + CI (TRN-2006) | Claude Opus 4.7 |
 | 2026-04-26 | Decision tree: add path 6 (TRN-1006 model-ID pinning) and path 7 (TRN-1801 evolve cycle); shift feature/incident/TDD paths to 8/9/10 | Claude Opus 4.7 |
+| 2026-05-09 | Decision tree: add paths 8 (TRN-1007 PR readiness), 9 (TRN-1008 multi-agent review loop), 10 (TRN-1009 issue filing); shift feature/incident/TDD paths to 11/12/13; add Coverage audit section with drift-detection snippet | Claude Opus 4.7 |
