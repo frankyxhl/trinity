@@ -569,7 +569,7 @@ The auto-pick loop must reject any candidate that wasn't explicitly consented to
 - **Never push to `origin/main`**. Push to `fork` (the `ryosaeba1985` remote).
 - **Never bypass the identity gate**. `gh auth status` shows `ryosaeba1985` before any GitHub-visible write.
 - **Never trust worker reports without spot-checking**. The worker says "done"; you verify "done".
-- **Never sleep > 270s when cache is warm and you're polling**. The 5-min prompt-cache TTL is a real cost.
+- **Never sleep > 270s when cache is warm and you're ACTIVELY polling** (bot review on a freshly-pushed HEAD, CI status checks, panel-verdict polling). The 5-min prompt-cache TTL is a real cost. Exception: **long-wait polling** that intentionally accepts the cache miss because the next signal is hours-away rather than seconds-away — §1 idle-retry (1800s, waiting for new rocket'd issues), §10 merge-watch (1800s, waiting for human merge), §11 loop-restart (60s, post-handoff burst). These follow §8 cadence guidance ("no work pending: 1800-3600s") rather than the active-polling rule above.
 - **Never amend a published commit**. Add a new commit. The CHG history table tracks iterations.
 - **For autonomous picks, never invent work when no candidate is rocket-eligible.** Idle is not exit — phase 1 arms idle-with-retry per §1 "Idle-with-retry behavior" until interrupted (live-chat user-directed pick) or stopped per §Failure Modes "ScheduleWakeup unavailable / loop stop conditions". A user-directed instruction bypasses the gate per §1 normative bypass clause.
 - **Never skip the CHG for substantive changes**. Plan-review can't run without something to review.
