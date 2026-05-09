@@ -56,6 +56,7 @@
 | 3028 | CHG | Richer Synthesis Summary |
 | 3029 | CHG | GraphQL Scan And Blueprint Gate |
 | 3030 | CHG | Self Driving Loop |
+| 3031 | CHG | Merge Watch Cancel Cap |
 
 ---
 
