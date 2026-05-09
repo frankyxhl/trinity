@@ -49,6 +49,19 @@
   and 100+ issues forcing pagination. (TRN-3029, #85)
 
 ### Changed
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §1 + NEW §1.5 + §5 + §7 + §8 + §Guard Rails + §Failure
+  Modes + §Threat Model — orchestrator-discipline bundle: (1) §5
+  worker dispatch is now DEFAULT (orchestrator-direct reserved for
+  explicit exceptions list); (2) NEW §1.5 comprehension check (6-point
+  rubric, PROCEED/CLARIFY/REJECT outcomes) inserts between Phase 1
+  rocket-gate and Phase 2 branch hygiene; (3) §Guard Rails wait-state
+  guard rule (no "I'll wait" without armed wake) + §7 5-item post-
+  push closure-checklist + §8 entry-gate verification. **Operator-
+  visible**: orchestrator dispatches more work to workers; reads
+  unclear issues critically before branching; ensures every R-push
+  has all 5 closure artifacts (reply on bot threads, 👍/👎, wake
+  armed, status surfaced) before declaring complete. CHG-3033
+  (PR #N). Closes #91, #92, #94.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §1 rocket-gate now
   evaluates a 5th check (TRN-3029, CHG-3029): `blueprint-ready` label
   currently present AND most-recent `LABELED` event has `actor.login`
