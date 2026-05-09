@@ -77,6 +77,14 @@
   default and emits the existing single-line format unchanged.
   First line per provider is still `{provider}: OK - {executable} (timeout Ns)`
   for grep compatibility. (TRN-3021)
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §1 / new §11 — phase 1
+  self-drives via `ScheduleWakeup` idle-with-retry (1800s wake, matches §8
+  "no work pending" cadence rule); explicit §11 Loop restart step (60s wake,
+  §8 hard floor) replaces §10's informal "Move to phase 1" line. §Failure
+  Modes gains "ScheduleWakeup unavailable / loop stop conditions" subsection
+  covering 5 cases. **After a PR is handed off, the orchestrator
+  automatically resumes picking without waiting for a cron tick.** External
+  `/loop 10m` cron becomes optional. CHG-3030 (PR #90). Closes #90.
 
 ## [3.2.0] - 2026-05-07
 
