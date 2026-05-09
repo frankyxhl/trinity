@@ -35,9 +35,6 @@ STRICT_REVIEW_OUTPUT_SCHEMA = [
     "### Decision Matrix",
     "**Weighted Average: X.X/10 - PASS/FIX**",
 ]
-STRICT_REVIEW_DECISION_RULE = (
-    "PASS when weighted_average >= 9.5 and no blocking findings remain; otherwise FIX."
-)
 REVIEW_ONLY_INSTRUCTION = (
     "## Review-Only Mode\n\n"
     "Do not run tests, shell commands, network calls, or mutate files unless the "
@@ -45,11 +42,18 @@ REVIEW_ONLY_INSTRUCTION = (
     "on the provided diff, file snapshots, and review context.\n"
 )
 PROCESS_GROUP_KILL_GRACE_SECONDS = 5
+# Fast-review-tier default. Strict templates override per-call via
+# STRICT_REVIEW_TEMPLATES[k]["pass_threshold"] threaded through
+# parse_structured_review(pass_threshold=...) and _review_schema_addendum(strict_review=...).
 _REVIEW_PASS_THRESHOLD = 9.5
 _STDERR_SENTINEL = "\n%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%\n"
 STRICT_REVIEW_TEMPLATES = {
     ("COR-1602", "COR-1609"): {
         "pass_threshold": 9.0,
+        "decision_rule": (
+            "PASS when weighted_average >= 9.0 and no blocking findings remain; "
+            "otherwise FIX."
+        ),
         "calibration": "COR-1611",
         "rubric_title": "CHG Review Scoring",
         "criteria": [
@@ -1144,7 +1148,7 @@ def strict_review_metadata(sop, rubric, template):
         "rubric": rubric,
         "pass_threshold": template["pass_threshold"],
         "calibration": template["calibration"],
-        "decision_rule": STRICT_REVIEW_DECISION_RULE,
+        "decision_rule": template["decision_rule"],
         "output_schema": list(STRICT_REVIEW_OUTPUT_SCHEMA),
     }
 
@@ -1212,7 +1216,7 @@ def render_strict_review_instructions(strict_review):
             "",
             "**Weighted Average: X.X/10 - PASS/FIX**",
             "",
-            STRICT_REVIEW_DECISION_RULE,
+            template["decision_rule"],
         ]
     )
     return "\n".join(lines) + "\n"
@@ -1242,7 +1246,7 @@ def render_prompt(
         )
     # TRN-3022: schema addendum appended AFTER all other sections so
     # the "LAST in your output" instruction is truly at the bottom.
-    return base + _review_schema_addendum(task_type)
+    return base + _review_schema_addendum(task_type, strict_review=strict_review)
 
 
 def slugify(value):
@@ -1589,7 +1593,7 @@ def _validate_review_schema(data):
     return True
 
 
-def parse_structured_review(raw_text):
+def parse_structured_review(raw_text, pass_threshold=None):
     """Parse a structured review schema block from raw provider output.
 
     Returns a dict with schema fields + effective_decision, or None on any
@@ -1603,6 +1607,7 @@ def parse_structured_review(raw_text):
       5. Coerce effective_decision if needed.
     """
     try:
+        effective_threshold = pass_threshold if pass_threshold is not None else _REVIEW_PASS_THRESHOLD
         stdout_region = _strip_stderr_region(raw_text)
 
         matches = _SCHEMA_BLOCK_RE.findall(stdout_region)
@@ -1620,7 +1625,7 @@ def parse_structured_review(raw_text):
 
         # Effective-decision coercion.
         if data["decision"] == "PASS" and (
-            data["blocking"] or data["weighted_score"] < _REVIEW_PASS_THRESHOLD
+            data["blocking"] or data["weighted_score"] < effective_threshold
         ):
             data["effective_decision"] = "FIX"
         else:
@@ -1631,7 +1636,7 @@ def parse_structured_review(raw_text):
         return None
 
 
-def _review_schema_addendum(task_type):
+def _review_schema_addendum(task_type, strict_review=None):
     """Return the structured-output prompt addendum for review task types.
 
     Returns empty string for non-review task types (tdd, prp, general, None).
@@ -1642,7 +1647,11 @@ def _review_schema_addendum(task_type):
     if task_type != "review":
         return ""
 
-    threshold = _REVIEW_PASS_THRESHOLD
+    threshold = (
+        strict_review["pass_threshold"]
+        if strict_review is not None
+        else _REVIEW_PASS_THRESHOLD
+    )
     return (
         "\n## Required: Structured Output\n"
         "\n"
@@ -2057,7 +2066,7 @@ def _format_cli_summary(summary, synthesis_path):
     )
 
 
-def write_synthesis(review_dir, scope, results):
+def write_synthesis(review_dir, scope, results, strict_review=None):
     # TRN-3022: parse structured review schema per provider.
     # rc != 0 → FAIL <rc> regardless of structured content.
     # rc == 0 + parsed → enriched status.
@@ -2069,7 +2078,12 @@ def write_synthesis(review_dir, scope, results):
             raw_path = review_dir / result["raw"]
             raw_text = _safe_read_raw(raw_path)
             if raw_text is not None:
-                parsed_per_provider.append(parse_structured_review(raw_text))
+                parsed_per_provider.append(
+                    parse_structured_review(
+                        raw_text,
+                        pass_threshold=strict_review["pass_threshold"] if strict_review else None,
+                    )
+                )
             else:
                 parsed_per_provider.append(None)
         else:
@@ -2246,7 +2260,7 @@ def cmd_review(args):
             json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
         )
         progress("writing synthesis")
-        summary, synthesis_path = write_synthesis(review_dir, args.scope, results)
+        summary, synthesis_path = write_synthesis(review_dir, args.scope, results, strict_review=strict_review)
         # TRN-3028: emit the completion line directly to stderr without the
         # `trinity: ` progress prefix so callers can key off the documented
         # "trinity review: <verdict> — ..." prefix at the START of the line.
