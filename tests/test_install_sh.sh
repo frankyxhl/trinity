@@ -49,7 +49,7 @@ t1_happy_path() {
     if [ ! -f "${TRINITY_JSON}" ]; then
         _fail "T1: ~/.claude/trinity.json not created"; rm -rf "${FAKE_HOME}"; return
     fi
-    for provider in glm codex gemini openrouter deepseek claude-code; do
+    for provider in glm minimax codex gemini openrouter deepseek claude-code; do
         if ! python3 -c "import json,sys; d=json.load(open('${TRINITY_JSON}')); sys.exit(0 if '${provider}' in d.get('providers',{}) else 1)"; then
             _fail "T1: provider ${provider} missing from trinity.json"; rm -rf "${FAKE_HOME}"; return
         fi
@@ -64,6 +64,7 @@ t1_happy_path() {
         ".claude/skills/trinity/scripts/install.py"
         ".claude/skills/trinity/scripts/scan_rocket_issues.sh"
         ".claude/agents/trinity-glm.md"
+        ".claude/agents/trinity-minimax.md"
         ".claude/agents/trinity-codex.md"
         ".claude/agents/trinity-gemini.md"
         ".claude/agents/trinity-openrouter.md"

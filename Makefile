@@ -49,6 +49,7 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	cp -r scripts/. ~/.claude/skills/trinity/scripts/
 	cp providers/registry.json ~/.claude/skills/trinity/providers/registry.json
 	cp providers/glm.md ~/.claude/agents/trinity-glm.md
+	cp providers/minimax.md ~/.claude/agents/trinity-minimax.md
 	cp providers/codex.md ~/.claude/agents/trinity-codex.md
 	cp providers/gemini.md ~/.claude/agents/trinity-gemini.md
 	cp providers/openrouter.md ~/.claude/agents/trinity-openrouter.md

@@ -7,6 +7,12 @@
       "resume_arg": "-s",
       "timeout": 360
     },
+    "minimax": {
+      "cli": "droid exec --auto medium --model minimax-m2.7 --reasoning-effort high",
+      "supports_resume": true,
+      "resume_arg": "-s",
+      "timeout": 360
+    },
     "codex": {
       "cli": "codex exec --skip-git-repo-check -m gpt-5.5",
       "supports_resume": true,

@@ -16,8 +16,8 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-PROVIDERS=(codex gemini glm openrouter deepseek claude-code)
-NATIVE=(codex gemini glm)
+PROVIDERS=(codex gemini glm minimax openrouter deepseek claude-code)
+NATIVE=(codex gemini glm minimax)
 WRAPPER=(openrouter deepseek claude-code)
 PARTIALS=(_base/common-session.md _base/common-tail.md _base/family-wrapper.md)
 
@@ -155,6 +155,7 @@ done
 check "codex CLI signature"      grep -q 'codex exec' providers/codex.md
 check "gemini CLI signature"     grep -q 'gemini --model' providers/gemini.md
 check "glm CLI signature"        grep -q 'droid exec --auto medium --model glm-5.1 --reasoning-effort high' providers/glm.md
+check "minimax CLI signature"    grep -q 'droid exec --auto medium --model minimax-m2.7 --reasoning-effort high' providers/minimax.md
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
 check "deepseek run function"    grep -q 'run_deepseek()' providers/deepseek.md
 check "claude-code run function" grep -q 'run_claude_code()' providers/claude-code.md

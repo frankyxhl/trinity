@@ -64,6 +64,7 @@ _download "scripts/install.py"        "${HOME}/.claude/skills/trinity/scripts/in
 _download "scripts/scan_rocket_issues.sh" "${HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh"
 chmod +x "${HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh"
 _download "providers/glm.md"          "${HOME}/.claude/agents/trinity-glm.md"
+_download "providers/minimax.md"      "${HOME}/.claude/agents/trinity-minimax.md"
 _download "providers/codex.md"        "${HOME}/.claude/agents/trinity-codex.md"
 _download "providers/gemini.md"       "${HOME}/.claude/agents/trinity-gemini.md"
 _download "providers/openrouter.md"   "${HOME}/.claude/agents/trinity-openrouter.md"
@@ -89,7 +90,7 @@ python3 -c "import json,sys; json.load(open('${HOME}/.claude/skills/trinity/prov
 CURRENT_FILE=""
 
 # Register default providers in ~/.claude/trinity.json from the canonical
-# registry (5 providers: glm, codex, openrouter, deepseek, claude-code).
+# registry (6 providers: glm, minimax, codex, openrouter, deepseek, claude-code).
 # Gemini is registered separately below — deferred from registry per
 # TRN-3020 (canonical CLI value pending; tracked as TRN-3025 follow-up).
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register-from-registry \

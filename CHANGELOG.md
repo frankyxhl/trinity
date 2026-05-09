@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `providers/minimax.delta.md` + `providers/minimax.md` (auto-built) — new trinity-minimax worker provider backed by MiniMax 2.7 via `droid exec --model minimax-m2.7`. Mirrors the GLM-5.1 wiring; second non-Anthropic non-OpenAI voice for review/dispatch. Closes #103.
 - `rules/TRN-1009-SOP-Issue-Filing.md` — canonical checklist for filing GitHub
   issues in `frankyxhl/trinity`: identity gate, `[Kind]:` title format,
   8-heading Blueprint intake body, `- [ ]` AC-checkbox gotcha, post-filing
