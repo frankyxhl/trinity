@@ -18,6 +18,7 @@
 | 1006 | SOP | Provider Model IDs |
 | 1007 | SOP | PR Readiness |
 | 1008 | SOP | Multi Agent Review Loop |
+| 1009 | SOP | Issue Filing |
 | 1800 | REF | Evolution Philosophy |
 | 1801 | SOP | Evolve Trinity |
 | 2001 | CHG | Release Infrastructure |

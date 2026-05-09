@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- `rules/TRN-1009-SOP-Issue-Filing.md` — canonical checklist for filing GitHub
+  issues in `frankyxhl/trinity`: identity gate, `[Kind]:` title format,
+  8-heading Blueprint intake body, `- [ ]` AC-checkbox gotcha, post-filing
+  `/blueprint` round-trip, and 🚀-on-body placement. Standardizes the bot
+  conventions surfaced by issues #55/#84/#88/#100. Closes #89.
 - `trinity doctor` now surfaces wrapper-provider auth state (env-or-file
   precedence with mode 600/400 check, mirroring `providers/bin/<wrapper>`),
   timeout sanity warnings (timeout < 60s), shell env pollution from the
