@@ -154,7 +154,8 @@ The function is self-contained — no caller-held state between calls. Each invo
 ```bash
 scripts/scan_rocket_issues.sh | while read N; do
   verify_rocket_eligibility "$N" || continue
-  # ... eligible → continue to scope-rank tree
+  # ... eligible → §1.5 comprehension check (PROCEED → scope-rank tree;
+  #     CLARIFY/REJECT → identity-gate + post comment + defer/decline)
 done
 ```
 
@@ -591,7 +592,7 @@ When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 
 After §10 completes (PR merged + main checked out + main pulled), fire `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff", prompt="...")` to re-enter phase 1. The 60s delay is §8's hard minimum (`Never < 60s` per the §8 cadence rules); 60s captures the post-handoff burst window where the operator may 🚀 a queued issue immediately after merge.
 
-The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, proceed to scope-rank tree (§1). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause. The same two-guard cancellation check applies (stop-marker + git-branch): on wake, if `$(git rev-parse --git-path trinity-loop-stopped)` exists OR `git rev-parse --abbrev-ref HEAD` returns non-main, the wake is a no-op (user has stopped the loop OR a user-directed pick switched off main during the 60s wait). The entry precondition above guarantees we ARM the wake on `main`; the guard catches the narrow window where a user-directed pick intervenes between §10's switch+pull and §11's 60s fire.
+The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, run §1.5 comprehension check; on PROCEED proceed to §1's scope-rank tree (CLARIFY/REJECT defer/decline per §1.5). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause. The same two-guard cancellation check applies (stop-marker + git-branch): on wake, if `$(git rev-parse --git-path trinity-loop-stopped)` exists OR `git rev-parse --abbrev-ref HEAD` returns non-main, the wake is a no-op (user has stopped the loop OR a user-directed pick switched off main during the 60s wait). The entry precondition above guarantees we ARM the wake on `main`; the guard catches the narrow window where a user-directed pick intervenes between §10's switch+pull and §11's 60s fire.
 
 **If a future retrospective phase is added (e.g., per issue #83), it inserts BEFORE this §11 step; renumber accordingly.** Retrospective-then-loop-restart is the natural pipeline order: reflect on the just-shipped PR, *then* start the next pick.
 
