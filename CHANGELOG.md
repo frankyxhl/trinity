@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Changed
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — §11 gains a mermaid
+  `flowchart TD` visualizing the dual-state entry-precondition flow:
+  stop-marker FIRST guard, three accepted branch states (a) `main` /
+  (b) watched-branch token / (c) agent-prefix branch, with branch (c)
+  expanded into all THREE conjunctive decision nodes (regex
+  `^(codex|claude)/` + open-PR check + own-PR-mergeable check). PR #109
+  R4 caught the wake prompt silently dropping conditions (2)+(3); the
+  diagram now makes the 3-condition requirement visually obvious. Shares
+  vocabulary with the §1 mermaid (ALL-CAPS node IDs, no-op exits, enter
+  phase 1). Closes #111.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — §11 State-B git-branch
   guard branch (c) regex broadened from `^codex/` to `^(codex|claude)/` to
   accept Claude orchestrator branches alongside Codex (historical
