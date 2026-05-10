@@ -2,7 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+- `rules/TRN-1209-REF-Multi-Agent-Loop-Config.md` — instantiates COR-1622
+  parameter schema for trinity. Single source of truth for loop bindings
+  (`<repo>`, `<consent-signal>`, `<panel-providers>`, `<wakeup-tool>`, etc.)
+  plus trinity-only extension bindings (`$AGENT_GH_LOGIN`, `$TRUSTED_REACTOR`,
+  concurrent-PR cap N≤2, agent-branch prefix regex, CLARIFY round-counter
+  cap, fast-review-tier providers). CHG-3039.
+- `rules/TRN-3039-CHG-Align-With-Promoted-PKG.md` — records the alignment
+  rationale and surfaces.
+
 ### Changed
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` aligned with the promoted
+  PKG multi-agent loop family (COR-1615/1617/1618/1619/1620/1621/1622).
+  New §0 "Relationship to PKG cluster" prologue maps every overlapping
+  section to its owning COR doc and lists trinity-only overlays
+  explicitly (§1.5 comprehension check; §10/§11 dual-state mergeable-gate;
+  §11 State-B 3-branch guard; CHG-3037 wake-prompt-refs; CHG-3038
+  round-counter; fast-review tier ≥9.5). Per-section "Shared with
+  COR-XXXX" annotations added under each header that overlaps PKG.
+  §Related list updated. CHG-3039.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §1.5 CLARIFY workflow now
   uses comment-based dialogue (operator replies via new comment, not body
   edit) to avoid §1 rocket-gate body-edit invalidation. §1 rocket-gate prose
