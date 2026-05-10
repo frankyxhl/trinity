@@ -302,7 +302,7 @@ The `--porcelain` check is non-negotiable. It covers both tracked AND untracked 
 Identity gate before any GitHub-visible write:
 
 ```bash
-gh auth status               # must show: ryosaeba1985 active
+gh auth status               # must show: $AGENT_GH_LOGIN active (default: ryosaeba1985)
 ```
 
 If the wrong account is active, abort. Public artifacts authored by the wrong identity are a CLAUDE.md-level violation and require immediate close-and-replace.
@@ -464,7 +464,7 @@ If any check fails, fix locally before push (or re-dispatch worker for substanti
 git add <specific-paths>                 # never -A (sweeps untracked tmp/, drafts)
 git commit -m "$(cat <<'EOF' ... EOF)"   # HEREDOC for formatting
 git push fork <branch-name>              # fork remote, not origin
-gh pr create --repo "$REPO" --base main --head ryosaeba1985:<branch> ...   # $REPO from §1 config
+gh pr create --repo "$REPO" --base main --head "$AGENT_GH_LOGIN:<branch>" ...   # $REPO and $AGENT_GH_LOGIN from §1 config
 ```
 
 PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue>`. Plan-review gate scores belong in the body when applicable.
@@ -673,8 +673,8 @@ The auto-pick loop must reject any candidate that wasn't explicitly consented to
 - **Never AUTONOMOUSLY auto-pick an issue without `verify_rocket_eligibility` PASS** (rocket-gate; identity defined at top of §1). "Autonomous" = continuation or loop-driven trigger; user-directed picks via live chat bypass the gate per §1 normative bypass clause. For autonomous picks, the gate's PASS is the consent + intake-quality signal; failure = abort, idle silently. Internal deferred TRN-* items also need a tracking issue meeting the gate. Checks are documented in the §1 spec table above (single source of truth — do not restate here).
 - **Never panel-review without TRN-1800 weights** in the prompt. CLD-1800 is for the `.claude` repo only.
 - **Any individual below the §4-specified threshold blocks the gate.** Dissent is not absorbable; address the dissenter's findings in the next R-iteration. (Threshold and provider count are §4-spec-defined per R17 SSOT.)
-- **Never push to `origin/main`**. Push to `fork` (the `ryosaeba1985` remote).
-- **Never bypass the identity gate**. `gh auth status` shows `ryosaeba1985` before any GitHub-visible write.
+- **Never push to `origin/main`**. Push to `fork` (the `$AGENT_GH_LOGIN` remote, default `ryosaeba1985`).
+- **Never bypass the identity gate**. `gh auth status` shows `$AGENT_GH_LOGIN` (default `ryosaeba1985`) before any GitHub-visible write.
 - **Never trust worker reports without spot-checking**. The worker says "done"; you verify "done".
 - **Never sleep > 270s when cache is warm and you're ACTIVELY polling** (bot review on a freshly-pushed HEAD, CI status checks, panel-verdict polling). The 5-min prompt-cache TTL is a real cost. Exception: **long-wait polling** that intentionally accepts the cache miss because the next signal is hours-away rather than seconds-away — §1 idle-retry (1800s, waiting for new rocket'd issues), §10 merge-watch (1800s, waiting for human merge), §11 loop-restart (60s, post-handoff burst). These follow §8 cadence guidance ("no work pending: 1800-3600s") rather than the active-polling rule above.
 - **Never amend a published commit**. Add a new commit. The CHG history table tracks iterations.
