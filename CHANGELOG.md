@@ -7,7 +7,15 @@
   guard branch (c) regex broadened from `^codex/` to `^(codex|claude)/` to
   accept Claude orchestrator branches alongside Codex (historical
   convention). Reflects reality: this repo's PRs are authored by either
-  family. Multi-condition guard (open PR + own mergeable) unchanged.
+  family. §2 branch hygiene + §11 branch-base policy parameterized to
+  `<agent-prefix>/<slug>`. Multi-condition guard (open PR + own mergeable)
+  unchanged.
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — wake prompts refactored
+  from inline FIRST/SECOND/THIRD pseudocode to § references (CHG-3037).
+  New §Guard Rails entry "Wake-procedure duty" mandates orchestrator MUST
+  Read referenced § literally on each wake. §Failure Modes (b)/(c) amended
+  for dual-format support (ref-style + legacy inline). Eliminates the
+  prompt-drift bug class caught in PR #109 R4. Closes #112.
 - `rules/TRN-1000-SOP-Workflow-Routing-PRJ.md` — Decision Tree gains routing
   entries for TRN-1007 (PR Readiness), TRN-1008 (Multi-Agent Review Loop),
   TRN-1009 (Issue Filing). New `## Coverage audit` section with `comm -23`
