@@ -9,6 +9,12 @@
   drift-detection snippet (every TRN-NNNN-SOP file must have a routing
   entry). Pre-existing staleness fixed: `pytest trinity/tests/` →
   `pytest tests/`; §What Is It? scope updated. Closes #104.
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — §10 split into parallel
+  mergeable-handoff trigger + merge-watch loop; §11 entry precondition relaxed
+  to dual-state (A: post-merge, B: post-mergeable-handoff); §1 phase 1 gains
+  orchestrator-side concurrent-PR cap (N≤2, fail-closed); §2 branch hygiene
+  notes State-B rebase-cost; §Failure Modes adds "Mergeable-but-revoked"
+  subsection. Closes #106.
 
 ### Added
 - `providers/minimax.delta.md` + `providers/minimax.md` (auto-built) — new trinity-minimax worker provider backed by MiniMax 2.7 via `droid exec --model minimax-m2.7`. Mirrors the GLM-5.1 wiring; second non-Anthropic non-OpenAI voice for review/dispatch. Closes #103.
