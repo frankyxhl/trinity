@@ -286,6 +286,13 @@ def test_unknown_provider_returns_exit_3(tmp_path, capsys):
         "abc def",
         "abc\tdef",
         "abc\ndef",
+        # Path-traversal `..` without slash — regex allows individual dots,
+        # so without the explicit `..` substring guard these would slip
+        # through (per codex-bot R2 finding 3214517921 on PR #119).
+        "..",
+        "abc..def",
+        "abc..",
+        "..abc",
     ],
 )
 def test_malformed_session_id_returns_exit_3(bad_id, tmp_path, capsys):

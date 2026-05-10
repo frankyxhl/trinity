@@ -54,10 +54,22 @@ from session import _read_pointer, POINTER_MISSING
 
 # Conservative regex (per CHG-3040 Surface 1 / Threat Model):
 #   - allows letters, digits, underscore, hyphen, dot
-#   - rejects "/", "..", whitespace, null bytes, etc.
-# Validated BEFORE any path construction. Identical regex appears in the
-# CHG; do not relax without a follow-up CHG.
+#   - rejects "/", whitespace, null bytes, etc.
+# The regex itself accepts dots individually but does NOT block consecutive
+# `..` (path-traversal) — `_is_valid_session_id` adds the substring guard.
+# Validated BEFORE any path construction. Identical regex + guard logic
+# appears in the CHG; do not relax without a follow-up CHG.
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_\-.]+$")
+
+
+def _is_valid_session_id(session_id: str) -> bool:
+    """Return True iff `session_id` passes both the regex AND the explicit
+    `..` substring guard. The regex allows single dots (for legitimate
+    session_id formats that contain them) but `..` is the path-traversal
+    sequence we MUST reject — substring check enforces that since the
+    character class would otherwise let `..` through.
+    """
+    return bool(_SESSION_ID_RE.match(session_id)) and ".." not in session_id
 
 
 def _encode_project_path(project_dir: str) -> str:
@@ -264,7 +276,10 @@ def cmd_session_path(project_dir: str, lookup_key: str) -> int:
         return 2
 
     # Path-traversal defense: validate session_id BEFORE any path construction.
-    if not _SESSION_ID_RE.match(session_id):
+    # `_is_valid_session_id` enforces both the regex AND the explicit `..`
+    # substring guard (regex character class allows `.` so `..` would slip
+    # through without the guard).
+    if not _is_valid_session_id(session_id):
         # Do not echo the malformed value (Threat Model: prevent log-injection).
         print("invalid session_id format", file=sys.stderr)
         return 3
