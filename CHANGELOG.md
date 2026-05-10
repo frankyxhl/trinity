@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Changed
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` §1.5 CLARIFY workflow now
+  uses comment-based dialogue (operator replies via new comment, not body
+  edit) to avoid §1 rocket-gate body-edit invalidation. §1 rocket-gate prose
+  documents the existing `commented` exemption explicitly. §Threat Model
+  extended for comment-spoofing/spam analysis. Closes #100.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — §11 gains a mermaid
   `flowchart TD` visualizing the dual-state entry-precondition flow:
   stop-marker FIRST guard, three accepted branch states (a) `main` /
