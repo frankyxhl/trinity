@@ -29,7 +29,8 @@ After promotion, this SOP is retained as a **trinity-specific overlay** that con
 | §8 Iterate (CI + bot + code-review panel) | **COR-1615** + **COR-1620** | post-R-push wake @ 270s; entry-gate verifies prior R-push closed all 5 closure artifacts |
 | §9 Triage | **COR-1621** | — |
 | §10 Handoff | **COR-1617** §10 + **COR-1620** | dual-trigger CHG-3036 (mergeable-handoff arms §11 in State B; merge-watch continues for actual merge); §10 (B) merge-watch wake procedure with watched-branch token |
-| §11 Loop restart | **COR-1617** §11 + **COR-1620** | dual-state precondition (State A post-merge / State B post-mergeable-handoff per CHG-3036); 3-branch State-B guard with multi-condition for agent-prefix branches |
+| (no trinity equivalent) | **COR-1617** §11 Retrospective (NEW in alfred v1.16.0) | trinity has NOT adopted; tracked at trinity#83 — TRN-1008 enhancement to add Phase 11 Retrospective hook |
+| §11 Loop restart | **COR-1617** §12 (renumbered from §11 in alfred v1.16.0) + **COR-1620** | dual-state precondition (State A post-merge / State B post-mergeable-handoff per CHG-3036); 3-branch State-B guard with multi-condition for agent-prefix branches |
 | §Threat Model (rocket-gate rationale) | **COR-1618** §Threat Model | comment-based CLARIFY threat analysis (CHG-3038 §Threat Model assessment) |
 | §Failure Modes (a)–(f) | **COR-1620** §Stop / failure conditions | (b) idle counter `idle wake N of 12` ref-style (CHG-3037); (c) stop-marker; (f) merge-watch active-work cancellation |
 | §Panel-Review Gate (detail) | **COR-1602** + **COR-1617** §4 + **COR-1621** | structured-verdict schema; ≥9.5 individual-PASS gate |
@@ -42,6 +43,7 @@ After promotion, this SOP is retained as a **trinity-specific overlay** that con
 - **CHG-3037 wake-prompt § references** — wake `prompt=` carries § references + bindings, not inline FIRST/SECOND/THIRD pseudocode. PKG's COR-1620 §Sample wake prompt uses inline pseudocode.
 - **CHG-3038 round-counter** — per-issue CLARIFY round-counter (cap 3). PKG has no equivalent (no comprehension check).
 - **Fast-review tier ≥9.5** (CHG-3032) — 2-provider panel at `<panel-pass-threshold>` = 9.5. PKG's COR-1622 default is `9.0` (with viability minimum 3 reviewers); trinity overrides.
+- **Phase 11 Retrospective NOT adopted** — alfred v1.16.0 promoted COR-1617 §Phase 11 (synchronous retrospective: metrics block, pattern check, CHG nomination) and renumbered Loop restart to §12. Trinity's TRN-1008 still uses 11-phase numbering with Loop restart at §11; adopting Phase 11 Retrospective is tracked at trinity#83. Until that adoption, trinity's §11 = PKG's §12; no PKG-§11 (Retrospective) equivalent exists in TRN-1008.
 
 ### Parameter resolution
 

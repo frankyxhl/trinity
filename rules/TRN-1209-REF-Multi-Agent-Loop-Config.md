@@ -67,6 +67,14 @@ COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Wit
 | `<worker-agent>` | `trinity-glm via droid exec` | Default coding worker. Other trinity providers (codex, deepseek, gemini) MAY be selected per task. |
 | `<worker-min-loc>` | `30` | Default; under this LoC count, orchestrator edits directly. |
 
+### Resilience (CLI retry / failure escalation; COR-1622 §Resilience, alfred v1.16.0)
+
+| Key | Trinity value | Notes |
+|-----|---------------|-------|
+| `<cli-retry-attempts>` | `3` (schema default) | Per-provider-per-round retry count when a panel-provider CLI fails (timeout, non-zero exit, missing binary). Overrides COR-1617 §Failure Modes' hardcoded "retry once" rule. |
+| `<cli-retry-backoff-seconds>` | `600` (schema default) | Wait between retry attempts. |
+| `<cli-retry-on-failure>` | `pause-and-ask` (schema default) | When all retries exhausted, surface to operator and wait. Alternatives `mark-non-viable` (continue if panel still has ≥3 viable verdicts) and `abort-loop` (stop run) are NOT used by trinity — fast-review tier of 2 providers cannot tolerate `mark-non-viable` (would drop below the 3-viable minimum that COR-1622 §Guard Rails enforces); pause-and-ask is the only safe value. |
+
 ### Bot polling (COR-1615 binding)
 
 | Key | Trinity value | Notes |
@@ -116,3 +124,5 @@ If `<intake-quality-mode>` ever changes (e.g. from `2FA` to `1FA`), every previo
 | Date | Change | By |
 |------|--------|----|
 | 2026-05-10 | Initial version — instantiates COR-1622 parameter schema for trinity. Authored from existing TRN-1008 inline values; no behaviour change. CHG-3039. | Claude Opus 4.7 |
+| 2026-05-10 | R1: escape pipe in agent-branch regex table cell (codex-bot finding on PR #118). | Claude Opus 4.7 |
+| 2026-05-10 | R2: add §Resilience parameter group (`<cli-retry-attempts>`, `<cli-retry-backoff-seconds>`, `<cli-retry-on-failure>`) per alfred v1.16.0 / FXA-146 schema extension. Trinity inherits all three schema defaults; `mark-non-viable` ruled out because the fast-review tier's 2-provider panel cannot tolerate dropping below the 3-viable minimum. No behaviour change (matches current TRN-1008 §Failure Modes "retry once + surface" behaviour, modulo the count). | Claude Opus 4.7 |
