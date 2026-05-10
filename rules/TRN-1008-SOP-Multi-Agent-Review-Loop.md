@@ -38,7 +38,7 @@ After promotion, this SOP is retained as a **trinity-specific overlay** that con
 ### Trinity-only overlays (NOT in PKG; governed entirely by this SOP)
 
 - **§1.5 Comprehension check** — entire section, including 6-point rubric, comment-based CLARIFY workflow, anchor logic with trusted-set filter + comment-`updated_at` TOCTOU pin, per-issue round-counter (cap 3). PKG's COR-1618 routes directly from consent gate to scope-rank; trinity inserts §1.5 between consent and scope-rank.
-- **§10/§11 dual-state mergeable-gate** (CHG-3036) — auto-pick can fire under §11 State A (post-merge) OR State B (post-mergeable-handoff). PKG's COR-1617 §10/§11 has only the State-A path. Hard concurrent-PR cap N≤2.
+- **§10/§11 dual-state mergeable-gate** (CHG-3036) — auto-pick can fire under §11 State A (post-merge) OR State B (post-mergeable-handoff). PKG's COR-1617 §10/§12 (handoff-and-restart pair, with the new §11 Retrospective sitting between them) has only the State-A path. Hard concurrent-PR cap N≤2.
 - **§11 State-B 3-branch guard** — accepts `main` / watched-branch / agent-prefix branch (`^(codex\|claude)/`). PKG's COR-1620 Primitive 3 has 2-branch (main / watched).
 - **CHG-3037 wake-prompt § references** — wake `prompt=` carries § references + bindings, not inline FIRST/SECOND/THIRD pseudocode. PKG's COR-1620 §Sample wake prompt uses inline pseudocode.
 - **CHG-3038 round-counter** — per-issue CLARIFY round-counter (cap 3). PKG has no equivalent (no comprehension check).
@@ -721,7 +721,7 @@ Continues to arm `ScheduleWakeup(delaySeconds=1800, reason="TRN-1008 §10 merge-
 
 ### 11. Loop restart
 
-> *Shared with COR-1617 §11 + COR-1620 (loop primitives); trinity overlays: dual-state precondition (State A post-merge / State B post-mergeable-handoff per CHG-3036); 3-branch State-B guard with multi-condition for agent-prefix branches (`^(codex|claude)/`).*
+> *Shared with COR-1617 §12 (renumbered from §11 in alfred v1.16.0; PKG's new §11 is Retrospective which trinity has not adopted — see §0 mapping table) + COR-1620 (loop primitives); trinity overlays: dual-state precondition (State A post-merge / State B post-mergeable-handoff per CHG-3036); 3-branch State-B guard with multi-condition for agent-prefix branches (`^(codex|claude)/`).*
 
 **Entry precondition (dual-state, load-bearing)**: §11 accepts TWO entry states. Both route into the same wake-then-re-enter-phase-1 logic:
 
