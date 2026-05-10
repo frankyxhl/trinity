@@ -63,6 +63,7 @@
 | 3034 | CHG | Decouple Strict COR Threshold |
 | 3035 | CHG | Trinity Minimax Provider |
 | 3036 | CHG | Mergeable Gate |
+| 3037 | CHG | Wake Prompt Refs |
 
 ---
 
