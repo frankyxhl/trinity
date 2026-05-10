@@ -127,9 +127,9 @@ For loop cadence: 1800s (30 min) is a reasonable default — long enough to amor
 
 **Identity & repo configuration** (single source of truth — used by every command in this section):
 
-- `TRUSTED_REACTOR=frankyxhl` — the trusted GitHub login whose 🚀 grants eligibility. Per the PKG-promotion form (§Threat Model), this becomes a project-config parameter `<repo-trusted-reactor-list>` on COR-1200 promotion (default: `[repo owner from gh repo view]`).
-- `REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)` — the repo path; derived from current directory's git remote, supports forks without modification.
-- `AGENT_GH_LOGIN=ryosaeba1985` — the agent's gh-CLI identity that AUTHORS PRs (per §2 identity-gate). Distinct from `$TRUSTED_REACTOR` (rocket-consent signal): the trusted reactor only signals consent; the agent identity authors commits and PRs. Both must stay separate. On COR-1200 promotion, this becomes `<repo-agent-gh-login>` (default: per-repo agent account configured during install).
+- `TRUSTED_REACTOR=frankyxhl` — the trusted GitHub login whose 🚀 grants eligibility. Bound as `<repo-trusted-reactor-list>` per COR-1622 schema (TRN-1209 §Identity & repository).
+- `REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)` — the repo path; derived from current directory's git remote, supports forks without modification. Bound as `<repo>` per COR-1622 schema.
+- `AGENT_GH_LOGIN=ryosaeba1985` — the agent's gh-CLI identity that AUTHORS PRs (per §2 identity-gate). Distinct from `$TRUSTED_REACTOR` (rocket-consent signal): the trusted reactor only signals consent; the agent identity authors commits and PRs. Both must stay separate. Bound as `<gh-write-identity>` per COR-1622 schema (TRN-1209 §Identity & repository).
 
 Use `$TRUSTED_REACTOR`, `$REPO`, and `$AGENT_GH_LOGIN` everywhere below. Replace the literal `frankyxhl` / `ryosaeba1985` only in historical examples (§Examples), never in commands.
 
