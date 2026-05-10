@@ -16,6 +16,24 @@
   rationale and surfaces.
 
 ### Changed
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` adopts PKG `COR-1617 §11
+  Retrospective` (alfred v1.16.0). NEW `### 11. Retrospective` subsection
+  inserted before Loop restart; existing `### 11. Loop restart` renumbered
+  to `### 12.`. §Steps numbered list goes from 12 → 13 entries. §0 mapping
+  table drops the `(no trinity equivalent)` row + "Phase 11 Retrospective
+  NOT adopted" overlay. Body §11 → §12 renumbering across §1, §1.5, §2,
+  §10, §12, §Guard Rails, §Failure Modes (~17 occurrences); §Examples and
+  §Change History rows preserve historical §11 references. Trinity overlay
+  on §11: codex-catch metric uses TRN-1209 `<bot-actors>` binding
+  (`chatgpt-codex-connector[bot]`). §11 fires on ANY §10 (B) merge-watch
+  wake that observes `mergedAt != null`, with two execution shapes split
+  on `current_branch == watched_branch`: (i) on-watched-branch — full
+  Steps 1-4 + cleanup + arm §12 (canonical State A); (ii) off-watched-
+  branch — read-only inline (Steps 1-3, no cleanup, no §12-arm) to
+  preserve active-work cancellation when the orchestrator has moved to a
+  new agent-prefix branch. State B's mergeable-handoff still defers §11
+  (PR not merged); once merge observed, retro runs via path (i) or (ii).
+  Closes #83.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` aligned with the promoted
   PKG multi-agent loop family (COR-1615/1617/1618/1619/1620/1621/1622).
   New §0 "Relationship to PKG cluster" prologue maps every overlapping
