@@ -2653,13 +2653,16 @@ def cmd_session_path(args):
         )
         return 1
 
-    # Use resolve_health_root (not resolve_root): session-path only needs
-    # <project>/.claude/trinity.json — never any git operation. This lets a
-    # user run `trinity session-path ... --project <non-git-dir>` against any
-    # directory carrying a Trinity pointer (e.g., legacy projects, scratch
-    # dirs). Inside a git work tree behaves identically to resolve_root
-    # (returns toplevel); outside, falls back to the literal --project path.
-    project_dir = str(resolve_health_root(args.project))
+    # Use the LITERAL --project directory (resolved to absolute), NOT the
+    # git toplevel. `session.py:cmd_write` stores .claude/trinity.json under
+    # the exact <project_dir> the worker passed; session-path must read from
+    # that same path to find the matching pointer. Earlier revisions used
+    # `resolve_health_root` (graceful fallback for non-git) but that rewrites
+    # subdirs of a git repo to the toplevel, causing pointer-miss when a
+    # session was written from a nested cwd (codex-bot R3 P2 finding
+    # 3214530179). Plain Path.resolve() gives an absolute path that works
+    # for git, non-git, nested, and symlinked dirs alike.
+    project_dir = str(Path(args.project).expanduser().resolve())
     return session_path.cmd_session_path(project_dir, lookup_key)
 
 

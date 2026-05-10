@@ -548,3 +548,64 @@ def test_codex_glob_anchored_no_suffix_collision(tmp_path, monkeypatch, capsys):
     assert str(collider) not in out.out, (
         f"resolver leaked collision path to stdout: {out.out!r}"
     )
+
+
+def test_nested_cwd_inside_git_repo_uses_literal_dir(tmp_path, monkeypatch):
+    """`--project` pointing at a subdirectory of a git repo MUST resolve to
+    the literal subdirectory, NOT the git toplevel. session.py writes
+    .claude/trinity.json under the literal project dir; session-path must
+    read from the same path. Per codex-bot R3 P2 finding 3214530179 on PR
+    #119 — earlier R1 used resolve_health_root which rewrote subdirs to
+    toplevel and caused pointer-miss.
+    """
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+    import codex
+    import subprocess as sp_mod
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    # Create a git repo with a nested project subdir
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    sp_mod.run(["git", "init", "-q"], cwd=str(repo), check=True)
+    sp_mod.run(
+        [
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+            "-q",
+        ],
+        cwd=str(repo),
+        check=True,
+    )
+    nested = repo / "subproject"
+    nested.mkdir()
+
+    sid = "nested-session-id"
+    # Pointer is written under the NESTED dir (matches session.py:cmd_write)
+    _write_pointer(nested, {"glm": {"session_id": sid}})
+
+    # Pre-create transcript at nested-dir-encoded path
+    transcript = fake_home / ".factory" / "sessions" / _encoded(nested) / f"{sid}.jsonl"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
+
+    # Wrapper invoked with --project pointing at nested subdir
+    class Args:
+        project = str(nested)
+        provider_spec = "glm"
+
+    rc = codex.cmd_session_path(Args())
+    assert rc == 0, (
+        f"nested --project must use literal dir, not git toplevel; "
+        f"got exit {rc} (would be 2 if wrapper rewrote to repo toplevel)"
+    )
