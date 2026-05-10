@@ -65,7 +65,22 @@ def _write_pointer(project_dir: Path, sessions: dict) -> None:
 
 
 def _encoded(project_dir: Path) -> str:
+    """GLM encoding (`~/.factory/sessions/...`): keep leading dash."""
     return str(project_dir.resolve()).replace("/", "-")
+
+
+def _claude_slug(project_dir: Path) -> str:
+    """Claude-family `PROJECT_SLUG` encoding (`~/.claude-trinity-claude-code/`,
+    `~/.claude-deepseek/`, `~/.claude-openrouter/`): strip leading dash.
+    Per ``providers/claude-code.md:69-71`` etc. — `s|/|-|g; s|^-||`."""
+    return str(project_dir.resolve()).replace("/", "-").lstrip("-")
+
+
+_CLAUDE_FAMILY_ROOTS = {
+    "claude-code": ".claude-trinity-claude-code",
+    "deepseek": ".claude-deepseek",
+    "openrouter": ".claude-openrouter",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +186,13 @@ def test_codex_index_malformed_line_falls_through_to_glob(tmp_path, capsys):
 
 @pytest.mark.parametrize("provider", ["claude-code", "deepseek", "openrouter"])
 def test_claude_family_happy_path(provider, tmp_path, capsys):
+    """Each claude-CLI wrapper has its own CLAUDE_CONFIG_DIR root + uses the
+    leading-dash-stripped PROJECT_SLUG. Per providers/<name>.md:
+    SESSION_DIR=$HOME/.claude-trinity-claude-code/projects/${PROJECT_SLUG}
+    SESSION_DIR=$HOME/.claude-deepseek/projects/${PROJECT_SLUG}
+    SESSION_DIR=$HOME/.claude-openrouter/projects/${PROJECT_SLUG}
+    PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g; s|^-||').
+    """
     sp = _import_session_path()
     project = tmp_path / "proj"
     project.mkdir()
@@ -178,7 +200,13 @@ def test_claude_family_happy_path(provider, tmp_path, capsys):
     _write_pointer(project, {provider: {"session_id": sid}})
 
     fake_home = Path(os.environ["HOME"])
-    transcript = fake_home / ".claude" / "projects" / _encoded(project) / f"{sid}.jsonl"
+    transcript = (
+        fake_home
+        / _CLAUDE_FAMILY_ROOTS[provider]
+        / "projects"
+        / _claude_slug(project)
+        / f"{sid}.jsonl"
+    )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
 

@@ -17,12 +17,18 @@ Per-provider resolvers cover:
     codex         -> ~/.codex/sessions/<YYYY>/<MM>/<DD>/...<session-id>.jsonl
                      (index-first via ~/.codex/session_index.jsonl;
                       glob fallback ~/.codex/sessions/*/*/*/*<session-id>.jsonl)
-    claude-code   -> ~/.claude/projects/<encoded-project-path>/<session-id>.jsonl
-    deepseek      -> (same layout as claude-code)
-    openrouter    -> (same layout as claude-code)
+    claude-code   -> ~/.claude-trinity-claude-code/projects/<PROJECT_SLUG>/<session-id>.jsonl
+    deepseek      -> ~/.claude-deepseek/projects/<PROJECT_SLUG>/<session-id>.jsonl
+    openrouter    -> ~/.claude-openrouter/projects/<PROJECT_SLUG>/<session-id>.jsonl
     gemini        -> stub (exits 3 with explicit "not yet supported" message)
 
-Encoding: absolute project path -> replace "/" with "-".
+Encoding differs by provider (matches per-wrapper conventions in
+``providers/<name>.md``):
+    glm                              -> replace "/" with "-"; KEEP leading dash
+                                        (matches ~/.factory/sessions/-Users-frank-...)
+    claude-code/deepseek/openrouter  -> replace "/" with "-"; STRIP leading dash
+                                        (PROJECT_SLUG=$(echo "$PROJECT_DIR"
+                                        | sed 's|/|-|g; s|^-||'))
 
 Exit codes:
     0  path printed; file exists on disk.
@@ -69,16 +75,50 @@ def _encode_project_path(project_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _encode_project_slug(project_dir: str) -> str:
+    """Claude-family encoding (`PROJECT_SLUG`): replace `/` with `-` AND strip
+    the leading dash. Matches the per-wrapper convention in
+    ``providers/claude-code.md:69-71``, ``providers/deepseek.md:53-55``,
+    ``providers/openrouter.md:53-55``:
+
+        PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g; s|^-||')
+
+    Distinct from `_encode_project_path` (used by glm) which keeps the leading
+    dash to match `~/.factory/sessions/-Users-frank-...` layout.
+    """
+    abs_path = os.path.abspath(project_dir)
+    encoded = abs_path.replace("/", "-")
+    return encoded.lstrip("-")
+
+
 def _resolve_glm(session_id: str, project_dir: str) -> Path:
     encoded = _encode_project_path(project_dir)
     home = Path(os.path.expanduser("~"))
     return home / ".factory" / "sessions" / encoded / f"{session_id}.jsonl"
 
 
-def _resolve_claude_family(session_id: str, project_dir: str) -> Path:
-    encoded = _encode_project_path(project_dir)
+# Per-wrapper transcript roots — each claude-CLI variant uses its own
+# CLAUDE_CONFIG_DIR (``~/.claude-trinity-claude-code/``, ``~/.claude-deepseek/``,
+# ``~/.claude-openrouter/``) NOT the bare ``~/.claude/`` root. Source of truth:
+# ``providers/<name>.md`` per-wrapper SESSION_DIR snippets.
+_CLAUDE_FAMILY_ROOTS = {
+    "claude-code": ".claude-trinity-claude-code",
+    "deepseek": ".claude-deepseek",
+    "openrouter": ".claude-openrouter",
+}
+
+
+def _resolve_claude_family(session_id: str, project_dir: str, provider: str) -> Path:
+    """Resolve transcript path for claude-CLI wrapper providers.
+
+    Each wrapper has its own ``CLAUDE_CONFIG_DIR``; the resolver dispatches
+    on `provider` to pick the right root. Encoding uses the wrapper's
+    `PROJECT_SLUG` convention (strip leading dash).
+    """
+    root = _CLAUDE_FAMILY_ROOTS[provider]  # KeyError → caller bug
+    slug = _encode_project_slug(project_dir)
     home = Path(os.path.expanduser("~"))
-    return home / ".claude" / "projects" / encoded / f"{session_id}.jsonl"
+    return home / root / "projects" / slug / f"{session_id}.jsonl"
 
 
 def _codex_index_lookup(session_id: str) -> Path | None:
@@ -177,15 +217,27 @@ def _resolve_gemini(session_id: str, project_dir: str) -> Path:
 # Provider dispatch
 # ---------------------------------------------------------------------------
 
+
 # Single source of truth for "which providers support session-path" in v1.
 # `providers/registry.json` is intentionally unchanged in v1 (per CHG-3040
 # Migration §); v2 may unify under a `transcript_path_template` field.
+def _make_claude_family_resolver(provider: str):
+    """Bind `provider` into the claude-family resolver to match the
+    ``(session_id, project_dir) -> Path`` dispatch signature."""
+
+    def _resolve(session_id: str, project_dir: str) -> Path:
+        return _resolve_claude_family(session_id, project_dir, provider)
+
+    _resolve.__name__ = f"_resolve_{provider.replace('-', '_')}"
+    return _resolve
+
+
 _DISPATCH = {
     "glm": _resolve_glm,
     "codex": _resolve_codex,
-    "claude-code": _resolve_claude_family,
-    "deepseek": _resolve_claude_family,
-    "openrouter": _resolve_claude_family,
+    "claude-code": _make_claude_family_resolver("claude-code"),
+    "deepseek": _make_claude_family_resolver("deepseek"),
+    "openrouter": _make_claude_family_resolver("openrouter"),
     "gemini": _resolve_gemini,
 }
 
