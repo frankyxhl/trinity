@@ -268,8 +268,10 @@ Adding `needs-redesign` label; declining pickup.
 **Re-evaluation flow** (CLARIFY → next-tick): a CLARIFIed candidate is automatically re-evaluated by the next phase-1 tick (whether triggered by §1 idle-with-retry wake, §11 loop-restart, or chat input). `verify_rocket_eligibility` re-runs against the **unmodified** issue body — the body has not been edited (the operator replied via a new comment per §1.5's normative path), so check 3's invalidator filter (no `edited`/`renamed`/`closed`/`reopened`/`transferred`/`unlocked` after `rocket_created`) still passes. On PASS, the orchestrator routes the candidate through the §1.5 comprehension check again, this time reading the comment thread:
 
 ```bash
-gh api repos/$REPO/issues/$N/comments --paginate
+gh api repos/$REPO/issues/$N/comments --paginate --slurp
 ```
+
+`--slurp` is required: with `--paginate` alone, `gh api` emits one JSON array per page (concatenated, not merged), so any subsequent `jq` filter would silently see only the first page on issues with > 100 comments. `--slurp` wraps all pages into a single top-level array suitable for filtering. Mirror the same flag on every paginated comment fetch in §1.5.
 
 **Anchor logic** (identifies the operator's most-recent clarification reply):
 
