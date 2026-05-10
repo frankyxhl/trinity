@@ -197,13 +197,14 @@ gh issue create --repo "$REPO" \
 
 Result under R4: **all candidates ineligible → idle silently**. The pre-R4 heuristic-only auto-pick that selected TRN-3027 in this session is grandfathered in the historical record but would not fire under the rocket-gate. To re-enable any of the above: user files a tracking issue (or rockets the existing one) and reacts 🚀.
 
-**Concurrent-PR cap guard (CHG-3036, orchestrator-side hard cap)**: at phase-1 entry — after the §1 rocket-eligibility scan returns a viable candidate, BEFORE §1.5 comprehension check runs — the orchestrator checks the open-PR count authored by `$TRUSTED_REACTOR` against a hard cap of N≤2 (prior PR awaiting merge + current pick). The cap rationale: rebase-cost amplification grows with N; claim-comment collision risk grows quadratically with N; reviewer cognitive load grows linearly with N. Cap value is parameterised as a §1 phase-1 guard (not hardcoded constant) — future evolve cycles may revisit via PRP/CHG.
+**Concurrent-PR cap guard (CHG-3036, orchestrator-side hard cap)**: at phase-1 entry — after the §1 rocket-eligibility scan returns a viable candidate, BEFORE §1.5 comprehension check runs — the orchestrator checks the open-PR count authored by **the agent's gh-CLI identity** (`$AGENT_GH_LOGIN`, default `ryosaeba1985` per §2 identity-gate; this is the account that AUTHORS PRs, distinct from `$TRUSTED_REACTOR` which only signals rocket consent) against a hard cap of N≤2 (prior PR awaiting merge + current pick). The cap rationale: rebase-cost amplification grows with N; claim-comment collision risk grows quadratically with N; reviewer cognitive load grows linearly with N. Cap value is parameterised as a §1 phase-1 guard (not hardcoded constant) — future evolve cycles may revisit via PRP/CHG.
 
 ```bash
 # Concurrent-PR cap guard — runs at §1 phase-1 entry, before §1.5
 # `$REPO` is the §1-config repo identifier (default: frankyxhl/trinity); honors PKG-promotion.
-# `$TRUSTED_REACTOR` is the §1-config trusted login (default: frankyxhl).
-open_count=$(gh pr list --repo "$REPO" --author "$TRUSTED_REACTOR" --state open --json number -q 'length')
+# `$AGENT_GH_LOGIN` is the agent's gh-CLI identity that AUTHORS PRs (default: ryosaeba1985 per §2);
+# distinct from `$TRUSTED_REACTOR` (rocket-consent signal, default: frankyxhl).
+open_count=$(gh pr list --repo "$REPO" --author "$AGENT_GH_LOGIN" --state open --json number -q 'length')
 if [ $? -ne 0 ] || [ -z "$open_count" ]; then
   # gh failure (network / auth / rate-limit / empty response) — fail closed.
   exit_to_idle_with_message "concurrent-PR cap query failed; idling conservatively (gh non-zero or empty count)"
@@ -642,9 +643,9 @@ After §10 (A) or §10 (B) completes, the §11 wake fires `ScheduleWakeup(delayS
 
 - (a) `main` — State A canonical (merge happened, cleanup ran), OR State B where operator merged within the 60s arm window.
 - (b) The prior PR's watched-branch token (set when §10 first armed the mergeable-handoff wake) — State B where operator hasn't merged yet AND orchestrator hasn't moved on.
-- (c) Any branch matching `^codex/` prefix — State B where orchestrator already started next issue's branch (e.g., previous §11 State-B wake fired and §1 phase-1 picked up an eligible candidate).
+- (c) A `^codex/` branch THAT HAS AN OPEN PR — State B where orchestrator already started next issue's branch AND committed-pushed-PR'd that work (e.g., previous §11 State-B wake fired and §1 phase-1 picked up an eligible candidate, then ran the full Phase 2-7 pipeline). Verify with `gh pr list --head <current-branch> --state open --json number -q 'length'` ≥ 1; if 0 (committed-but-not-PR'd work in flight), the wake is a no-op — orchestrator should resume the in-flight work, not start a new issue. This prevents the failure mode where State-B wake fires from `codex/foo` with unfinished local work, picks a new issue, and orphans the original commits.
 
-Any other branch (e.g., a user-directed checkout to an unrelated feature branch, a detached HEAD, a hotfix branch) → wake is a no-op (mirrors §10 merge-watch case (f) cancellation guard). The stop-marker check (`if -e $(git rev-parse --git-path trinity-loop-stopped), no-op`) runs FIRST per the shared FIRST/SECOND/THIRD guard structure; the 3-branch git-branch acceptance check runs SECOND.
+Any other branch (e.g., a user-directed checkout to an unrelated feature branch, a detached HEAD, a hotfix branch, OR a `codex/*` branch with no open PR meaning unfinished local work) → wake is a no-op (mirrors §10 merge-watch case (f) cancellation guard). The stop-marker check (`if -e $(git rev-parse --git-path trinity-loop-stopped), no-op`) runs FIRST per the shared FIRST/SECOND/THIRD guard structure; the 3-branch git-branch acceptance check runs SECOND.
 
 The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, run §1.5 comprehension check; on PROCEED proceed to §1's scope-rank tree (CLARIFY/REJECT defer/decline per §1.5). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause.
 
