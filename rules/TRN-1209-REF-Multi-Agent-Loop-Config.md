@@ -65,15 +65,15 @@ COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Wit
 | Key | Trinity value | Notes |
 |-----|---------------|-------|
 | `<worker-agent>` | `trinity-glm via droid exec` | Default coding worker. Other trinity providers (codex, deepseek, gemini) MAY be selected per task. |
-| `<worker-min-loc>` | `30` | Default; under this LoC count, orchestrator edits directly. |
+| `<worker-min-loc>` | `0` | **Trinity overrides the schema default of 30.** Trinity's TRN-1008 §5 dispatches to `<worker-agent>` as the DEFAULT with an explicit exceptions list (git ops, single-section docs, sequential bot grep-and-replace batch, investigations) governing the orchestrator-direct path. Setting `<worker-min-loc>` = `0` makes COR-1619's LoC-threshold branch always fall through to the structural-question branches (signature change / multi-file / test count), matching trinity's "worker by default" stance. The exceptions list itself is not LoC-bounded and is encoded directly in TRN-1008 §5 — that prose is the authoritative dispatch rule for trinity, not COR-1619's tree. Adopters that want the standard 30-LoC threshold continue to use the schema default. |
 
 ### Resilience (CLI retry / failure escalation; COR-1622 §Resilience, alfred v1.16.0)
 
 | Key | Trinity value | Notes |
 |-----|---------------|-------|
-| `<cli-retry-attempts>` | `3` (schema default) | Per-provider-per-round retry count when a panel-provider CLI fails (timeout, non-zero exit, missing binary). Overrides COR-1617 §Failure Modes' hardcoded "retry once" rule. |
-| `<cli-retry-backoff-seconds>` | `600` (schema default) | Wait between retry attempts. |
-| `<cli-retry-on-failure>` | `pause-and-ask` (schema default) | When all retries exhausted, surface to operator and wait. Alternatives `mark-non-viable` (continue if panel still has ≥3 viable verdicts) and `abort-loop` (stop run) are NOT used by trinity — fast-review tier of 2 providers cannot tolerate `mark-non-viable` (would drop below the 3-viable minimum that COR-1622 §Guard Rails enforces); pause-and-ask is the only safe value. |
+| `<cli-retry-attempts>` | `1` | **Trinity overrides the schema default of 3.** Matches TRN-1008 §Failure Modes "Reviewer / provider unavailability" — the existing rule is "retry once with the same prompt; if it still fails, mark the provider unavailable for this round". Adopters that want the standard 3-retry policy continue to use the schema default. |
+| `<cli-retry-backoff-seconds>` | `600` (schema default) | Wait between retry attempts. TRN-1008 does not specify a wait; schema default is acceptable. |
+| `<cli-retry-on-failure>` | `mark-non-viable` | **Trinity overrides the schema default of `pause-and-ask`.** Matches TRN-1008 §Failure Modes — the existing rule is "mark the provider unavailable for this round; proceed with N-1 only if N-1 ≥ 3 AND the failed provider wasn't the prior round's dissenter; otherwise abort the panel and surface the outage". COR-1622 §Guard Rails enforces the same dissenter + 3-viable check on `mark-non-viable` and auto-escalates to the operator when those conditions fail; for trinity's 2-provider fast-review tier, the auto-escalation path is reached on every provider failure — semantically equivalent to `pause-and-ask` in trinity's panel topology, but stated as `mark-non-viable` to preserve TRN-1008's prose-level meaning ("mark unavailable + escalate-when-below-quorum"). |
 
 ### Bot polling (COR-1615 binding)
 
