@@ -67,6 +67,7 @@
 | 3037 | CHG | Wake Prompt Refs |
 | 3038 | CHG | CLARIFY Edit Race |
 | 3039 | CHG | Align With Promoted PKG |
+| 3040 | CHG | Trinity Session Path |
 
 ---
 

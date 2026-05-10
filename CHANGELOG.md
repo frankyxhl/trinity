@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `trinity session-path <provider>[:<instance>]` — resolve absolute JSONL
+  transcript path for a Trinity session. Unblocks token-efficiency audits
+  and replay debugging. Closes #108.
 - `rules/TRN-1209-REF-Multi-Agent-Loop-Config.md` — instantiates COR-1622
   parameter schema for trinity. Single source of truth for loop bindings
   (`<repo>`, `<consent-signal>`, `<panel-providers>`, `<wakeup-tool>`, etc.)
