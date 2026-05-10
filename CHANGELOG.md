@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Changed
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — §11 State-B git-branch
+  guard branch (c) regex broadened from `^codex/` to `^(codex|claude)/` to
+  accept Claude orchestrator branches alongside Codex (historical
+  convention). Reflects reality: this repo's PRs are authored by either
+  family. Multi-condition guard (open PR + own mergeable) unchanged.
 - `rules/TRN-1000-SOP-Workflow-Routing-PRJ.md` — Decision Tree gains routing
   entries for TRN-1007 (PR Readiness), TRN-1008 (Multi-Agent Review Loop),
   TRN-1009 (Issue Filing). New `## Coverage audit` section with `comm -23`
