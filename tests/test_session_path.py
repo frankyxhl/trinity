@@ -36,14 +36,21 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 @pytest.fixture(autouse=True)
 def _isolate_home(tmp_path, monkeypatch):
-    """Each test gets its own fake $HOME, so probes never hit the real one."""
+    """Each test gets its own fake $HOME, so probes never hit the real one.
+
+    Also clears env-var overrides that affect resolver paths so a CI host
+    with `CODEX_HOME` (or similar) set in the runner environment does not
+    leak into test fixtures (per codex-bot R6 P2 finding 3214566835 — the
+    bot environment exports `CODEX_HOME=/opt/codex`, which made the codex
+    resolver bypass the fake `$HOME` and look under `/opt/codex/sessions`).
+    Individual tests that want to set `CODEX_HOME` (e.g.
+    test_codex_honors_codex_home_env_var) can re-set it via their own
+    monkeypatch.
+    """
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
-    # Force-reload session_path so module-level imports see the patched HOME
-    # via os.path.expanduser when constructing paths inside resolvers (we
-    # don't actually need a reload because expanduser is called per-resolve,
-    # but be explicit about the contract).
+    monkeypatch.delenv("CODEX_HOME", raising=False)
     yield fake_home
 
 
