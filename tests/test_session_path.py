@@ -441,3 +441,39 @@ def test_path_only_contract_no_jsonl_read(tmp_path, capsys):
     assert violations == [], (
         "Path-only contract violation — JSONL was opened/read: " + "; ".join(violations)
     )
+
+
+def test_non_git_project_dir_resolves(tmp_path, monkeypatch):
+    """`--project` pointing at a non-git directory carrying .claude/trinity.json
+    must resolve, not exit-via-resolve_root. Per codex-bot R0 P2 finding on
+    PR #119: session-path only needs the pointer file, never git toplevel.
+
+    Uses resolve_health_root (graceful fallback) instead of resolve_root
+    (which hard-exits on non-git via SystemExit). Inside a git tree, behavior
+    is identical (resolve to toplevel); outside, the literal path is used.
+    """
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+    import codex
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    non_git_proj = tmp_path / "scratch"
+    non_git_proj.mkdir()
+    sid = "non-git-test-id"
+    _write_pointer(non_git_proj, {"glm": {"session_id": sid}})
+
+    transcript = (
+        fake_home / ".factory" / "sessions" / _encoded(non_git_proj) / f"{sid}.jsonl"
+    )
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
+
+    class Args:
+        project = str(non_git_proj)
+        provider_spec = "glm"
+
+    rc = codex.cmd_session_path(Args())
+    assert rc == 0, f"non-git --project must resolve, got exit {rc}"

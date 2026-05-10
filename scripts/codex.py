@@ -2653,7 +2653,13 @@ def cmd_session_path(args):
         )
         return 1
 
-    project_dir = str(resolve_root(args.project))
+    # Use resolve_health_root (not resolve_root): session-path only needs
+    # <project>/.claude/trinity.json — never any git operation. This lets a
+    # user run `trinity session-path ... --project <non-git-dir>` against any
+    # directory carrying a Trinity pointer (e.g., legacy projects, scratch
+    # dirs). Inside a git work tree behaves identically to resolve_root
+    # (returns toplevel); outside, falls back to the literal --project path.
+    project_dir = str(resolve_health_root(args.project))
     return session_path.cmd_session_path(project_dir, lookup_key)
 
 
