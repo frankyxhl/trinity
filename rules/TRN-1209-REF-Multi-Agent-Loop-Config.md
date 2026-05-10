@@ -99,7 +99,9 @@ These bindings drive trinity-specific overlays in TRN-1008 that COR-1617 does no
 | `$TRUSTED_REACTOR` | `frankyxhl` | The single member of `<repo-trusted-reactor-list>`; appears in TRN-1008 §1.5 CLARIFY anchor step (ii) and TRN-3038. |
 | `$REPO` | `frankyxhl/trinity` | Shell-variable form of `<repo>` for `gh api repos/$REPO/...` calls. |
 | Concurrent-PR cap `N` | `2` | CHG-3036 hard cap. Set as a §1 phase-1 guard, not a hardcoded constant — future evolve cycles may revisit via PRP/CHG. |
-| Agent-branch prefix regex | `^(codex\|claude)/` | TRN-1008 §11 State-B branch guard accepts both prefixes. `codex/` is legacy from when the orchestrator was Codex; `claude/` is current. (Pipe escaped per GFM table-cell syntax; the actual regex is `^(codex|claude)/` without the backslash.) |
+| Agent-branch prefix regex | `^(codex\|claude)/` [^pipe-esc] | TRN-1008 §11 State-B branch guard accepts both prefixes. `codex/` is legacy from when the orchestrator was Codex; `claude/` is current. |
+
+[^pipe-esc]: The pipe is escaped (`\|`) per GFM table-cell syntax. The actual regex used by `git rev-parse --abbrev-ref HEAD` matching has no backslash; do not embed `\|` into the regex itself.
 | CLARIFY round-counter cap | `3` | TRN-1008 §1.5 per-issue counter; CHG-3038 §Why. |
 | Fast-review-tier providers | `[trinity-glm, trinity-deepseek]` | Subset of `<panel-providers>` used by default in §4 / §8 panels. CHG-3032. |
 
