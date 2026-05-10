@@ -1,10 +1,51 @@
 # SOP-1008: Multi-Agent Review Loop
 
-**Applies to:** Trinity project (`frankyxhl/trinity`) — drafted for trinity scope; intended for promotion to PKG/COR-1200 once stable
-**Last updated:** 2026-05-09
-**Last reviewed:** 2026-05-09
+**Applies to:** Trinity project (`frankyxhl/trinity`) — progenitor of the COR-1617 PKG cluster (see §0 below)
+**Last updated:** 2026-05-10
+**Last reviewed:** 2026-05-10
 **Status:** Active
-**Related:** TRN-1007 (PR readiness gate), TRN-1800 (evolution philosophy / weights), CLD-1802 (atomicity surface definition; PKG-layer doc — see `~/.claude/rules/CLD-1802-*.md`), **COR-1602** (Multi Model Parallel Review — the Leader-dispatches-N-Reviewers pattern phases §4 and §8 implement), COR-1612 / COR-1614 / COR-1616 (PR-loop SOPs the panel inherits from), **COR-1615** (GitHub App PR Review Bot Loop — the head-commit-matched bot-poll loop phase §8 implements). See [frankyxhl/alfred#115](https://github.com/frankyxhl/alfred/issues/115) for the COR-1602/1615 prior-art alignment + future COR-1200 promotion proposal.
+**Related:** TRN-1007 (PR readiness gate), TRN-1209 (parameter bindings — instantiates COR-1622 for trinity), TRN-1800 (evolution philosophy / weights), CLD-1802 (atomicity surface definition; PKG-layer doc — see `~/.claude/rules/CLD-1802-*.md`), **COR-1617** (Multi-Agent Workflow Loop — PKG umbrella generalized from this SOP), **COR-1618** (Out-of-Band Consent Auto-Pick — PKG generalization of §1 rocket-gate), **COR-1619** (Orchestrator vs Worker Dispatch — §5), **COR-1620** (Self-Pacing Loop Primitives — §1 idle-with-retry / §8 / §10 / §11 wake mechanics), **COR-1621** (Multi-Reviewer Triage — §9), **COR-1622** (parameter schema TRN-1209 instantiates), **COR-1602** (Multi Model Parallel Review — phases §4 and §8 inherit), **COR-1615** (GitHub App PR Review Bot Loop — phase §8 inherits), COR-1505 (Branch and Identity Hygiene — §2), COR-1104 (CHG sizing — §3), COR-1612 / COR-1614 / COR-1616 (PR-loop SOPs the panel inherits from). See [frankyxhl/alfred#115](https://github.com/frankyxhl/alfred/issues/115) for the original promotion proposal; COR-1617 §Lineage is the canonical record.
+
+---
+
+## §0. Relationship to PKG cluster
+
+This SOP is the **progenitor** of the COR-1617 PKG cluster (COR-1615 / COR-1617 / COR-1618 / COR-1619 / COR-1620 / COR-1621 / COR-1622). Per COR-1617 §Lineage, the PKG cluster was promoted directly from this document's R1–R26 evolution + follow-up CHGs (TRN-3029 / TRN-3030 / TRN-3031), with explicit attribution to trinity PRs #66 → #73.
+
+After promotion, this SOP is retained as a **trinity-specific overlay** that consumes the PKG cluster — sections that overlap PKG are annotated `Shared with COR-XXXX (see there for the canonical pattern)` directly under each section header; trinity-only overlays carry no annotation and are governed entirely here.
+
+### Phase-to-COR mapping
+
+| TRN-1008 section | Owning PKG doc | Trinity-specific overlay (this SOP) |
+|------------------|----------------|--------------------------------------|
+| §1 Auto-pick (rocket-gate base) | **COR-1618** (`verify_consent_eligibility`) | concurrent-PR cap N≤2 (CHG-3036); idle-with-retry counter binding (CHG-3037 ref-style); agent-prefix branch regex (`^(codex\|claude)/`) |
+| §1.5 Comprehension check | **none — trinity-only** | 6-point rubric, PROCEED/CLARIFY/REJECT outcomes, comment-based CLARIFY (CHG-3038), trusted-set anchor + comment-`updated_at` TOCTOU pin, per-issue round-counter (cap 3) |
+| §2 Branch hygiene | **COR-1505** | identity-gate hard requirement on `<gh-write-identity>`; agent-prefix branch naming |
+| §3 Plan / CHG drafting | **COR-1104** (CHG sizing) | — |
+| §4 Plan-review (fast-review tier) | **COR-1602** + **COR-1617** §4 | fast-review tier `[trinity-glm, trinity-deepseek]` at threshold ≥9.5 (CHG-3032); codex-as-bot post-push instead of as panel reviewer |
+| §5 Dispatch (orchestrator vs worker) | **COR-1619** | `<worker-agent>` = `trinity-glm via droid exec` |
+| §6 Verify implementation | **COR-1617** §6 | `af validate --root .` is normative |
+| §7 PR open + closure-checklist | **COR-1617** §7 | 5-item post-push closure-checklist (per #94) |
+| §8 Iterate (CI + bot + code-review panel) | **COR-1615** + **COR-1620** | post-R-push wake @ 270s; entry-gate verifies prior R-push closed all 5 closure artifacts |
+| §9 Triage | **COR-1621** | — |
+| §10 Handoff | **COR-1617** §10 + **COR-1620** | dual-trigger CHG-3036 (mergeable-handoff arms §11 in State B; merge-watch continues for actual merge); §10 (B) merge-watch wake procedure with watched-branch token |
+| §11 Loop restart | **COR-1617** §11 + **COR-1620** | dual-state precondition (State A post-merge / State B post-mergeable-handoff per CHG-3036); 3-branch State-B guard with multi-condition for agent-prefix branches |
+| §Threat Model (rocket-gate rationale) | **COR-1618** §Threat Model | comment-based CLARIFY threat analysis (CHG-3038 §Threat Model assessment) |
+| §Failure Modes (a)–(f) | **COR-1620** §Stop / failure conditions | (b) idle counter `idle wake N of 12` ref-style (CHG-3037); (c) stop-marker; (f) merge-watch active-work cancellation |
+| §Panel-Review Gate (detail) | **COR-1602** + **COR-1617** §4 + **COR-1621** | structured-verdict schema; ≥9.5 individual-PASS gate |
+
+### Trinity-only overlays (NOT in PKG; governed entirely by this SOP)
+
+- **§1.5 Comprehension check** — entire section, including 6-point rubric, comment-based CLARIFY workflow, anchor logic with trusted-set filter + comment-`updated_at` TOCTOU pin, per-issue round-counter (cap 3). PKG's COR-1618 routes directly from consent gate to scope-rank; trinity inserts §1.5 between consent and scope-rank.
+- **§10/§11 dual-state mergeable-gate** (CHG-3036) — auto-pick can fire under §11 State A (post-merge) OR State B (post-mergeable-handoff). PKG's COR-1617 §10/§11 has only the State-A path. Hard concurrent-PR cap N≤2.
+- **§11 State-B 3-branch guard** — accepts `main` / watched-branch / agent-prefix branch (`^(codex\|claude)/`). PKG's COR-1620 Primitive 3 has 2-branch (main / watched).
+- **CHG-3037 wake-prompt § references** — wake `prompt=` carries § references + bindings, not inline FIRST/SECOND/THIRD pseudocode. PKG's COR-1620 §Sample wake prompt uses inline pseudocode.
+- **CHG-3038 round-counter** — per-issue CLARIFY round-counter (cap 3). PKG has no equivalent (no comprehension check).
+- **Fast-review tier ≥9.5** (CHG-3032) — 2-provider panel at `<panel-pass-threshold>` = 9.5. PKG's COR-1622 default is `9.0` (with viability minimum 3 reviewers); trinity overrides.
+
+### Parameter resolution
+
+Every `<placeholder>` reference encountered in this SOP or any cited COR-1617-cluster doc resolves against **TRN-1209-REF-Multi-Agent-Loop-Config.md** — that REF is the single source of truth for trinity's loop bindings (`<repo>` = `frankyxhl/trinity`, `<consent-signal>` = `rocket`, `<gh-write-identity>` = `ryosaeba1985`, etc.). When this SOP uses literal values inline below (e.g. `ryosaeba1985`, `9.5`, `1800s`), they are kept for readability — TRN-1209 is the binding; this is the prose. A value change touches TRN-1209's row first; this SOP's literal references are updated as a follow-up edit if the value drift is large enough to mislead readers.
 
 ---
 
@@ -65,6 +106,8 @@ The loop has 12 phases:
 ```
 
 ### 1. Auto-pick
+
+> *Shared with COR-1618 (`verify_consent_eligibility`) for the rocket-gate base; trinity overlays: concurrent-PR cap N≤2 per CHG-3036; idle-with-retry counter ref-style per CHG-3037; agent-prefix branch regex.*
 
 **How phase 1 fires** (three trigger patterns):
 
@@ -222,6 +265,8 @@ fi
 
 ### 1.5. Comprehension check
 
+> *Trinity-only — NOT in PKG. PKG's COR-1618 routes directly from consent gate to scope-rank; trinity inserts §1.5 between consent and scope-rank. Comment-based CLARIFY workflow per CHG-3038; per-issue round-counter (cap 3).*
+
 After an issue passes the §1 rocket-gate's structural intake validation (5-check `verify_rocket_eligibility`), the orchestrator runs a **6-point rubric** before creating any branch:
 
 1. **Scope clarity** — can the work be stated in one sentence?
@@ -290,6 +335,8 @@ Legacy body-edit fallback: if the operator ignored the normative comment-reply i
 
 ### 2. Branch hygiene (PR #68 lesson)
 
+> *Shared with COR-1505 (Branch and Identity Hygiene); trinity overlays: identity-gate hard requirement on `<gh-write-identity>`; agent-prefix branch naming.*
+
 Before every new PR branch:
 
 ```bash
@@ -338,6 +385,8 @@ If the wrong account is active, abort. Public artifacts authored by the wrong id
 
 ### 3. Plan (draft CHG / spec)
 
+> *Shared with COR-1104 (CHG sizing decision tree).*
+
 ```mermaid
 flowchart TD
     A[Issue / tech-debt picked] --> X{Generated-file<br/>regen only?<br/>e.g. make build, af index}
@@ -376,6 +425,8 @@ flowchart TD
 **Heuristic:** when in doubt, write the CHG. Five minutes drafting is cheaper than a panel reviewing the wrong thing.
 
 ### 4. Plan-review (fast-review tier)
+
+> *Shared with COR-1602 (Multi Model Parallel Review) + COR-1617 §4; trinity overlay: fast-review tier `[trinity-glm, trinity-deepseek]` at `<panel-pass-threshold>` ≥9.5 (CHG-3032); codex-as-bot post-push instead of as panel reviewer.*
 
 Dispatch the fast-review panel in parallel (trinity-glm, trinity-deepseek) via the `Agent` tool. **Parallelism is required** — running serially burns 2x the wall-clock and fragments the cache window. PASS gate: **both individual ≥9.5 AND blocking empty**. The ≥9.5 individual bar compensates for the lost convergence-redundancy of the prior 4-provider panel: every voice must clear the higher threshold, and dissent is never absorbable (see CHG-3032 §Threshold rationale for the structural / directive / cost arguments). Codex's code-review contribution now comes from `chatgpt-codex-connector[bot]` post-push per §8 polling spec; trinity-gemini's signal is genuinely lost (accepted operator tradeoff).
 
@@ -449,6 +500,8 @@ A structured verdict with `decision: PASS` but `weighted_score < 9.5` is malform
 
 ### 5. Dispatch — orchestrator vs worker
 
+> *Shared with COR-1619 (Orchestrator vs Worker Dispatch); trinity overlay: `<worker-agent>` = `trinity-glm via droid exec`. Note: TRN-1008's "worker is DEFAULT" is more aggressive than COR-1619's `<worker-min-loc>` decision tree — trinity prefers context isolation. See TRN-1209 binding.*
+
 **Worker dispatch is the DEFAULT** for any work that produces file edits, code, prose, tests, or build-output. **Orchestrator-direct is reserved** for the following explicit exceptions list:
 
 - Git operations (branch, switch, commit, push)
@@ -472,6 +525,8 @@ flowchart TD
 
 ### 6. Verify implementation
 
+> *Shared with COR-1617 §6 + COR-1619 §Verification; trinity overlay: `af validate --root .` is normative.*
+
 Trust but verify. Whether the diff came from a worker or from the orchestrator's own direct edits, the same checks apply — every claim ("tests green", "lint clean") is a claim, not proof until you re-run it locally:
 
 ```bash
@@ -486,6 +541,8 @@ af validate --root . | tail -2                    # repo-relative; works on any 
 If any check fails, fix locally before push (or re-dispatch worker for substantial gaps). Spot-check 1-2 key invariants from the CHG by reading code (e.g. regex flags, constants, error-handler exception lists).
 
 ### 7. PR open
+
+> *Shared with COR-1617 §7 (push to `<pr-push-remote>`; `gh pr create --base main`; bare-`Closes #N` rule); trinity overlay: 5-item post-push closure-checklist (per #94).*
 
 ```bash
 git add <specific-paths>                 # never -A (sweeps untracked tmp/, drafts)
@@ -507,6 +564,8 @@ PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue
 Items 4-5 are §7 exit criteria (not §8 entry criteria). "Just committed and pushed" without the other four is the antipattern the wait-state guard (§Guard Rails) prevents.
 
 ### 8. Iterate (CI + bot + code-review panel)
+
+> *Shared with COR-1615 (GitHub App PR Review Bot Loop) + COR-1620 (wake mechanics); trinity overlays: post-R-push wake @ 270s; entry-gate verifies prior R-push closed all 5 §7 closure-checklist artifacts; ref-style wake prompts per CHG-3037.*
 
 **Entry-gate verification (per #94).** Each R-iteration starts with confirming the previous R-push closed all 5 §7 closure-checklist artifacts. If any are missing, complete them before proceeding with the iterate cycle. Additionally, verify a wake is armed for the current HEAD; if not, arm immediately and re-poll on wake.
 
@@ -583,6 +642,8 @@ ScheduleWakeup(
 
 ### 9. Triage
 
+> *Shared with COR-1621 (Multi-Reviewer Triage and Severity).*
+
 ```mermaid
 flowchart TD
     A[Finding from bot or panel] --> P{Phase that<br/>produced this?}
@@ -630,6 +691,8 @@ Re-dispatch the panel only when blockers (or convergent advisories) were address
 
 ### 10. Handoff
 
+> *Shared with COR-1617 §10 + COR-1620 (wake mechanics); trinity overlays: dual-trigger CHG-3036 (mergeable-handoff arms §11 in State B; merge-watch continues for actual merge); §10 (B) merge-watch wake procedure with watched-branch token + ref-style prompts per CHG-3037.*
+
 When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 
 - The orchestrator's job is done.
@@ -655,6 +718,8 @@ Continues to arm `ScheduleWakeup(delaySeconds=1800, reason="TRN-1008 §10 merge-
 - **After merge detected + cleanup completes (via merge-watch path)**, proceed to §11 Loop restart in State A. **OR after mergeable-handoff arms §11 (via the 60s wake)**, §11 fires in State B. Both paths route through §11.
 
 ### 11. Loop restart
+
+> *Shared with COR-1617 §11 + COR-1620 (loop primitives); trinity overlays: dual-state precondition (State A post-merge / State B post-mergeable-handoff per CHG-3036); 3-branch State-B guard with multi-condition for agent-prefix branches (`^(codex|claude)/`).*
 
 **Entry precondition (dual-state, load-bearing)**: §11 accepts TWO entry states. Both route into the same wake-then-re-enter-phase-1 logic:
 
@@ -909,3 +974,4 @@ When worker output fails verification (spot-check finds wrong symbols, test fail
 | 2026-05-10 | Issue #111: added mermaid `flowchart TD` to §11 visualizing the dual-state entry precondition. Diagram shows stop-marker FIRST guard, three accepted branch states (a) `main` / (b) watched-branch token / (c) agent-prefix `^(codex\|claude)/` branch with all THREE conjunctive conditions for (c) (regex match + open-PR check + own-PR-mergeable check) as separate decision nodes. Mirrors §1 mermaid's `flowchart TD` style + ALL-CAPS node IDs. PR #109 R4 caught the wake prompt silently dropping conditions (2)+(3) of branch (c) — diagram makes this 3-condition requirement visually obvious. Docs-only change; prose remains authoritative SSOT. Closes #111. | trinity-glm (worker dispatch) |
 | 2026-05-10 | TRN-3037 (CHG-3037, Closes #112): wake prompts refactored from inline FIRST/SECOND/THIRD pseudocode to § references. §1 idle-retry, §10 (A) mergeable-handoff, §10 (B) merge-watch, and §11 loop-restart `ScheduleWakeup(prompt=...)` invocations now carry concise § pointers + binding parameters (PR/watched_branch/idle_count/merge_watch_count/entry_state) instead of inlined guard pseudocode. NEW §Guard Rails entry "Wake-procedure duty" mandates the orchestrator MUST `Read` the referenced § literally on every wake before any side-effecting action — the SOP § prose is the live SSOT, not the prompt text. §Failure Modes (b) counter-mechanism and (c) stop-marker FIRST-guard amended for dual-format support: ref-style prompts inherit the requirements via the referenced § prose; inline-style (legacy) prompts continue to require the literal phrase / FIRST clause verbatim. Eliminates the prompt-vs-§-prose drift bug class caught in PR #109 R4 (TRN-3036 RefImpl had a stale State-B regex-only guard). TRN-3036 §Reference Implementation pseudocode also updated to ref-style (mirrors §10 (A)). Plan-review R2: glm 9.5 / deepseek 9.45 (R3 form-alignment fix) — fast-review tier ≥9.5 + zero blocking → gate MET. | trinity-glm (worker dispatch) |
 | 2026-05-10 | TRN-3038 (CHG-3038, Closes #100): comment-based CLARIFY adoption — resolves §1 check 3 (body-edit invalidator) vs §1.5 CLARIFY outcome ("re-evaluate on body edits") design conflict identified by PR #99 R6 codex-bot comment `3212948899`. §1.5 CLARIFY outcome bullet now specifies operator replies via NEW issue comment (NOT body edit); §1.5 Re-evaluation flow paragraph specifies comment-thread read on next-tick re-eval (`gh api repos/$REPO/issues/$N/comments --paginate` + anchor logic on canonical CLARIFY header + non-agent-author filter); §1.5 CLARIFY comment template appended with normative "reply via new comment" warning citing §1 check 3. §1 rocket-gate prose explicitly documents existing `commented` exemption (NOT in invalidator list — only `edited`/`renamed`/`closed`/`reopened`/`transferred`/`unlocked` invalidate); the §1.5 comment-based workflow relies on this exemption. §1 mermaid `CLAR_OUT` node label updated. §Threat Model extended with comment-authorship-spoofing / consent-semantics / comment-spam DoS analysis. §1 invalidator list (check 3) UNCHANGED — fix documents the existing exemption, not new event types. §1.5 round-counter (3-round cap) preserved; comment-based rounds increment same counter. Legacy body-edit fallback preserved (un-🚀 + re-🚀 ritual). CHG-3038 plan-review R1: deepseek 9.50 / PASS, glm 9.15 with 3 advisories addressed in R2 micro-fixes (fast-review tier ≥9.5 + zero blocking → gate MET at R2). | trinity-glm (worker dispatch) |
+| 2026-05-10 | TRN-3039 (CHG-3039): align with promoted PKG cluster — COR-1615/1617/1618/1619/1620/1621/1622 was promoted from this SOP's lineage (R1–R26 + TRN-3029/3030/3031 follow-ups). Added §0 "Relationship to PKG cluster" prologue mapping every overlapping section to its owning COR doc + listing trinity-only overlays explicitly. Added per-section "Shared with COR-XXXX" annotations under each header that overlaps PKG (§1, §2, §3, §4, §5, §6, §7, §8, §9, §10, §11). §1.5 carries trinity-only annotation (no PKG xref). §Related list updated to cite COR-1617 cluster + new TRN-1209 parameter binding doc. NEW sibling `rules/TRN-1209-REF-Multi-Agent-Loop-Config.md` instantiates COR-1622 schema for trinity (every placeholder resolved + 6 trinity-only extension bindings). Documentation alignment only — no behaviour change; no panel-review required (sub-substantive per COR-1104). | Claude Opus 4.7 |

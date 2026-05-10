@@ -19,6 +19,7 @@
 | 1007 | SOP | PR Readiness |
 | 1008 | SOP | Multi Agent Review Loop |
 | 1009 | SOP | Issue Filing |
+| 1209 | REF | Multi Agent Loop Config |
 | 1800 | REF | Evolution Philosophy |
 | 1801 | SOP | Evolve Trinity |
 | 2001 | CHG | Release Infrastructure |
@@ -65,6 +66,7 @@
 | 3036 | CHG | Mergeable Gate |
 | 3037 | CHG | Wake Prompt Refs |
 | 3038 | CHG | CLARIFY Edit Race |
+| 3039 | CHG | Align With Promoted PKG |
 
 ---
 
