@@ -135,6 +135,18 @@ def _resolve_claude_family(session_id: str, project_dir: str, provider: str) -> 
     return home / root / "projects" / slug / f"{session_id}.jsonl"
 
 
+def _codex_root() -> Path:
+    """Codex transcript root. Honors `$CODEX_HOME` (codex CLI's documented
+    override); falls back to `~/.codex/` when unset/empty. Per codex-bot R5
+    P2 finding 3214554262 — operators with non-default CODEX_HOME would hit
+    "transcript file not found" even with a valid pointer.
+    """
+    env = os.environ.get("CODEX_HOME") or ""
+    if env.strip():
+        return Path(env).expanduser()
+    return Path(os.path.expanduser("~")) / ".codex"
+
+
 def _codex_index_lookup(session_id: str) -> Path | None:
     """Try ~/.codex/session_index.jsonl first.
 
@@ -150,8 +162,8 @@ def _codex_index_lookup(session_id: str) -> Path | None:
     matching record is found, returns None and the caller falls through
     to the broader glob.
     """
-    home = Path(os.path.expanduser("~"))
-    index_path = home / ".codex" / "session_index.jsonl"
+    codex_root = _codex_root()
+    index_path = codex_root / "session_index.jsonl"
     if not index_path.is_file():
         return None
     try:
@@ -175,7 +187,7 @@ def _codex_index_lookup(session_id: str) -> Path | None:
                 if not m:
                     continue
                 yyyy, mm, dd = m.group(1), m.group(2), m.group(3)
-                day_dir = home / ".codex" / "sessions" / yyyy / mm / dd
+                day_dir = codex_root / "sessions" / yyyy / mm / dd
                 # Codex on-disk filename is `rollout-<ISO-ts>-<session_id>.jsonl`.
                 # Glob `*-<session_id>.jsonl` requires a dash immediately before
                 # the session_id (anchors to the boundary in the codex format)
@@ -214,15 +226,13 @@ def _resolve_codex(session_id: str, project_dir: str) -> Path:
     indexed = _codex_index_lookup(session_id)
     if indexed is not None:
         return indexed
-    home = Path(os.path.expanduser("~"))
+    codex_root = _codex_root()
     # Same anchor logic as the index-driven path: glob requires a dash
     # immediately before the session_id; post-filter via `.endswith` enforces
     # exact-anchor (per codex-bot R3 P2 — `*<id>` would suffix-match `xabc`
     # for a short `id == "abc"`).
     anchor = f"-{session_id}.jsonl"
-    pattern = str(
-        home / ".codex" / "sessions" / "*" / "*" / "*" / f"*-{session_id}.jsonl"
-    )
+    pattern = str(codex_root / "sessions" / "*" / "*" / "*" / f"*-{session_id}.jsonl")
     matches = sorted(p for p in glob.glob(pattern) if p.endswith(anchor))
     if len(matches) == 1:
         return Path(matches[0])
@@ -231,7 +241,7 @@ def _resolve_codex(session_id: str, project_dir: str) -> Path:
     # No matches — return a synthetic path so the caller's existence check
     # produces the canonical "transcript file not found" message rather than
     # leaking the search glob (per Threat Model: stderr message hygiene).
-    return home / ".codex" / "sessions" / f"{session_id}.jsonl"
+    return codex_root / "sessions" / f"{session_id}.jsonl"
 
 
 def _resolve_gemini(session_id: str, project_dir: str) -> Path:

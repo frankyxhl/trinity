@@ -685,3 +685,45 @@ def test_symlinked_project_dir_uses_literal_path(tmp_path, monkeypatch):
         f"got exit {rc} (would be 3 if wrapper called .resolve() and looked "
         f"under the real-dir slug instead)"
     )
+
+
+def test_codex_honors_codex_home_env_var(tmp_path, monkeypatch, capsys):
+    """When `$CODEX_HOME` is set, the codex resolver must read the index +
+    glob the dated transcript dir under that root, NOT under `~/.codex/`.
+    Per codex-bot R5 P2 finding 3214554262 on PR #119: codex CLI supports
+    a non-default CODEX_HOME (per openai/codex#2288), and operators using
+    that setup were getting "transcript file not found" even with valid
+    pointers.
+    """
+    sp = _import_session_path()
+    project = tmp_path / "proj"
+    project.mkdir()
+    sid = "019dc7bc-codex-home-id"
+    _write_pointer(project, {"codex": {"session_id": sid}})
+
+    # Set CODEX_HOME to a different dir than ~/.codex
+    fake_home = Path(os.environ["HOME"])
+    custom_codex = fake_home / "custom-codex-store"
+    custom_codex.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(custom_codex))
+
+    # Pre-create transcript under CODEX_HOME-rooted day dir
+    day_dir = custom_codex / "sessions" / "2026" / "05" / "10"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    transcript = day_dir / f"rollout-2026-05-10T08-00-00-{sid}.jsonl"
+    transcript.write_text("")
+
+    # Index entry under CODEX_HOME (NOT ~/.codex)
+    index_path = custom_codex / "session_index.jsonl"
+    index_path.write_text(
+        json.dumps({"id": sid, "updated_at": "2026-05-10T08:00:00.000000Z"}) + "\n"
+    )
+
+    # If the resolver hardcoded ~/.codex/, it would miss this transcript.
+    rc = sp.cmd_session_path(str(project), "codex")
+    out = capsys.readouterr()
+    assert rc == 0, (
+        f"expected exit 0 (CODEX_HOME-rooted transcript resolved); "
+        f"got {rc}; stderr={out.err!r}"
+    )
+    assert out.out.strip() == str(transcript)
