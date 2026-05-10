@@ -2653,16 +2653,24 @@ def cmd_session_path(args):
         )
         return 1
 
-    # Use the LITERAL --project directory (resolved to absolute), NOT the
-    # git toplevel. `session.py:cmd_write` stores .claude/trinity.json under
-    # the exact <project_dir> the worker passed; session-path must read from
-    # that same path to find the matching pointer. Earlier revisions used
-    # `resolve_health_root` (graceful fallback for non-git) but that rewrites
-    # subdirs of a git repo to the toplevel, causing pointer-miss when a
-    # session was written from a nested cwd (codex-bot R3 P2 finding
-    # 3214530179). Plain Path.resolve() gives an absolute path that works
-    # for git, non-git, nested, and symlinked dirs alike.
-    project_dir = str(Path(args.project).expanduser().resolve())
+    # Use the LITERAL --project directory (absolute path, NO symlink
+    # following), NOT the git toplevel. `session.py:cmd_write` stores
+    # .claude/trinity.json under the exact <project_dir> the worker passed;
+    # session-path must read from the same path to find the matching pointer.
+    #
+    # Two earlier defects narrowed down to here:
+    # - R1 used `resolve_health_root` which rewrote subdirs of a git repo
+    #   to the toplevel (bot R3 P2 finding 3214530179, fixed in R5).
+    # - R5 used `Path(...).resolve()` which follows symlinks; `--project
+    #   /tmp/link` would canonicalize to the symlink target, causing the
+    #   claude-family slug encoding to differ from where the wrapper wrote
+    #   the pointer (bot R4 P2 finding 3214543729, fixed in R6).
+    #
+    # `os.path.abspath(os.path.expanduser(...))` gives an absolute path
+    # without following symlinks. Works for git, non-git, nested, and
+    # symlinked dirs alike, matching the literal $PROJECT_DIR semantics
+    # used everywhere in providers/<name>.md.
+    project_dir = os.path.abspath(os.path.expanduser(args.project))
     return session_path.cmd_session_path(project_dir, lookup_key)
 
 

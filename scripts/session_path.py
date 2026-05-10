@@ -262,7 +262,13 @@ def _make_claude_family_resolver(provider: str):
 
 
 _DISPATCH = {
+    # Droid-family providers (~/.factory/sessions/<encoded-path>/<sid>.jsonl).
+    # `glm` and `minimax` both use the droid CLI session store; layout is
+    # identical so they share `_resolve_glm`. Source: `providers/glm.md` +
+    # `providers/minimax.md` (same `droid exec` flow + same SESSION_DIR
+    # convention) + `providers/registry.json` lists both with `cli: droid ...`.
     "glm": _resolve_glm,
+    "minimax": _resolve_glm,
     "codex": _resolve_codex,
     "claude-code": _make_claude_family_resolver("claude-code"),
     "deepseek": _make_claude_family_resolver("deepseek"),

@@ -609,3 +609,79 @@ def test_nested_cwd_inside_git_repo_uses_literal_dir(tmp_path, monkeypatch):
         f"nested --project must use literal dir, not git toplevel; "
         f"got exit {rc} (would be 2 if wrapper rewrote to repo toplevel)"
     )
+
+
+def test_minimax_uses_droid_factory_layout(tmp_path, capsys):
+    """`minimax` shares the droid `~/.factory/sessions/` layout with `glm`
+    (per providers/minimax.md + providers/registry.json — both use the
+    droid CLI). Per codex-bot R4 P2 finding 3214543731 on PR #119: the
+    R5 dispatch was missing minimax, so `trinity session-path minimax`
+    hit the unknown-provider branch instead of resolving the transcript.
+    """
+    sp = _import_session_path()
+    project = tmp_path / "proj"
+    project.mkdir()
+    sid = "minimax-session-id"
+    _write_pointer(project, {"minimax": {"session_id": sid}})
+
+    fake_home = Path(os.environ["HOME"])
+    transcript = (
+        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
+    )
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
+
+    rc = sp.cmd_session_path(str(project), "minimax")
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert out.out.strip() == str(transcript)
+
+
+def test_symlinked_project_dir_uses_literal_path(tmp_path, monkeypatch):
+    """`--project` pointing at a SYMLINK must use the symlink path, NOT the
+    resolved target. session.py:cmd_write writes .claude/trinity.json
+    under the literal $PROJECT_DIR; the resolver's encoding must match.
+    Per codex-bot R4 P2 finding 3214543729 on PR #119 — R5 used
+    `Path.resolve()` which followed symlinks and broke this case.
+    """
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+    import codex
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    # Real project dir + symlink alias pointing at it
+    real_dir = tmp_path / "real-proj"
+    real_dir.mkdir()
+    link_dir = tmp_path / "link-proj"
+    link_dir.symlink_to(real_dir)
+
+    sid = "symlinked-session-id"
+    # Pointer is written under the LINK path (via symlink — actual file
+    # ends up at real_dir/.claude/trinity.json on disk, but session.py
+    # was invoked with PROJECT_DIR=link_dir)
+    _write_pointer(link_dir, {"glm": {"session_id": sid}})
+
+    # Pre-create transcript at the LINK-encoded path (matches what the
+    # session.py write flow used as $PROJECT_DIR — i.e., the link path).
+    # `_encoded` (test helper) uses `.resolve()` which follows symlinks
+    # → would encode the real-dir path and miss the test's purpose. The
+    # resolver under test uses `os.path.abspath` (no symlink follow), so
+    # match that here.
+    link_encoded = os.path.abspath(str(link_dir)).replace("/", "-")
+    transcript = fake_home / ".factory" / "sessions" / link_encoded / f"{sid}.jsonl"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
+
+    class Args:
+        project = str(link_dir)
+        provider_spec = "glm"
+
+    rc = codex.cmd_session_path(Args())
+    assert rc == 0, (
+        f"symlink --project must use literal link path, not resolved target; "
+        f"got exit {rc} (would be 3 if wrapper called .resolve() and looked "
+        f"under the real-dir slug instead)"
+    )
