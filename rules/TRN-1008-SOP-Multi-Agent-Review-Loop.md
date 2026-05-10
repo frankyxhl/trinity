@@ -84,8 +84,9 @@ For loop cadence: 1800s (30 min) is a reasonable default — long enough to amor
 
 - `TRUSTED_REACTOR=frankyxhl` — the trusted GitHub login whose 🚀 grants eligibility. Per the PKG-promotion form (§Threat Model), this becomes a project-config parameter `<repo-trusted-reactor-list>` on COR-1200 promotion (default: `[repo owner from gh repo view]`).
 - `REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)` — the repo path; derived from current directory's git remote, supports forks without modification.
+- `AGENT_GH_LOGIN=ryosaeba1985` — the agent's gh-CLI identity that AUTHORS PRs (per §2 identity-gate). Distinct from `$TRUSTED_REACTOR` (rocket-consent signal): the trusted reactor only signals consent; the agent identity authors commits and PRs. Both must stay separate. On COR-1200 promotion, this becomes `<repo-agent-gh-login>` (default: per-repo agent account configured during install).
 
-Use `$TRUSTED_REACTOR` and `$REPO` everywhere below. Replace the literal `frankyxhl` only in historical examples (§Examples), never in commands.
+Use `$TRUSTED_REACTOR`, `$REPO`, and `$AGENT_GH_LOGIN` everywhere below. Replace the literal `frankyxhl` / `ryosaeba1985` only in historical examples (§Examples), never in commands.
 
 **Normative bypass clause.** **User-directed picks bypass ALL `verify_rocket_eligibility` checks.** Live chat input subsumes both consent and intake-quality signals. A "user-directed pick" is defined STRICTLY as an explicit instruction in the current Claude Code session — text typed by the human into the chat input by the active interactive user. The gate applies ONLY to autonomous auto-pick (phase 1 firing without a current user instruction).
 

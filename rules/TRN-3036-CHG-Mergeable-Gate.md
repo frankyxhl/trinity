@@ -23,7 +23,9 @@ Split TRN-1008 §10 Handoff into two concurrent triggers: (1) **mergeable-handof
 **Concurrent-PR cap (orchestrator-side guard)**: at §1 phase-1 entry (after rocket-eligibility scan, before §1.5 comprehension check), the orchestrator runs:
 ```bash
 # `$REPO` is the §1-config repo identifier (default: frankyxhl/trinity); honors PKG-promotion.
-open_count=$(gh pr list --repo "$REPO" --author "$TRUSTED_REACTOR" --state open --json number -q 'length')
+# `$AGENT_GH_LOGIN` is the agent's gh-CLI identity that AUTHORS PRs (default: ryosaeba1985 per §2);
+# distinct from `$TRUSTED_REACTOR` (rocket-consent signal, default: frankyxhl).
+open_count=$(gh pr list --repo "$REPO" --author "$AGENT_GH_LOGIN" --state open --json number -q 'length')
 if [ $? -ne 0 ] || [ -z "$open_count" ]; then
   # gh failure (network / auth / rate-limit) — fail closed.
   exit_to_idle_with_message "concurrent-PR cap query failed; idling conservatively (gh non-zero or empty count)"
@@ -52,7 +54,7 @@ PR cadence cost (~30% loop idle): across recent #89 → #98 → #103 → #104 se
 | 7 | TRN-1008 §Change History | New row dated 2026-05-09 UTC summarizing the §10 split + §11 dual-entry + Failure Modes addition. |
 | 8 | `rules/TRN-0000-REF-Document-Index.md` | Add TRN-3036 entry via `af index --root .` regen. |
 | 9 | `CHANGELOG.md` `[Unreleased] ### Changed` | Entry: "TRN-1008 §10/§11: auto-pick now fires when prior PR is mergeable (CI + bot + panel + no blockers), not when actually merged. Recovers ~30% loop idle time." |
-| 10 | TRN-1008 §1 Phase 1 (~L67-77) — concurrent-PR cap guard | Add orchestrator-side hard-cap check at §1 phase-1 entry (after rocket-eligibility scan, before §1.5 comprehension check): query `gh pr list --author ryosaeba1985 --state open --json number -q 'length'`; if ≥2, exit-to-idle with structured message "concurrent-PR cap N≤2 reached; idle until ≥1 merge". Cap value parameterized as a §1 phase-1 guard (not hardcoded constant) — future evolve cycles may revisit. Rationale: rebase-cost amplification grows with N; claim-comment collision risk grows quadratically; reviewer cognitive load grows linearly. |
+| 10 | TRN-1008 §1 Phase 1 (~L67-77) — concurrent-PR cap guard | Add orchestrator-side hard-cap check at §1 phase-1 entry (after rocket-eligibility scan, before §1.5 comprehension check): query `gh pr list --repo "$REPO" --author "$AGENT_GH_LOGIN" --state open --json number -q 'length'`; if ≥2, exit-to-idle with structured message "concurrent-PR cap N≤2 reached; idle until ≥1 merge". Filters by `$AGENT_GH_LOGIN` (agent identity, default `ryosaeba1985`), NOT `$TRUSTED_REACTOR` — `gh pr list --author` filters by PR author; agent PRs are authored by `ryosaeba1985` per §2 identity-gate, not by the rocket-consent reactor. Cap value parameterized as a §1 phase-1 guard (not hardcoded constant) — future evolve cycles may revisit. Rationale: rebase-cost amplification grows with N; claim-comment collision risk grows quadratically; reviewer cognitive load grows linearly. |
 
 **Atomicity note**: multi-section CHG bundled by correlated behavior change — precedent: TRN-3031, TRN-3033. Per TRN-1800 atomicity dimension, this satisfies "one coherent design change" even though it touches multiple §-sections. Surfaces 1, 2, 4 are within `## Steps` heading sections of the same multi-section doc TRN-1008 — each gets its own row. Surface 5 is a NEW subsection of §Failure Modes (separate row). Surface 3 and Surface 10 are both within §1 but cover distinct entry-point edits (dual-state note vs concurrent-PR cap guard) — separate rows. All TRN-1008 surfaces share the same atomicity unit (one §-heading-edit per surface).
 
@@ -106,7 +108,7 @@ Coexistence with merge-watch: both wakes are armed; mergeable-handoff fires firs
 
 Zero impact on existing in-flight PRs at the time of merge: the new mergeable-handoff path is purely ADDITIVE — old strict-serial behavior remains valid as State A. PRs already mid-merge-watch when this CHG ships continue under the existing TRN-3031 contract; §11 still accepts State A as canonical entry. No release-note breaking change. No config migration. Operators who prefer strict-serial may simply not push next issues' rockets until prior merges land — the gate stays closed under State A in that case.
 
-**Concurrent in-flight PR count**: the new path enables N=2+ PRs simultaneously open. Hard cap N≤2 enforced via orchestrator-side guard at §1 phase-1 entry (Surface 10) — operator-rocket cadence is no longer the primary mechanism. Rocket-gate on the next issue remains independent of any in-flight PR's status, but the orchestrator-side cap fires BEFORE rocket-gate work begins; if `gh pr list --repo "$REPO" --author "$TRUSTED_REACTOR" --state open` returns ≥2 (or fails, in which case it fails closed), phase-1 exits to idle with structured message. Future evolve cycles may revisit the cap value via PRP/CHG.
+**Concurrent in-flight PR count**: the new path enables N=2+ PRs simultaneously open. Hard cap N≤2 enforced via orchestrator-side guard at §1 phase-1 entry (Surface 10) — operator-rocket cadence is no longer the primary mechanism. Rocket-gate on the next issue remains independent of any in-flight PR's status, but the orchestrator-side cap fires BEFORE rocket-gate work begins; if `gh pr list --repo "$REPO" --author "$AGENT_GH_LOGIN" --state open` returns ≥2 (or fails, in which case it fails closed), phase-1 exits to idle with structured message. Filter by `$AGENT_GH_LOGIN` (PR author identity), not `$TRUSTED_REACTOR` (rocket-consent signal). Future evolve cycles may revisit the cap value via PRP/CHG.
 
 ## Threat Model assessment
 
