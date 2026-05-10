@@ -13,6 +13,15 @@
   diagram now makes the 3-condition requirement visually obvious. Shares
   vocabulary with the §1 mermaid (ALL-CAPS node IDs, no-op exits, enter
   phase 1). Closes #111.
+- `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — §Failure Modes (b)
+  counter-mechanism amendment + (f) active-work cancellation guard
+  extended to cover §10 merge-watch counter dual-format + §10(B)
+  procedure prose now documents extraction from both formats. CHG-3037's
+  initial amendment only covered §1 idle-retry counter (`idle wake <N>
+  of 12`); merge-watch counter (`merge_watch_count=<N> of 24` ref-style
+  vs `merge-watch wake N of 24 for branch <BRANCH_NAME>` legacy inline)
+  now both accepted formats. Closes the post-merge codex-bot finding on
+  PR #114.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` — §11 State-B git-branch
   guard branch (c) regex broadened from `^codex/` to `^(codex|claude)/` to
   accept Claude orchestrator branches alongside Codex (historical
