@@ -62,6 +62,7 @@
 | 3033 | CHG | Orchestrator Discipline |
 | 3034 | CHG | Decouple Strict COR Threshold |
 | 3035 | CHG | Trinity Minimax Provider |
+| 3036 | CHG | Mergeable Gate |
 
 ---
 

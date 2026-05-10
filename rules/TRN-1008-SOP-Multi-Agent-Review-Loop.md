@@ -60,8 +60,8 @@ The loop has 12 phases:
 7.   PR open + post-push closure-checklist (per #94) ← push to fork, gh pr create + 5-item closure
 8.   Iterate (CI + bot + code-review panel; entry-gate verifies prior R-push closed all 5 artifacts)
 9.   Triage         ← real bug → fix; advisory → batch into R3+
-10.  Handoff       ← "mergeable" = orchestrator done; user merges
-11.  Loop restart  ← 60s wake → re-enter phase 1
+10.  Handoff       ← "mergeable" = orchestrator done (declares mergeable + arms §11 in State B); merge-watch continues for actual merge (parallel triggers per CHG-3036)
+11.  Loop restart  ← 60s wake → re-enter phase 1 (State A: post-merge on main; State B: post-mergeable-handoff per CHG-3036)
 ```
 
 ### 1. Auto-pick
@@ -76,14 +76,17 @@ The loop has 12 phases:
 
 The **loop-driven** pattern is the "hands-off" mode: with `/loop` running, the user can react 🚀 to a tracking issue and the next tick auto-picks it. No chat input required. The orchestrator stays idle on ticks where no item is eligible (per `Z_GATE_B` in the tree below).
 
+**Note (CHG-3036)**: auto-pick can fire under either §11 entry state — **State A** (post-merge on `main`, traditional path) or **State B** (post-mergeable-handoff on the prior PR's branch, fires when prior PR is mergeable but not yet merged). See §11 for the dual-state precondition and the §11 State-B git-branch guard. The trigger patterns (user-driven / continuation / loop-driven) are orthogonal to the entry state — any pattern can fire under either A or B.
+
 For loop cadence: 1800s (30 min) is a reasonable default — long enough to amortise the cache-miss cost (the ScheduleWakeup doc notes the 5-min cache-TTL trap), short enough that a 🚀'd issue doesn't sit untouched for hours. Tune to user availability.
 
 **Identity & repo configuration** (single source of truth — used by every command in this section):
 
 - `TRUSTED_REACTOR=frankyxhl` — the trusted GitHub login whose 🚀 grants eligibility. Per the PKG-promotion form (§Threat Model), this becomes a project-config parameter `<repo-trusted-reactor-list>` on COR-1200 promotion (default: `[repo owner from gh repo view]`).
 - `REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)` — the repo path; derived from current directory's git remote, supports forks without modification.
+- `AGENT_GH_LOGIN=ryosaeba1985` — the agent's gh-CLI identity that AUTHORS PRs (per §2 identity-gate). Distinct from `$TRUSTED_REACTOR` (rocket-consent signal): the trusted reactor only signals consent; the agent identity authors commits and PRs. Both must stay separate. On COR-1200 promotion, this becomes `<repo-agent-gh-login>` (default: per-repo agent account configured during install).
 
-Use `$TRUSTED_REACTOR` and `$REPO` everywhere below. Replace the literal `frankyxhl` only in historical examples (§Examples), never in commands.
+Use `$TRUSTED_REACTOR`, `$REPO`, and `$AGENT_GH_LOGIN` everywhere below. Replace the literal `frankyxhl` / `ryosaeba1985` only in historical examples (§Examples), never in commands.
 
 **Normative bypass clause.** **User-directed picks bypass ALL `verify_rocket_eligibility` checks.** Live chat input subsumes both consent and intake-quality signals. A "user-directed pick" is defined STRICTLY as an explicit instruction in the current Claude Code session — text typed by the human into the chat input by the active interactive user. The gate applies ONLY to autonomous auto-pick (phase 1 firing without a current user instruction).
 
@@ -195,6 +198,26 @@ gh issue create --repo "$REPO" \
 
 Result under R4: **all candidates ineligible → idle silently**. The pre-R4 heuristic-only auto-pick that selected TRN-3027 in this session is grandfathered in the historical record but would not fire under the rocket-gate. To re-enable any of the above: user files a tracking issue (or rockets the existing one) and reacts 🚀.
 
+**Concurrent-PR cap guard (CHG-3036, orchestrator-side hard cap)**: at phase-1 entry — after the §1 rocket-eligibility scan returns a viable candidate, BEFORE §1.5 comprehension check runs — the orchestrator checks the open-PR count authored by **the agent's gh-CLI identity** (`$AGENT_GH_LOGIN`, default `ryosaeba1985` per §2 identity-gate; this is the account that AUTHORS PRs, distinct from `$TRUSTED_REACTOR` which only signals rocket consent) against a hard cap of N≤2 (prior PR awaiting merge + current pick). The cap rationale: rebase-cost amplification grows with N; claim-comment collision risk grows quadratically with N; reviewer cognitive load grows linearly with N. Cap value is parameterised as a §1 phase-1 guard (not hardcoded constant) — future evolve cycles may revisit via PRP/CHG.
+
+```bash
+# Concurrent-PR cap guard — runs at §1 phase-1 entry, before §1.5
+# `$REPO` is the §1-config repo identifier (default: frankyxhl/trinity); honors PKG-promotion.
+# `$AGENT_GH_LOGIN` is the agent's gh-CLI identity that AUTHORS PRs (default: ryosaeba1985 per §2);
+# distinct from `$TRUSTED_REACTOR` (rocket-consent signal, default: frankyxhl).
+open_count=$(gh pr list --repo "$REPO" --author "$AGENT_GH_LOGIN" --state open --json number -q 'length')
+if [ $? -ne 0 ] || [ -z "$open_count" ]; then
+  # gh failure (network / auth / rate-limit / empty response) — fail closed.
+  exit_to_idle_with_message "concurrent-PR cap query failed; idling conservatively (gh non-zero or empty count)"
+fi
+if [ "$open_count" -ge 2 ]; then
+  # Cap reached — idle wake until merges reduce in-flight count
+  exit_to_idle_with_message "concurrent-PR cap N≤2 reached; idle until ≥1 merge"
+fi
+```
+
+`exit_to_idle_with_message` is the structured-message idle path: surface the message to the user (chat output) and arm a §1 idle-with-retry wake (1800s). The wake's prompt re-runs phase 1 from scratch, including this cap check; if subsequent merges reduce the in-flight count below the cap, the next wake proceeds. Fail-closed on `gh` failure (treats unknown count as "potentially ≥cap") preserves the cap's safety property under transient API errors.
+
 ### 1.5. Comprehension check
 
 After an issue passes the §1 rocket-gate's structural intake validation (5-check `verify_rocket_eligibility`), the orchestrator runs a **6-point rubric** before creating any branch:
@@ -279,10 +302,12 @@ The `--porcelain` check is non-negotiable. It covers both tracked AND untracked 
 Identity gate before any GitHub-visible write:
 
 ```bash
-gh auth status               # must show: ryosaeba1985 active
+gh auth status               # must show: $AGENT_GH_LOGIN active (default: ryosaeba1985)
 ```
 
 If the wrong account is active, abort. Public artifacts authored by the wrong identity are a CLAUDE.md-level violation and require immediate close-and-replace.
+
+**Branch base policy (CHG-3036)**: branch base is ALWAYS `origin/main`, regardless of §11 entry state. Under §11 State B (mergeable-handoff fired before prior PR merged), the prior PR's source changes are not yet on `origin/main`; if the new issue's surfaces overlap the prior PR's, the new branch will need a rebase post-merge. Accepted cost — surfaces are typically orthogonal in the rocket queue, and branching off `origin/main` strictly avoids inheriting unreviewed code from the prior PR (security baseline preserved over rebase convenience).
 
 ### 3. Plan (draft CHG / spec)
 
@@ -439,7 +464,7 @@ If any check fails, fix locally before push (or re-dispatch worker for substanti
 git add <specific-paths>                 # never -A (sweeps untracked tmp/, drafts)
 git commit -m "$(cat <<'EOF' ... EOF)"   # HEREDOC for formatting
 git push fork <branch-name>              # fork remote, not origin
-gh pr create --repo "$REPO" --base main --head ryosaeba1985:<branch> ...   # $REPO from §1 config
+gh pr create --repo "$REPO" --base main --head "$AGENT_GH_LOGIN:<branch>" ...   # $REPO and $AGENT_GH_LOGIN from §1 config
 ```
 
 PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue>`. Plan-review gate scores belong in the body when applicable.
@@ -583,16 +608,47 @@ When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 - The orchestrator's job is done.
 - Frank merges manually as repo owner. `ryosaeba1985` cannot merge under branch protection.
 - Do NOT spam `gh pr merge --auto` retries; the GraphQL endpoint will reject.
-- **Merge-watch loop**: after the mergeable declaration, arm `ScheduleWakeup(delaySeconds=1800, reason="TRN-1008 §10 merge-watch — polling PR #<N> mergedAt on branch <BRANCH_NAME>", prompt="...")` with a merge-watch prompt that polls `gh pr view <N> --json mergedAt -q .mergedAt` on wake. The 1800s cadence matches §1 idle-with-retry (count and total duration intentionally 2× §1's because branch-protected merges typically take longer than idle-with-retry's no-work-pending wait). **On wake** the prompt MUST follow the same FIRST/SECOND/THIRD structure as §1 idle-retry and §11 loop-restart: **FIRST**, if the stop-marker `$(git rev-parse --git-path trinity-loop-stopped)` exists, wake is no-op (user-stop active per §Failure Modes case (c)); **SECOND**, run `git rev-parse --abbrev-ref HEAD` and compare to the watched-branch token embedded at arm time — if not `<BRANCH_NAME>`, a user-directed pick intervened — wake is no-op (do NOT auto-switch-and-pull; operator decides when to resume merge-watch via manual re-arm OR the next §1 phase 1 entry on main eventually catches up); **THIRD**, run `gh pr view <N> --json mergedAt -q .mergedAt`. If `mergedAt` is non-null (merged), run cleanup (`git switch main && git pull --ff-only origin main`) and arm §11. If still pending: arm next merge-watch wake (counter `merge-watch wake N of 24 for branch <BRANCH_NAME>` — same prompt-embedded pattern as §1 idle-retry). Stop conditions: 24 consecutive wakes ≈ 12 h → surface to user; user-stop marker; session termination. **Watched-branch comparison rule**: the merge-watch wake's exemption from the universal "must be on main" guard applies ONLY when the current branch matches the stored watched-branch token (set when §10 first armed the wake). ANY other branch (user-directed pick on a new branch) is the cancellation signal: wake is no-op, do NOT auto-switch-and-pull. The operator decides when to resume merge-watch (manual re-arm OR the next §1 phase 1 entry on main eventually catches up).
-- **After merge detected + cleanup completes**, proceed to §11 Loop restart.
+
+§10 fires TWO concurrent triggers when the mergeable predicate is satisfied. Both are armed in parallel and run independently:
+
+**(A) Mergeable-handoff trigger (NEW — fires immediately on mergeable predicate)**:
+
+The mergeable predicate is the SAME 4-signal check §10 already uses to declare handoff to the user: CI green on current HEAD + bot 👍 with no NEW findings + code-review panel gate met (both reviewers individual ≥9.5 + blocking empty) + no open blocker labels on the PR. The moment all four are satisfied, the orchestrator:
+
+1. **Surfaces the mergeable declaration** to the user (canonical chat output: "PR #<N> is mergeable; awaiting your merge click. Proceeding to next issue per §11 State B.").
+2. **Arms the §11 wake** via `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §11 loop-restart from mergeable-handoff PR #<N>", prompt="...")` — fires ONCE on first-mergeable. The 60s delay is §8's hard floor and matches §11 State A's post-merge cadence. The wake's `prompt=` MUST encode (a) the FIRST/SECOND/THIRD guard structure shared with §1 idle-retry / §10 merge-watch / §11 State A, (b) the watched-branch token of the prior PR, and (c) the FULL §11 State-B git-branch acceptance check (regex match + open-PR check + own-PR-mergeable check — see §11 State-B guard prose for the conjunctive conditions; a regex-only check would re-introduce the abandoned-mid-iteration-PR failure mode). Does NOT wait for `mergedAt`.
+3. **Does not cancel or modify the merge-watch wake** — both triggers run in parallel; mergeable-handoff arms exactly once on the first mergeable observation, while merge-watch continues independently per (B) below. Subsequent re-observations of mergeable (e.g., on later polls within the same R-loop) are no-op for the handoff trigger; idempotency is enforced by the orchestrator's per-PR "handoff-armed" flag (in-session state — re-armed if the orchestrator restarts and re-observes mergeable).
+
+**(B) Merge-watch trigger (UNCHANGED from TRN-3031)**:
+
+Continues to arm `ScheduleWakeup(delaySeconds=1800, reason="TRN-1008 §10 merge-watch — polling PR #<N> mergedAt on branch <BRANCH_NAME>", prompt="...")` with a merge-watch prompt that polls `gh pr view <N> --json mergedAt -q .mergedAt` on wake. The 1800s cadence matches §1 idle-with-retry (count and total duration intentionally 2× §1's because branch-protected merges typically take longer than idle-with-retry's no-work-pending wait). **On wake** the prompt MUST follow the same FIRST/SECOND/THIRD structure as §1 idle-retry and §11 loop-restart: **FIRST**, if the stop-marker `$(git rev-parse --git-path trinity-loop-stopped)` exists, wake is no-op (user-stop active per §Failure Modes case (c)); **SECOND**, run `git rev-parse --abbrev-ref HEAD` and compare to the watched-branch token embedded at arm time — if not `<BRANCH_NAME>`, a user-directed pick intervened — wake is no-op (do NOT auto-switch-and-pull; operator decides when to resume merge-watch via manual re-arm OR the next §1 phase 1 entry on main eventually catches up); **THIRD**, run `gh pr view <N> --json mergedAt -q .mergedAt`. If `mergedAt` is non-null (merged), run cleanup (`git switch main && git pull --ff-only origin main`) and arm §11. If still pending: arm next merge-watch wake (counter `merge-watch wake N of 24 for branch <BRANCH_NAME>` — same prompt-embedded pattern as §1 idle-retry). Stop conditions: 24 consecutive wakes ≈ 12 h → surface to user; user-stop marker; session termination. **Watched-branch comparison rule**: the merge-watch wake's exemption from the universal "must be on main" guard applies ONLY when the current branch matches the stored watched-branch token (set when §10 first armed the wake). ANY other branch (user-directed pick on a new branch) is the cancellation signal: wake is no-op, do NOT auto-switch-and-pull. The operator decides when to resume merge-watch (manual re-arm OR the next §1 phase 1 entry on main eventually catches up).
+
+**Interaction between (A) and (B)**: the mergeable-handoff trigger arms §11 in **State B** (orchestrator stays on prior PR's branch — see §11). When §11 fires (60s later), the orchestrator's branch-state may be (a) still on the prior PR's branch (operator hasn't merged), (b) on `main` (operator merged within the 60s window — merge-watch may not have fired yet), or (c) on a new `codex/*` branch (orchestrator already started next issue's branch from a prior State-B wake) — but case (c) is accepted ONLY if that branch has an open PR AND that PR is itself mergeable (multi-condition; see §11 State-B guard). All three states route through the §11 State-B guard which enforces these conjunctive checks. The merge-watch trigger continues to poll `mergedAt` regardless; when actual merge lands, its cleanup (`git switch main && git pull --ff-only origin main`) runs subject to its own watched-branch cancellation guard (case (f) below) — if the orchestrator has moved on to a new `codex/*` branch, the merge-watch cleanup wake is a no-op (correct: do not yank an in-flight branch back to main). The two triggers are decoupled by design: mergeable-handoff is the latency-recovery signal; merge-watch is the cleanup signal. Either can fail (mergeable revoked, merge takes >12h) without affecting the other.
+
+- **After merge detected + cleanup completes (via merge-watch path)**, proceed to §11 Loop restart in State A. **OR after mergeable-handoff arms §11 (via the 60s wake)**, §11 fires in State B. Both paths route through §11.
 
 ### 11. Loop restart
 
-**Entry precondition (load-bearing)**: by the end of §10's merge-watch loop (i.e., when Frank's merge is detected and cleanup completes), the orchestrator MUST be on `main` with `origin/main` pulled. §11 fires under that precondition only. If §10's merge-watch exceeded its counter (24 wakes ≈ 12 h per TRN-3031) or cleanup failed (merge conflict, network error), surface the failure to the user and do NOT arm the §11 wake — manual intervention required.
+**Entry precondition (dual-state, load-bearing)**: §11 accepts TWO entry states. Both route into the same wake-then-re-enter-phase-1 logic:
 
-After §10 completes (PR merged + main checked out + main pulled), fire `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff", prompt="...")` to re-enter phase 1. The 60s delay is §8's hard minimum (`Never < 60s` per the §8 cadence rules); 60s captures the post-handoff burst window where the operator may 🚀 a queued issue immediately after merge.
+- **State A — post-merge** (current, unchanged from TRN-3030): §10's merge-watch loop detected `mergedAt != null`, ran cleanup (`git switch main && git pull --ff-only origin main`), and the orchestrator is on `main` with `origin/main` pulled. State A is reached when Frank's merge click lands and merge-watch's cleanup completes.
+- **State B — post-mergeable-handoff** (NEW per CHG-3036): §10's mergeable-handoff trigger fired on first-mergeable observation, surfaced the mergeable declaration to the user, and armed §11 WITHOUT waiting for `mergedAt`. The orchestrator is still on the prior PR's feature branch (operator hasn't merged yet) OR on `main` (operator merged within the 60s arm window) OR on a new `codex/*` branch (orchestrator already started next issue's branch from a prior State-B wake — accepted only with multi-condition guard checks below). State B does NOT require `main` at arm time, but the §11 State-B guard enforces stricter checks for the `codex/*` case to prevent abandoning in-flight work.
 
-The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, run §1.5 comprehension check; on PROCEED proceed to §1's scope-rank tree (CLARIFY/REJECT defer/decline per §1.5). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause. The same two-guard cancellation check applies (stop-marker + git-branch): on wake, if `$(git rev-parse --git-path trinity-loop-stopped)` exists OR `git rev-parse --abbrev-ref HEAD` returns non-main, the wake is a no-op (user has stopped the loop OR a user-directed pick switched off main during the 60s wait). The entry precondition above guarantees we ARM the wake on `main`; the guard catches the narrow window where a user-directed pick intervenes between §10's switch+pull and §11's 60s fire.
+If §10's merge-watch exceeded its counter (24 wakes ≈ 12 h per TRN-3031) or cleanup failed (merge conflict, network error) on the State A path, surface the failure to the user and do NOT arm the §11 wake — manual intervention required. State B is unaffected by State A's failure modes — they are independent triggers per §10 (A) / §10 (B).
+
+**Branch-base policy** (applies to both states): when §11 enters phase 1 and a candidate is selected, §2 branch hygiene's `git fetch origin main && git switch -c codex/<slug> origin/main` is unchanged. The next-issue branch is ALWAYS based on `origin/main`, never on the prior PR's branch HEAD — even under State B where the prior PR's source changes are not yet on `origin/main`. Rationale: branching off `origin/main` strictly avoids inheriting unreviewed code from the prior PR (security baseline preserved). Tradeoff: if the new issue's surfaces overlap the prior PR's, the new branch needs a rebase post-merge — accepted cost (see §2 branch hygiene rebase note).
+
+After §10 (A) or §10 (B) completes, the §11 wake fires `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §11 loop restart — re-enter phase 1 after handoff", prompt="...")` to re-enter phase 1. The 60s delay is §8's hard minimum (`Never < 60s` per the §8 cadence rules); 60s captures the post-handoff burst window where the operator may 🚀 a queued issue immediately after merge OR after mergeable declaration.
+
+**§11 State-B git-branch guard (NEW per CHG-3036)**: on wake, the orchestrator runs `git rev-parse --abbrev-ref HEAD` and compares the result against THREE accepted branch states. States (a) and (b) are simple equality checks; state (c) is multi-conditional (regex match + open-PR check + own-PR-mergeable check). The full conjunctive contract:
+
+- (a) `main` — State A canonical (merge happened, cleanup ran), OR State B where operator merged within the 60s arm window.
+- (b) The prior PR's watched-branch token (set when §10 first armed the mergeable-handoff wake) — State B where operator hasn't merged yet AND orchestrator hasn't moved on.
+- (c) A `^codex/` branch THAT HAS AN OPEN PR **AND that PR has itself reached mergeable state** (own §10 mergeable predicate satisfied: CI green + bot 👍 + panel ≥9.5 + no open blockers). Verify with: (1) `gh pr list --head <current-branch> --state open --json number -q 'length'` ≥ 1, AND (2) the PR's own mergeable predicate is satisfied. If (1) fails (committed-but-not-PR'd work in flight) OR (2) fails (PR exists but still in CI/bot/panel iterate phase), the wake is a no-op — orchestrator must resume in-flight work on this PR, not start a new issue. This prevents two failure modes: (i) State-B wake fires from `codex/foo` with unfinished local work and orphans commits; (ii) State-B wake fires while orchestrator is mid-iteration on a NEW PR — prior PR's merge dropped `open_count` to 1, cap allows pickup, the new PR's review loop is abandoned mid-flight.
+
+Any other branch (e.g., a user-directed checkout to an unrelated feature branch, a detached HEAD, a hotfix branch, OR a `codex/*` branch with no open PR, OR a `codex/*` branch whose PR is still in CI/bot/panel iterate phase) → wake is a no-op (mirrors §10 merge-watch case (f) cancellation guard). The stop-marker check (`if -e $(git rev-parse --git-path trinity-loop-stopped), no-op`) runs FIRST per the shared FIRST/SECOND/THIRD guard structure; the 3-branch git-branch acceptance check runs SECOND.
+
+The wake's prompt re-runs `scripts/scan_rocket_issues.sh | while read N; do verify_rocket_eligibility "$N" || continue; done`. If a candidate is rocket-eligible, run §1.5 comprehension check; on PROCEED proceed to §1's scope-rank tree (CLARIFY/REJECT defer/decline per §1.5). If idle, arm §1 idle-with-retry (1800s wake). A live-chat user-directed pick pre-empts the wake per §1 normative bypass clause.
 
 **If a future retrospective phase is added (e.g., per issue #83), it inserts BEFORE this §11 step; renumber accordingly.** Retrospective-then-loop-restart is the natural pipeline order: reflect on the just-shipped PR, *then* start the next pick.
 
@@ -617,8 +673,8 @@ The auto-pick loop must reject any candidate that wasn't explicitly consented to
 - **Never AUTONOMOUSLY auto-pick an issue without `verify_rocket_eligibility` PASS** (rocket-gate; identity defined at top of §1). "Autonomous" = continuation or loop-driven trigger; user-directed picks via live chat bypass the gate per §1 normative bypass clause. For autonomous picks, the gate's PASS is the consent + intake-quality signal; failure = abort, idle silently. Internal deferred TRN-* items also need a tracking issue meeting the gate. Checks are documented in the §1 spec table above (single source of truth — do not restate here).
 - **Never panel-review without TRN-1800 weights** in the prompt. CLD-1800 is for the `.claude` repo only.
 - **Any individual below the §4-specified threshold blocks the gate.** Dissent is not absorbable; address the dissenter's findings in the next R-iteration. (Threshold and provider count are §4-spec-defined per R17 SSOT.)
-- **Never push to `origin/main`**. Push to `fork` (the `ryosaeba1985` remote).
-- **Never bypass the identity gate**. `gh auth status` shows `ryosaeba1985` before any GitHub-visible write.
+- **Never push to `origin/main`**. Push to `fork` (the `$AGENT_GH_LOGIN` remote, default `ryosaeba1985`).
+- **Never bypass the identity gate**. `gh auth status` shows `$AGENT_GH_LOGIN` (default `ryosaeba1985`) before any GitHub-visible write.
 - **Never trust worker reports without spot-checking**. The worker says "done"; you verify "done".
 - **Never sleep > 270s when cache is warm and you're ACTIVELY polling** (bot review on a freshly-pushed HEAD, CI status checks, panel-verdict polling). The 5-min prompt-cache TTL is a real cost. Exception: **long-wait polling** that intentionally accepts the cache miss because the next signal is hours-away rather than seconds-away — §1 idle-retry (1800s, waiting for new rocket'd issues), §10 merge-watch (1800s, waiting for human merge), §11 loop-restart (60s, post-handoff burst). These follow §8 cadence guidance ("no work pending: 1800-3600s") rather than the active-polling rule above.
 - **Never amend a published commit**. Add a new commit. The CHG history table tracks iterations.
@@ -702,6 +758,27 @@ The same prompt-embedded counter pattern applies to §10 merge-watch wakes (`mer
 
 **(f) Active-work cancellation for merge-watch**: §10 merge-watch wake's exemption from the "must be on main" guard creates a race window — if a user-directed pick switches off the watched branch during the merge-watch loop, the wake could otherwise interrupt the new in-flight work when it auto-switches-and-pulls. Cancellation mechanism: the merge-watch wake's `prompt=` MUST embed the watched-branch name as a token (e.g., `merge-watch wake N of 24 for branch <BRANCH_NAME>`); on wake, `git rev-parse --abbrev-ref HEAD` is compared to the stored token; if mismatch, wake is no-op (do NOT auto-switch-and-pull). Mirrors the §1 idle-retry git-branch guard (case implicit in §1 prose) — both reuse observable git state as the cancellation signal. Resumption: operator manually re-arms merge-watch, OR the next §1 phase 1 entry on main eventually catches up via natural scan.
 
+### Mergeable-but-revoked (CHG-3036)
+
+§10 (A) mergeable-handoff fires once on first-mergeable observation (CI green + bot 👍 + panel ≥9.5 + no open blockers). Between that moment and the prior PR's actual merge, the mergeable predicate can be revoked.
+
+**Revocation triggers** — any of the 4 mergeable-predicate signals can flip back to non-clean post-handoff:
+
+1. **CI fails on a new commit**: a force-push or follow-up commit on the prior PR's branch triggers a new CI run; if it fails (test regression, lint, build), CI status leaves "green".
+2. **Bot 👍 retracted**: codex re-finds an issue on a force-push; the bot may post a new finding or re-review and retract its previous approval. Bot 👍 is per-HEAD-SHA, not sticky.
+3. **Panel re-score below gate**: a new commit re-triggers panel review (per §8 entry-gate verification); if either reviewer scores below 9.5 OR posts a new blocker, panel gate is no longer met.
+4. **Blocker label re-applied**: operator (or another orchestrator) re-applies a blocker label to the PR; the "no open blockers" predicate flips false.
+
+**Recovery flow**: zero explicit re-routing required. The merge-watch wake (§10 (B)) is armed independently at the moment of mergeable-handoff and continues polling `mergedAt` regardless of mergeable-predicate revocation — `mergedAt` is the merge-status truth, and revocation cannot un-merge. If the prior PR remains unmerged because revocation made it un-mergeable, merge-watch keeps polling until either (i) re-alignment happens and Frank merges (merge-watch fires cleanup as normal), (ii) the 24-wake / 12 h cap exhausts and merge-watch surfaces to the user, OR (iii) the orchestrator has moved on to a new `codex/*` branch (case (f) cancellation guard fires merge-watch wake as no-op until manual re-arm OR the next §1 phase-1 entry on `main` eventually catches up via natural scan).
+
+**60s arm-window edge case**: if mergeable is revoked DURING the 60s window between §11-arm (mergeable-handoff fired) and §11-fire (the 60s wake), the wake proceeds anyway — it was armed on a valid first-mergeable signal, and the orchestrator does NOT re-validate mergeable on §11 fire (re-validation would defeat the whole point of decoupling auto-pick from merge timing). Residual risk is accepted because:
+
+- (a) **Latency bound**: 60s is well below typical CI re-run latency (~3-5 min) and bot re-review latency (~2-10 min); the window is too short for most revocation triggers to fire and propagate to the orchestrator's observable signals.
+- (b) **Branch-base safety**: the next-issue branch is `origin/main`-based per §2 branch hygiene policy (NOT prior PR's branch HEAD), so the new branch never inherits unreviewed code from the prior PR. Even if revocation fires within 60s, the new issue starts on a clean `origin/main` base.
+- (c) **Cap protection**: the §1 phase-1 concurrent-PR cap (N≤2) prevents cascading on revocation chains. If the prior PR remains revoked / unmerged, the next §1 phase-1 entry will hit the cap (open_count == 2, prior + current) and idle until ≥1 merge resolves. Revocation cannot cascade beyond N=2 in-flight.
+
+This is a structural fail-safe rather than a perfect-correctness guarantee. The 60s window is small by construction; the consequences of stale-signal handoff are bounded by the branch-base policy and the cap; recovery is automatic via merge-watch's independent polling. No manual intervention required for the common case.
+
 ### Concurrent orchestrators
 
 Two orchestrators racing for the same rocketed issue: best-effort claim-comment mechanism. Each orchestrator posts `🤖 Auto-pick claim: <id> at <ISO-8601>` on the tracking issue at branch-creation time, after re-polling for an existing claim within the last 10 min. If a recent foreign claim is found, abort and surface to user. Not transactional; 10-min window is the tolerance for duplicate work safely undoable via `git branch -D`.
@@ -763,3 +840,4 @@ When worker output fails verification (spot-check finds wrong symbols, test fail
 | 2026-05-09 | TRN-3031 (CHG-3031, PR #96): §10 merge-watch loop fixes from PR #93 R7 codex-bot review. (1) Active-work cancellation: merge-watch wake's `prompt=` now embeds watched-branch token `for branch <BRANCH_NAME>`; on wake, `git rev-parse --abbrev-ref HEAD` compared to stored token; mismatch → wake is no-op (mirrors §1 cancellation per R17 SSOT). (2) Cap extended: `merge-watch wake N of 12` (270s × 12 = 54min) → `N of 24` (1800s × 24 = 12h, intentionally 2× §1's 6h cap because branch-protected merges take longer). New §Failure Modes case (f) "Active-work cancellation for merge-watch". CHG-3031 plan-review: glm 9.55 / deepseek 9.55 (mean 9.55, R3, fast-review tier ≥9.5 + zero blocking → gate MET). | Claude Opus 4.7 |
 | 2026-05-09 | TRN-3032 (CHG-3032, PR #97): fast-review tier — §4 + §8 panel rules: 4 providers → 2 (glm + deepseek); PASS gate ≥9.0 → ≥9.5. §Failure Modes ≥3-viable rule replaced with 2-provider rule. §Guard Rails count-free per R17 SSOT. §What intro + §Why intro + §Steps preamble TOC + §4 gate-enforcement prose + §4 panel-result table + §4 mermaid block + §8 mermaid dispatch node all updated for new tier. §Threat Model extended with 2-provider redundancy + bot-down mitigation. CHG-3032 plan-review: glm 9.50 / deepseek 9.57 (mean 9.535, R2, fast-review tier ≥9.5 + zero blocking → gate MET). Closes #88; supersedes #86. | Claude Code |
 | 2026-05-09 | TRN-3033 (CHG-3033, bundled — Closes #91, #92, #94): orchestrator-discipline bundle — three rules sharing the conceptual frame "orchestrator judgment hardening at phase boundaries". (1) §5 worker dispatch is now DEFAULT (orchestrator-direct reserved for explicit exceptions list); (2) NEW §1.5 comprehension check (6-point rubric, PROCEED/CLARIFY/REJECT outcomes) inserts between Phase 1 rocket-gate and Phase 2 branch hygiene; (3) §Guard Rails wait-state guard rule + §7 5-item post-push closure-checklist + §8 entry-gate verification. §1 mermaid gains COMP/CLAR_OUT/REJ_OUT nodes. §Failure Modes gains 3 new subsections. §Threat Model gains worker-dispatch attack surface paragraph. CHG-3033 plan-review: glm 9.50 / PASS, deepseek 9.85 / PASS at R3-amend (fast-review tier ≥9.5 + zero blocking → gate MET). First bundled CHG under fast-review tier. | trinity-glm (worker dispatch) |
+| 2026-05-09 | TRN-3036 (CHG-3036, Closes #106): mergeable gate — decouple auto-pick from actual merge. §10 split into TWO concurrent triggers: (A) NEW mergeable-handoff trigger fires immediately on mergeable predicate (CI + bot + panel + no blockers), arms §11 in State B without waiting for `mergedAt`; (B) merge-watch UNCHANGED, continues polling `mergedAt` and runs cleanup on actual merge (preserves TRN-3031 watched-branch token + cap + active-work cancellation). §11 entry precondition relaxed from single load-bearing to dual-state: State A (post-merge on `main`, traditional) or State B (post-mergeable-handoff on prior PR branch / `main` / `codex/*`). §11 State-B git-branch guard accepts 3 states via regex `^main$\|^<watched-branch>$\|^codex/`; rejects all others as no-op (mirrors §10 case (f)). §1 phase-1 gains orchestrator-side concurrent-PR cap (N≤2, fail-closed on `gh` failure) — runs after rocket-eligibility scan, before §1.5. §2 branch hygiene gains rebase-cost note for State B (branch base = `origin/main` always). §Failure Modes adds "Mergeable-but-revoked" subsection (4 revocation triggers + recovery flow + 60s arm-window edge case + bounded-cascade rationale via cap). Recovers ~30% loop idle time. CHG-3036 plan-review R3: deepseek 9.50 / PASS (converged design). | trinity-glm (worker dispatch) |
