@@ -512,3 +512,39 @@ def test_non_git_project_dir_resolves(tmp_path, monkeypatch):
 
     rc = codex.cmd_session_path(Args())
     assert rc == 0, f"non-git --project must resolve, got exit {rc}"
+
+
+def test_codex_glob_anchored_no_suffix_collision(tmp_path, monkeypatch, capsys):
+    """Codex glob must anchor to the dash boundary before session_id —
+    a short `id == "abc"` MUST NOT silently resolve to a longer
+    `xabc.jsonl` (suffix-match collision per codex-bot R3 P2 finding
+    3214522376 on PR #119).
+
+    Setup: project pointer has session_id="abc". On disk under the
+    expected codex day directory we plant ONE colliding file
+    `rollout-...-xabc.jsonl` (would suffix-match the old glob) and NO
+    file with the actual `-abc.jsonl` anchor. Resolver MUST report
+    "transcript file not found" (exit 3), NOT print the colliding path.
+    """
+    sp = _import_session_path()
+    project = tmp_path / "proj"
+    project.mkdir()
+    sid = "abc"
+    _write_pointer(project, {"codex": {"session_id": sid}})
+
+    fake_home = Path(os.environ["HOME"])
+    day_dir = fake_home / ".codex" / "sessions" / "2026" / "05" / "10"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    # Collision file: ends with "xabc.jsonl" — would match `*abc.jsonl`
+    collider = day_dir / "rollout-2026-05-10T08-00-00-xabc.jsonl"
+    collider.write_text("")
+
+    # No index — resolver falls through to the broad-glob path.
+    rc = sp.cmd_session_path(str(project), "codex")
+    out = capsys.readouterr()
+    # Anchored glob does NOT match the collider; resolver returns the
+    # synthetic "transcript file not found" exit-3 path.
+    assert rc == 3, f"expected exit 3 (no anchor match), got {rc}; stdout={out.out!r}"
+    assert str(collider) not in out.out, (
+        f"resolver leaked collision path to stdout: {out.out!r}"
+    )

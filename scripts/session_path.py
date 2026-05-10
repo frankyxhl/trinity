@@ -14,9 +14,11 @@ and looks it up verbatim in `.claude/trinity.json` -> ``sessions``.
 
 Per-provider resolvers cover:
     glm           -> ~/.factory/sessions/<encoded-project-path>/<session-id>.jsonl
-    codex         -> ~/.codex/sessions/<YYYY>/<MM>/<DD>/...<session-id>.jsonl
+    codex         -> ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<session-id>.jsonl
                      (index-first via ~/.codex/session_index.jsonl;
-                      glob fallback ~/.codex/sessions/*/*/*/*<session-id>.jsonl)
+                      glob fallback `*-<session-id>.jsonl` anchored at the dash
+                      boundary; post-filter via `endswith` to defend against
+                      suffix-collision on short IDs)
     claude-code   -> ~/.claude-trinity-claude-code/projects/<PROJECT_SLUG>/<session-id>.jsonl
     deepseek      -> ~/.claude-deepseek/projects/<PROJECT_SLUG>/<session-id>.jsonl
     openrouter    -> ~/.claude-openrouter/projects/<PROJECT_SLUG>/<session-id>.jsonl
@@ -174,9 +176,19 @@ def _codex_index_lookup(session_id: str) -> Path | None:
                     continue
                 yyyy, mm, dd = m.group(1), m.group(2), m.group(3)
                 day_dir = home / ".codex" / "sessions" / yyyy / mm / dd
-                # Codex on-disk filename prefixes with "rollout-<ts>-" before
-                # the session_id; glob with *<id>.jsonl matches that.
-                matches = sorted(day_dir.glob(f"*{session_id}.jsonl"))
+                # Codex on-disk filename is `rollout-<ISO-ts>-<session_id>.jsonl`.
+                # Glob `*-<session_id>.jsonl` requires a dash immediately before
+                # the session_id (anchors to the boundary in the codex format)
+                # — `*<id>` would suffix-match `rollout-...-xabc.jsonl` for a
+                # short `id == "abc"`. Post-filter via `.endswith` enforces
+                # exact-anchor at the dash boundary even if the glob sees an
+                # unexpected variant (defense-in-depth per codex-bot R3 P2).
+                anchor = f"-{session_id}.jsonl"
+                matches = sorted(
+                    p
+                    for p in day_dir.glob(f"*-{session_id}.jsonl")
+                    if p.name.endswith(anchor)
+                )
                 if len(matches) == 1:
                     return matches[0]
                 if len(matches) > 1:
@@ -203,10 +215,15 @@ def _resolve_codex(session_id: str, project_dir: str) -> Path:
     if indexed is not None:
         return indexed
     home = Path(os.path.expanduser("~"))
+    # Same anchor logic as the index-driven path: glob requires a dash
+    # immediately before the session_id; post-filter via `.endswith` enforces
+    # exact-anchor (per codex-bot R3 P2 — `*<id>` would suffix-match `xabc`
+    # for a short `id == "abc"`).
+    anchor = f"-{session_id}.jsonl"
     pattern = str(
-        home / ".codex" / "sessions" / "*" / "*" / "*" / f"*{session_id}.jsonl"
+        home / ".codex" / "sessions" / "*" / "*" / "*" / f"*-{session_id}.jsonl"
     )
-    matches = sorted(glob.glob(pattern))
+    matches = sorted(p for p in glob.glob(pattern) if p.endswith(anchor))
     if len(matches) == 1:
         return Path(matches[0])
     if len(matches) > 1:
