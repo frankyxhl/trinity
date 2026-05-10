@@ -282,15 +282,19 @@ git log origin/main --oneline -3   # verify expected merge state
 # `-C` (uppercase, force-create-or-reset) was used in R10 but was
 # flagged: clean worktree + existing branch with unpushed commits =
 # `-C` resets that branch to origin/main and orphans the commits.
-git switch -c codex/<slug> origin/main || {
+# `<agent-prefix>` is the orchestrator family: `codex` (Codex/GPT) or
+# `claude` (Anthropic Claude). Both prefixes are accepted by §11 State-B
+# branch (c) regex `^(codex|claude)/`. Substitute literally per the
+# orchestrator authoring this branch.
+git switch -c <agent-prefix>/<slug> origin/main || {
     # If creation failed because the branch exists, ABORT and decide
     # explicitly (the snippet does NOT auto-resolve — manual intervention
     # is required, since auto-deletion could lose unpushed commits):
-    #   1. Resume → `git switch codex/<slug>` and verify base is origin/main
-    #   2. Fresh branch → `git branch -D codex/<slug>` (only after
+    #   1. Resume → `git switch <agent-prefix>/<slug>` and verify base is origin/main
+    #   2. Fresh branch → `git branch -D <agent-prefix>/<slug>` (only after
     #      confirming no unpushed commits matter), then re-run
     #   3. Stash unpushed work elsewhere first, then choose 1 or 2
-    echo "ERROR: branch codex/<slug> exists. Manual intervention required (see options 1-3 above)." >&2
+    echo "ERROR: branch <agent-prefix>/<slug> exists. Manual intervention required (see options 1-3 above)." >&2
     exit 1   # `exit` works at top-level scripts AND interactively;
              # `return` would error outside a function and let the
              # operator continue on the wrong branch unnoticed.
