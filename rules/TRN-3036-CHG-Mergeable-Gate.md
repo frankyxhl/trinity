@@ -94,10 +94,20 @@ def declare_mergeable_and_arm_handoff(pr_number, watched_branch):
     ScheduleWakeup(
         delaySeconds=60,
         reason=f"§11 loop-restart from mergeable-handoff PR #{pr_number}",
+        # The wake prompt encodes the FULL §11 State-B guard (NOT just the simple regex),
+        # because branch (c) acceptance has THREE conjunctive conditions per TRN-1008 §11
+        # State-B guard prose: regex match + open PR for branch + that PR's own mergeable
+        # predicate. A regex-only check bypasses (b) and (c) and re-introduces the
+        # abandoned-mid-iteration-PR failure mode.
         prompt=f"§11 wake from mergeable-handoff (PR #{pr_number}, watched-branch {watched_branch}). "
                f"FIRST: if -e $(git rev-parse --git-path trinity-loop-stopped), no-op. "
-               f"SECOND: git rev-parse --abbrev-ref HEAD; accept if matches /^main$|^{watched_branch}$|^codex\\//; else no-op. "
-               f"THIRD: enter §1 phase-1 (next-issue auto-pick)."
+               f"SECOND: run §11 State-B guard from TRN-1008 (3-branch acceptance check): "
+               f"  branch={{git rev-parse --abbrev-ref HEAD}}; "
+               f"  if branch == 'main' OR branch == '{watched_branch}' → accept; "
+               f"  elif branch matches /^codex\\// AND `gh pr list --head $branch --state open --json number -q 'length'` >= 1 "
+               f"      AND that PR's own §10 mergeable predicate is satisfied (CI green + bot 👍 + panel ≥9.5 + no blockers) → accept; "
+               f"  else no-op (orchestrator must resume in-flight work, not start new issue). "
+               f"THIRD: on accept, enter §1 phase-1 (next-issue auto-pick); on no-op, exit cleanly."
     )
     # 3. Merge-watch wake remains independently armed (continues polling mergedAt regardless)
 ```
