@@ -41,11 +41,29 @@ def trinity_path(project_dir):
     return os.path.join(project_dir, ".claude", "trinity.json")
 
 
-def cmd_read(project_dir, instance_key):
+# Sentinel returned by _read_pointer when no pointer file exists. Distinct
+# from "file exists but is empty/invalid" (which raises) and from "file exists
+# with no matching entry" (caller's job to detect on the returned dict).
+POINTER_MISSING = None
+
+
+def _read_pointer(project_dir):
+    """Read `<project_dir>/.claude/trinity.json` under a shared (LOCK_SH) lock.
+
+    Returns:
+        dict — parsed JSON contents (top-level object, e.g. ``{"sessions": {...}}``).
+        ``POINTER_MISSING`` (None) — when the pointer file does not exist on disk.
+
+    Raises:
+        SystemExit(1) — on IO error, empty file, or malformed JSON. Mirrors
+        the prior in-line behavior of ``cmd_read``; both ``cmd_read`` and
+        ``scripts.session_path`` rely on this single source of truth so the
+        ``fcntl.flock(LOCK_SH)`` + ``json.loads`` flow lives in exactly one
+        place (per CHG-3040 trade-off table option A).
+    """
     path = trinity_path(project_dir)
     if not os.path.exists(path):
-        print("NEW")
-        return
+        return POINTER_MISSING
     try:
         with open(path, "r") as f:
             fcntl.flock(f, fcntl.LOCK_SH)
@@ -58,10 +76,11 @@ def cmd_read(project_dir, instance_key):
                     )
                     sys.exit(1)
                 try:
-                    data = json.loads(content)
+                    return json.loads(content)
                 except json.JSONDecodeError as e:
                     print(
-                        f"trinity-scripts: invalid JSON in {path}: {e}", file=sys.stderr
+                        f"trinity-scripts: invalid JSON in {path}: {e}",
+                        file=sys.stderr,
                     )
                     sys.exit(1)
             finally:
@@ -69,6 +88,13 @@ def cmd_read(project_dir, instance_key):
     except OSError as e:
         print(f"trinity-scripts: IO error reading {path}: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def cmd_read(project_dir, instance_key):
+    data = _read_pointer(project_dir)
+    if data is POINTER_MISSING:
+        print("NEW")
+        return
     sessions = data.get("sessions", {})
     entry = sessions.get(instance_key)
     if entry:

@@ -29,7 +29,14 @@ DEFAULT_CONFIG_CANDIDATES = [
 ]
 DEFAULT_CONFIG_SECTIONS = ("providers", "review", "presets", "preset_aliases")
 PRESET_TASK_TYPES = {"tdd", "review", "prp", "general"}
-PRESET_ALIAS_RESERVED_WORDS = {"init-config", "doctor", "review", "status", "help"}
+PRESET_ALIAS_RESERVED_WORDS = {
+    "init-config",
+    "doctor",
+    "review",
+    "status",
+    "help",
+    "session-path",
+}
 STRICT_REVIEW_OUTPUT_SCHEMA = [
     "### Findings",
     "### Decision Matrix",
@@ -1607,7 +1614,9 @@ def parse_structured_review(raw_text, pass_threshold=None):
       5. Coerce effective_decision if needed.
     """
     try:
-        effective_threshold = pass_threshold if pass_threshold is not None else _REVIEW_PASS_THRESHOLD
+        effective_threshold = (
+            pass_threshold if pass_threshold is not None else _REVIEW_PASS_THRESHOLD
+        )
         stdout_region = _strip_stderr_region(raw_text)
 
         matches = _SCHEMA_BLOCK_RE.findall(stdout_region)
@@ -2081,7 +2090,9 @@ def write_synthesis(review_dir, scope, results, strict_review=None):
                 parsed_per_provider.append(
                     parse_structured_review(
                         raw_text,
-                        pass_threshold=strict_review["pass_threshold"] if strict_review else None,
+                        pass_threshold=strict_review["pass_threshold"]
+                        if strict_review
+                        else None,
                     )
                 )
             else:
@@ -2260,7 +2271,9 @@ def cmd_review(args):
             json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
         )
         progress("writing synthesis")
-        summary, synthesis_path = write_synthesis(review_dir, args.scope, results, strict_review=strict_review)
+        summary, synthesis_path = write_synthesis(
+            review_dir, args.scope, results, strict_review=strict_review
+        )
         # TRN-3028: emit the completion line directly to stderr without the
         # `trinity: ` progress prefix so callers can key off the documented
         # "trinity review: <verdict> — ..." prefix at the START of the line.
@@ -2599,6 +2612,51 @@ def cmd_status(args):
     return _print_review_summary(candidates[0])
 
 
+def cmd_session_path(args):
+    """Resolve a Trinity session pointer to its on-disk JSONL transcript path.
+
+    Lookup-key normalization (per CHG-3040 Surface 4):
+    `<project>/.claude/trinity.json` keys are unsuffixed (`glm`, `codex`,
+    `gemini`). The CLI accepts `<provider>[:<instance>]`; we strip a
+    `:default` suffix at lookup time so `trinity session-path glm:default`
+    is equivalent to `trinity session-path glm`. Other suffixes
+    (e.g. `glm:experimental`) pass through verbatim and look up the
+    suffixed key.
+    """
+    # Local import: keep `scripts/session_path.py` off the import path of
+    # codex.py at module load (consistent with how this file imports the
+    # heavy dependencies lazily inside command handlers elsewhere).
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import session_path
+    finally:
+        # Best-effort cleanup; harmless if path was already present.
+        try:
+            sys.path.remove(str(Path(__file__).resolve().parent))
+        except ValueError:
+            pass
+
+    spec = args.provider_spec or ""
+    if ":" in spec:
+        provider, instance = spec.split(":", 1)
+        if instance == "default":
+            lookup_key = provider
+        else:
+            lookup_key = spec
+    else:
+        lookup_key = spec
+
+    if not lookup_key:
+        print(
+            "trinity session-path: missing <provider>[:<instance>]",
+            file=sys.stderr,
+        )
+        return 1
+
+    project_dir = str(resolve_root(args.project))
+    return session_path.cmd_session_path(project_dir, lookup_key)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="trinity", allow_abbrev=False)
     parser.add_argument("--version", action="store_true")
@@ -2637,6 +2695,21 @@ def build_parser():
             "for forward-compatibility with future --all / --review-dir flags)."
         ),
     )
+
+    session_path = subparsers.add_parser(
+        "session-path",
+        help="Resolve a Trinity session pointer to its JSONL transcript path.",
+    )
+    session_path.add_argument(
+        "provider_spec",
+        help="Provider key, optionally with instance suffix (e.g. 'glm', 'glm:default', 'codex:experimental').",
+    )
+    session_path.add_argument(
+        "--project",
+        default=".",
+        help="Project directory containing .claude/trinity.json (default: cwd).",
+    )
+
     return parser
 
 
@@ -2656,6 +2729,8 @@ def main(argv=None):
         return cmd_doctor(args)
     if args.command == "status":
         return cmd_status(args)
+    if args.command == "session-path":
+        return cmd_session_path(args)
     parser.print_help(sys.stderr)
     return 1
 

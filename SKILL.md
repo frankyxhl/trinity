@@ -54,6 +54,31 @@ If scripts pass the version check, proceed normally.
 /trinity help                                    # show README
 ```
 
+## Session Transcript Paths
+
+Resolve a provider's on-disk JSONL transcript path for a stored session pointer (token-efficiency audits, replay debugging).
+
+```
+trinity session-path <provider>[:<instance>] [--project <dir>]
+```
+
+The command reads `<project>/.claude/trinity.json`, looks up the pointer for the given key, dispatches to a per-provider resolver, and prints the absolute JSONL path on stdout. **Path-only** — transcript content is never read or surfaced. The `:default` suffix is stripped at lookup (`glm:default` is equivalent to `glm`); other suffixes (e.g. `glm:experimental`) pass through verbatim.
+
+| Provider | Transcript root |
+|----------|-----------------|
+| `glm` | `~/.factory/sessions/<encoded-project-path>/<session-id>.jsonl` |
+| `codex` | `~/.codex/sessions/<YYYY>/<MM>/<DD>/...<session-id>.jsonl` (index-first via `~/.codex/session_index.jsonl`; broad-glob fallback) |
+| `claude-code` / `deepseek` / `openrouter` | `~/.claude/projects/<encoded-project-path>/<session-id>.jsonl` |
+| `gemini` | not yet supported (exits 3 with explicit deferral message) |
+
+Path encoding: absolute project path with `/` replaced by `-` (matches existing droid + claude conventions).
+
+Exit codes:
+
+- `0` — path printed; file exists on disk.
+- `2` — no session pointer for the provided key.
+- `3` — provider unsupported, transcript file missing, malformed `session_id`, or codex multi-glob residual (>1 match).
+
 ## Provider Discovery
 
 On every dispatch, resolve available providers and presets:
