@@ -15,9 +15,9 @@ import sys
 import tempfile
 
 try:
+    from ._version import load_version
+except ImportError:
     from _version import load_version
-except ModuleNotFoundError:
-    from scripts._version import load_version
 
 __version__ = load_version()
 

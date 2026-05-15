@@ -20,9 +20,9 @@ import threading
 import time
 
 try:
+    from ._version import load_version
+except ImportError:
     from _version import load_version
-except ModuleNotFoundError:
-    from scripts._version import load_version
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
