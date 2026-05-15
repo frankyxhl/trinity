@@ -6,7 +6,6 @@ import concurrent.futures
 import datetime as dt
 import difflib
 import fnmatch
-import importlib.util
 import json
 import math
 import os
@@ -19,6 +18,11 @@ import subprocess
 import sys
 import threading
 import time
+
+try:
+    from _version import load_version
+except ModuleNotFoundError:
+    from scripts._version import load_version
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -82,15 +86,7 @@ STRICT_REVIEW_TEMPLATES = {
 }
 
 
-def _load_version():
-    init_file = Path(__file__).resolve().parent / "__init__.py"
-    spec = importlib.util.spec_from_file_location("_scripts_init", str(init_file))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.__version__
-
-
-__version__ = _load_version()
+__version__ = load_version()
 
 
 def run_git(root, args, allow_error=False):
