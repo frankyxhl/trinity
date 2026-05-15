@@ -9,22 +9,17 @@ Usage:
     install.py register-from-registry <registry_path> [--global-config <path>]
 """
 
-import importlib.util
 import json
 import os
 import sys
 import tempfile
 
+try:
+    from ._version import load_version
+except ImportError:
+    from _version import load_version
 
-def _load_version():
-    _init = os.path.join(os.path.dirname(os.path.abspath(__file__)), "__init__.py")
-    _spec = importlib.util.spec_from_file_location("_scripts_init", _init)
-    _mod = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(_mod)
-    return _mod.__version__
-
-
-__version__ = _load_version()
+__version__ = load_version()
 
 try:
     import fcntl

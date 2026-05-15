@@ -16,6 +16,13 @@
   rationale and surfaces.
 
 ### Changed
+- `scripts/_version.py` — new shared module exposing `load_version()`. The
+  identical inlined `_load_version()` helper that lived in `scripts/session.py`,
+  `scripts/config.py`, `scripts/discover.py`, `scripts/install.py`, and
+  `scripts/codex.py` (5 copies × ~8 lines each = ~40 LoC) is gone; each call
+  site now imports `load_version` from `_version` (dual-mode: direct script
+  exec + package import). Pure DRY refactor — no behavior change, same
+  importlib mechanism for reading `scripts/__init__.py`. Closes #77.
 - `rules/TRN-1008-SOP-Multi-Agent-Review-Loop.md` adopts PKG `COR-1617 §11
   Retrospective` (alfred v1.16.0). NEW `### 11. Retrospective` subsection
   inserted before Loop restart; existing `### 11. Loop restart` renumbered
