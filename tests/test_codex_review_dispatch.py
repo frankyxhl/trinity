@@ -468,7 +468,14 @@ time.sleep(30)
     assert incomplete["providers_running_at_cleanup"] == ["deepseek"]
     assert "glm" not in incomplete["cleanup"]
     assert "deepseek" in incomplete["cleanup"]
-    assert not (review_dir / "metadata.json").exists()
+    # TRN-2018 M1: metadata.json is written at init (before run_providers),
+    # so an interrupted review now leaves both files. metadata.json contains
+    # the init-time state (status=running with provider_states); incomplete.json
+    # overlays the interrupted-status verdict (read by _print_review_summary).
+    assert (review_dir / "metadata.json").exists()
+    init_meta = json.loads((review_dir / "metadata.json").read_text())
+    assert init_meta["status"] == "running"
+    assert set(init_meta["provider_states"].keys()) == {"glm", "deepseek"}
 
 
 def test_review_sigint_before_dispatch_writes_incomplete_json(
@@ -513,20 +520,22 @@ def test_review_sigint_before_dispatch_writes_incomplete_json(
 def test_review_sigint_during_metadata_write_marks_incomplete(
     tmp_path, monkeypatch, capsys
 ):
+    """TRN-2018 M1: metadata writes go through _review_metadata._write_atomic
+    (os.replace), not Path.write_text. Interrupt during the post-run write
+    is now achieved by patching finalize_metadata. The init-time
+    metadata.json (written before run_providers starts) survives.
+    """
     repo = simple_repo(tmp_path)
     events = tmp_path / "events.jsonl"
     glm = tmp_path / "glm"
     write_sleep_provider(glm, events, sleep_seconds=0.1)
     config = tmp_path / "codex.json"
     write_config(config, {"glm": glm})
-    original_write_text = Path.write_text
 
-    def interrupt_metadata_write(path, *args, **kwargs):
-        if path.name == "metadata.json":
-            raise KeyboardInterrupt
-        return original_write_text(path, *args, **kwargs)
+    def interrupt_finalize(*args, **kwargs):
+        raise KeyboardInterrupt
 
-    monkeypatch.setattr(codex.Path, "write_text", interrupt_metadata_write)
+    monkeypatch.setattr(codex._rm, "finalize_metadata", interrupt_finalize)
     args = codex.build_parser().parse_args(
         [
             "review",
@@ -546,7 +555,11 @@ def test_review_sigint_during_metadata_write_marks_incomplete(
     assert incomplete["providers_started"] == ["glm"]
     assert incomplete["providers_running_at_cleanup"] == []
     assert incomplete["cleanup"] == {}
-    assert not (review_dir / "metadata.json").exists()
+    # M1: init_metadata wrote metadata.json before run_providers; finalize
+    # was the interrupted step. The file persists with init-time state.
+    assert (review_dir / "metadata.json").exists()
+    init_meta = json.loads((review_dir / "metadata.json").read_text())
+    assert init_meta["status"] == "running"
     assert not (review_dir / "synthesis.md").exists()
 
 

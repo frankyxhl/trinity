@@ -21,8 +21,10 @@ import time
 
 try:
     from ._version import load_version
+    from . import _review_metadata as _rm
 except ImportError:
     from _version import load_version
+    import _review_metadata as _rm
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -1270,6 +1272,7 @@ def make_review_dir(out_dir, scope):
         except FileExistsError:
             continue
         (review_dir / "raw").mkdir()
+        (review_dir / "logs").mkdir()
         return review_dir
     raise SystemExit("trinity-codex: unable to create unique review directory")
 
@@ -1722,12 +1725,26 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             env=build_provider_env(),
         )
         registry.add(provider, popen, started)
+        _rm.update_provider_state(
+            review_dir,
+            provider,
+            status="running",
+            pid=getattr(popen, "pid", None),
+            started_at=started,
+        )
         stdout, stderr = popen.communicate(timeout=timeout)
         raw_path.write_text(raw_output(stdout, stderr))
         finished = timestamp()
         progress(
             f"provider {provider} finished returncode={popen.returncode} "
             f"elapsed={elapsed_seconds(started_monotonic)}s"
+        )
+        _rm.update_provider_state(
+            review_dir,
+            provider,
+            status="finished",
+            returncode=popen.returncode,
+            finished_at=finished,
         )
         return {
             "provider": provider,
@@ -1742,12 +1759,20 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             f"provider {provider} failed returncode=127 "
             f"elapsed={elapsed_seconds(started_monotonic)}s"
         )
+        finished = timestamp()
+        _rm.update_provider_state(
+            review_dir,
+            provider,
+            status="failed",
+            returncode=127,
+            finished_at=finished,
+        )
         return {
             "provider": provider,
             "returncode": 127,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
-            "finished_at": timestamp(),
+            "finished_at": finished,
         }
     except subprocess.TimeoutExpired as exc:
         cleanup_result = terminate_process_group(popen)
@@ -1766,12 +1791,20 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             f"provider {provider} timed out returncode=124 "
             f"cleanup={cleanup_result} elapsed={elapsed_seconds(started_monotonic)}s"
         )
+        finished = timestamp()
+        _rm.update_provider_state(
+            review_dir,
+            provider,
+            status="timed_out",
+            returncode=124,
+            finished_at=finished,
+        )
         return {
             "provider": provider,
             "returncode": 124,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
-            "finished_at": timestamp(),
+            "finished_at": finished,
         }
     except Exception:
         if popen is not None and popen.poll() is None:
@@ -2242,6 +2275,31 @@ def cmd_review(args):
         prompt_path = review_dir / "prompt.md"
         progress("writing prompt")
         prompt_path.write_text(prompt)
+        # TRN-2018 M1: write metadata.json with all providers queued BEFORE
+        # run_providers. This gives `trinity status --latest` a live view
+        # while providers run, instead of waiting until completion.
+        _rm.init_metadata(
+            review_dir,
+            review_id=review_dir.name,
+            review_dir_str=str(review_dir),
+            providers=providers,
+            preset=preset_metadata,
+            scope=args.scope,
+            root=str(root),
+            input=review_input["metadata"],
+        )
+        if strict_review is not None:
+            # Preserve strict_review block alongside the live state by
+            # threading it into metadata after init.
+            data = _rm.read_metadata(review_dir)
+            data["strict_review"] = {
+                key: value
+                for key, value in strict_review.items()
+                if key != "template"
+            }
+            (review_dir / "metadata.json").write_text(
+                json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+            )
         results = run_providers(
             max_workers,
             providers,
@@ -2250,22 +2308,19 @@ def cmd_review(args):
             review_dir,
             root,
         )
-        metadata = {
-            "scope": args.scope,
-            "root": str(root),
-            "providers": providers,
-            "preset": preset_metadata,
-            "input": review_input["metadata"],
-            "results": results,
-        }
-        if strict_review is not None:
-            metadata["strict_review"] = {
-                key: value for key, value in strict_review.items() if key != "template"
-            }
         progress("writing metadata")
-        (review_dir / "metadata.json").write_text(
-            json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
-        )
+        _rm.finalize_metadata(review_dir, results)
+        # Re-apply strict_review if it was set (finalize rewrites the file).
+        if strict_review is not None:
+            data = _rm.read_metadata(review_dir)
+            data["strict_review"] = {
+                key: value
+                for key, value in strict_review.items()
+                if key != "template"
+            }
+            (review_dir / "metadata.json").write_text(
+                json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+            )
         progress("writing synthesis")
         summary, synthesis_path = write_synthesis(
             review_dir, args.scope, results, strict_review=strict_review
