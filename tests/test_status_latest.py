@@ -684,6 +684,30 @@ def test_t20_status_renders_timed_out_provider_returncode_124(tmp_path):
     assert "rc=124" in out
 
 
+def test_t22_status_header_uses_metadata_started_at_when_results_empty(tmp_path):
+    """R3 fix (codex R2 P2): when M1 metadata exists with provider_states
+    but results=[], the header `started X ago` must derive from top-level
+    `started_at` instead of falling through to `?`. Previously read only
+    `results[].started_at`, which is empty mid-review."""
+    # Use a recent ISO timestamp so the elapsed math produces seconds-old
+    now = time.time()
+    started_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now - 30))
+    md = _m1_metadata(
+        {
+            "glm": {"status": "running", "pid": 99, "started_at": started_iso},
+        }
+    )
+    md["started_at"] = started_iso
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # Header should NOT show "started ?" when top-level started_at is present
+    assert "started ?" not in out
+    # And should show some "ago" string (seconds, minutes, etc.)
+    assert "ago" in out
+
+
 def test_t21_status_pre_m1_metadata_falls_back_to_results_rendering(tmp_path):
     """Pre-M1 metadata (no provider_states key) still renders correctly via
     the legacy `Providers:` results section. T1-T15 already exercise this

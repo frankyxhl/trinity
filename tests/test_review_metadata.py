@@ -270,6 +270,86 @@ def test_backwardcompat_results_finalized_entries_match_legacy_shape(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# append_result (R3 fix for codex R2 P2)
+# ---------------------------------------------------------------------------
+
+
+def test_append_result_appends_to_empty_results(tmp_path):
+    review_dir = _init(tmp_path)
+    rm.append_result(
+        review_dir, {"provider": "glm", "returncode": 0, "raw": "raw/glm.txt"}
+    )
+    data = json.loads((review_dir / "metadata.json").read_text())
+    assert len(data["results"]) == 1
+    assert data["results"][0]["provider"] == "glm"
+
+
+def test_append_result_preserves_prior_entries(tmp_path):
+    review_dir = _init(tmp_path)
+    rm.append_result(review_dir, {"provider": "glm", "returncode": 0})
+    rm.append_result(review_dir, {"provider": "deepseek", "returncode": 2})
+    data = json.loads((review_dir / "metadata.json").read_text())
+    assert [r["provider"] for r in data["results"]] == ["glm", "deepseek"]
+
+
+def test_append_result_no_op_when_metadata_missing(tmp_path):
+    """Defensive: append_result silently no-ops when metadata.json absent.
+    Mirrors update_provider_state for unit-test ergonomics."""
+    review_dir = tmp_path / "bare"
+    review_dir.mkdir()
+    rm.append_result(review_dir, {"provider": "glm"})  # must not raise
+    assert not (review_dir / "metadata.json").exists()
+
+
+def test_finalize_overwrites_appended_results_with_canonical_order(tmp_path):
+    """append_result + finalize: finalize replaces results with the
+    canonical ordered list (matching `providers` order), so even if
+    append_result wrote in completion-order, the final state matches
+    the orchestrator's intent."""
+    review_dir = _init(tmp_path, providers=("glm", "deepseek"))
+    # Simulate provider completions in reverse order
+    rm.append_result(
+        review_dir,
+        {
+            "provider": "deepseek",
+            "returncode": 0,
+            "raw": "raw/deepseek.txt",
+            "started_at": "t",
+            "finished_at": "t",
+        },
+    )
+    rm.append_result(
+        review_dir,
+        {
+            "provider": "glm",
+            "returncode": 0,
+            "raw": "raw/glm.txt",
+            "started_at": "t",
+            "finished_at": "t",
+        },
+    )
+    canonical = [
+        {
+            "provider": "glm",
+            "returncode": 0,
+            "raw": "raw/glm.txt",
+            "started_at": "t",
+            "finished_at": "t",
+        },
+        {
+            "provider": "deepseek",
+            "returncode": 0,
+            "raw": "raw/deepseek.txt",
+            "started_at": "t",
+            "finished_at": "t",
+        },
+    ]
+    rm.finalize_metadata(review_dir, canonical)
+    data = json.loads((review_dir / "metadata.json").read_text())
+    assert [r["provider"] for r in data["results"]] == ["glm", "deepseek"]
+
+
+# ---------------------------------------------------------------------------
 # Read-side resilience (DS-P2#3)
 # ---------------------------------------------------------------------------
 

@@ -144,6 +144,31 @@ def update_provider_state(review_dir: Path, provider: str, **fields) -> None:
         _write_atomic(review_dir, data)
 
 
+def append_result(review_dir: Path, result: dict) -> None:
+    """Append one provider result entry to metadata["results"] under lock.
+
+    Called by run_provider on each terminal return path so status readers
+    can discover completed providers' artifacts (raw path, returncode,
+    timestamps) without waiting for the full review to finalize. This is
+    important for parallel reviews where one provider may finish minutes
+    before another.
+
+    finalize_metadata later overwrites results with the ordered list from
+    run_providers, so duplicate appends are not a concern — final state is
+    canonical regardless.
+
+    Defensive: silently no-op if metadata.json doesn't exist (mirrors
+    update_provider_state for unit-test ergonomics).
+    """
+    with _lock_for(review_dir):
+        try:
+            data = read_metadata(review_dir)
+        except FileNotFoundError:
+            return
+        data.setdefault("results", []).append(result)
+        _write_atomic(review_dir, data)
+
+
 def finalize_metadata(review_dir: Path, results: list[dict]) -> None:
     """Set finished_at + results + recompute top-level status.
 

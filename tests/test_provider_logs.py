@@ -206,9 +206,9 @@ def test_run_provider_nonzero_rc_marks_state_failed(tmp_path):
     assert result["returncode"] == 2
     import json
 
-    state = json.loads((review_dir / "metadata.json").read_text())[
-        "provider_states"
-    ]["p"]
+    state = json.loads((review_dir / "metadata.json").read_text())["provider_states"][
+        "p"
+    ]
     assert state["status"] == "failed", (
         f"expected failed (rc=2 != 0); got {state['status']!r}"
     )

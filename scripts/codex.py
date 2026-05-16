@@ -1817,6 +1817,11 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
                 registry.remove(provider, popen)
 
     # Log file handles are now closed; compose raw_path from disk content.
+    # TRN-2018 R3 fix (codex R2 P2): append the result entry to metadata
+    # immediately so status readers can discover completed providers'
+    # artifacts before the full review finishes (parallel-provider case).
+    # finalize_metadata later overwrites results with the canonical
+    # ordered list from run_providers, so duplicate appends are harmless.
     if outcome[0] == "finished":
         _, rc, finished = outcome
         stdout_text = (
@@ -1826,23 +1831,27 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
         )
         raw_path.write_text(raw_output(stdout_text, stderr_text))
-        return {
+        result = {
             "provider": provider,
             "returncode": rc,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
             "finished_at": finished,
         }
+        _rm.append_result(review_dir, result)
+        return result
     if outcome[0] == "filenotfound":
         _, msg, finished = outcome
         raw_path.write_text(f"ERROR: command not found: {msg}\n")
-        return {
+        result = {
             "provider": provider,
             "returncode": 127,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
             "finished_at": finished,
         }
+        _rm.append_result(review_dir, result)
+        return result
     # timeout
     _, exc, timeout_val, finished = outcome
     stdout_text = (
@@ -1856,13 +1865,15 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     if partial:
         output += "\n[partial output]\n" + partial
     raw_path.write_text(output)
-    return {
+    result = {
         "provider": provider,
         "returncode": 124,
         "raw": str(raw_path.relative_to(review_dir)),
         "started_at": started,
         "finished_at": finished,
     }
+    _rm.append_result(review_dir, result)
+    return result
 
 
 def review_parallelism(config, providers):
@@ -2596,8 +2607,12 @@ def _print_review_summary(review_dir):
     results = metadata.get("results", [])
 
     # "started Xm ago" — earliest started_at across results, vs now.
+    # TRN-2018 R3 fix (codex R2 P2): when M1 metadata is mid-review (results
+    # still empty because run_providers hasn't finished), fall back to the
+    # top-level `started_at` written by init_metadata so the header doesn't
+    # render "started ?" in the exact state the live-status feature is for.
     started_isos = [r.get("started_at") for r in results if r.get("started_at")]
-    earliest = min(started_isos) if started_isos else None
+    earliest = min(started_isos) if started_isos else metadata.get("started_at")
     now_iso = dt.datetime.now().isoformat(timespec="seconds")
     ago = _format_ago(now_iso, earliest) if earliest else "?"
 
