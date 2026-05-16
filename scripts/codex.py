@@ -2379,12 +2379,20 @@ def cmd_review(args):
             review_dir,
             root,
         )
-        progress("writing metadata")
-        _rm.finalize_metadata(review_dir, results)
+        # TRN-2018 R7 fix (codex R6 P2): per CHG L88-89, top-level
+        # `finished_at` stays null until synthesis.md is written.
+        # finalize_metadata must run AFTER write_synthesis succeeds so
+        # a concurrent `trinity status` poll never observes
+        # status=finished while synthesis.md is missing. If
+        # write_synthesis raises, finalize is skipped; the exception
+        # handler writes incomplete.json and metadata.json stays in
+        # `status=running` for the partial review.
         progress("writing synthesis")
         summary, synthesis_path = write_synthesis(
             review_dir, args.scope, results, strict_review=strict_review
         )
+        progress("writing metadata")
+        _rm.finalize_metadata(review_dir, results)
         # TRN-3028: emit the completion line directly to stderr without the
         # `trinity: ` progress prefix so callers can key off the documented
         # "trinity review: <verdict> — ..." prefix at the START of the line.

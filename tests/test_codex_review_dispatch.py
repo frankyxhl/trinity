@@ -560,7 +560,12 @@ def test_review_sigint_during_metadata_write_marks_incomplete(
     assert (review_dir / "metadata.json").exists()
     init_meta = json.loads((review_dir / "metadata.json").read_text())
     assert init_meta["status"] == "running"
-    assert not (review_dir / "synthesis.md").exists()
+    # TRN-2018 R7: cmd_review reorders write_synthesis BEFORE
+    # finalize_metadata so a concurrent status poll never sees
+    # status=finished without synthesis.md. With finalize_metadata
+    # monkeypatched to raise here, synthesis.md was already written
+    # in the prior step. (Pre-R7 order had this assertion reversed.)
+    assert (review_dir / "synthesis.md").exists()
 
 
 def test_run_providers_does_not_start_queued_provider_after_failure(
