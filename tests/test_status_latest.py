@@ -176,23 +176,28 @@ def test_t5_malformed_metadata_exits_nonzero(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_t6_empty_reviews_dir_exits_nonzero(tmp_path):
+def test_t6_empty_reviews_dir_exits_zero_with_no_reviews_found(tmp_path):
+    """TRN-2018 M1 behavior change (per CHG L154): empty reviews dir now
+    exits 0 with `no reviews found` on stdout (was: rc=1, stderr
+    "no reviews under <path>"). Flagged in CHANGELOG."""
     (tmp_path / ".trinity" / "reviews").mkdir(parents=True)
     result = _run_status(tmp_path)
-    assert result.returncode == 1
-    assert "no reviews under" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "no reviews found" in result.stdout
 
 
 # ---------------------------------------------------------------------------
-# T7: missing .trinity/reviews/ entirely → exits rc=1 with "no reviews dir".
+# T7: missing .trinity/reviews/ entirely → TRN-2018 M1: exits rc=0 with
+# stdout "no reviews found" (was: rc=1, stderr "no reviews dir at <path>").
 # ---------------------------------------------------------------------------
 
 
-def test_t7_missing_reviews_dir_exits_nonzero(tmp_path):
-    # tmp_path has no .trinity/ subdirectory at all.
+def test_t7_missing_reviews_dir_exits_zero_with_no_reviews_found(tmp_path):
+    """TRN-2018 M1 behavior change (per CHG L154): missing reviews dir now
+    exits 0 with `no reviews found` on stdout."""
     result = _run_status(tmp_path)
-    assert result.returncode == 1
-    assert "no reviews dir" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "no reviews found" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -532,9 +537,7 @@ def test_t15_same_second_reviews_use_mtime_tiebreak(tmp_path):
         json.dumps(_basic_metadata({"deepseek": 0}))
     )
     (review_z / "synthesis.md").write_text("# z\n")
-    (review_a / "metadata.json").write_text(
-        json.dumps(_basic_metadata({"glm": 0}))
-    )
+    (review_a / "metadata.json").write_text(json.dumps(_basic_metadata({"glm": 0})))
     (review_a / "synthesis.md").write_text("# a\n")
 
     # Force `-a` to have a strictly newer mtime than `-z`.
@@ -549,3 +552,150 @@ def test_t15_same_second_reviews_use_mtime_tiebreak(tmp_path):
     # (later in lex order).
     assert "20260508-120000-a" in out
     assert "20260508-120000-z" not in out
+
+
+# ---------------------------------------------------------------------------
+# TRN-2018 M1: live provider_states rendering
+# ---------------------------------------------------------------------------
+
+
+def _m1_metadata(provider_states: dict, *, results=None, status="running") -> dict:
+    """Build an M1-shape metadata.json: top-level status + provider_states
+    block. results defaults to [] (mid-run state)."""
+    return {
+        "review_id": "20260516-120000-rules",
+        "review_dir": "/fake/.trinity/reviews/20260516-120000-rules",
+        "status": status,
+        "started_at": "2026-05-16T12:00:00",
+        "finished_at": None,
+        "scope": "rules/",
+        "root": "/fake",
+        "providers": list(provider_states.keys()),
+        "preset": {
+            "requested": "review",
+            "resolved": "review",
+            "source": "explicit",
+            "task_type": "review",
+            "skipped_optional_providers": [],
+        },
+        "input": {"mode": "working-tree", "scope": "rules/"},
+        "results": list(results or []),
+        "provider_states": provider_states,
+    }
+
+
+def test_t16_status_renders_queued_providers_when_only_init_metadata(tmp_path):
+    """init_metadata writes all providers queued before run_providers.
+    Status output during this window must show each provider as queued."""
+    md = _m1_metadata(
+        {
+            "glm": {"status": "queued"},
+            "deepseek": {"status": "queued"},
+        }
+    )
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Live state:" in out
+    assert "glm" in out and "queued" in out
+    # Both providers listed
+    glm_idx = out.index("glm")
+    ds_idx = out.index("deepseek")
+    assert glm_idx >= 0 and ds_idx >= 0
+
+
+def test_t17_status_renders_running_provider_with_pid(tmp_path):
+    md = _m1_metadata(
+        {
+            "glm": {
+                "status": "running",
+                "pid": 12345,
+                "started_at": "2026-05-16T12:00:01",
+            },
+            "deepseek": {"status": "queued"},
+        }
+    )
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # glm's line should contain its state, pid, and provider name
+    assert "running" in out
+    assert "pid=12345" in out
+
+
+def test_t18_status_renders_finished_provider_with_returncode(tmp_path):
+    md = _m1_metadata(
+        {
+            "glm": {
+                "status": "finished",
+                "pid": 12345,
+                "started_at": "2026-05-16T12:00:01",
+                "finished_at": "2026-05-16T12:03:08",
+                "returncode": 0,
+            },
+        },
+        status="finished",
+    )
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "finished" in out
+    assert "rc=0" in out
+
+
+def test_t19_status_renders_failed_provider_returncode_nonzero(tmp_path):
+    md = _m1_metadata(
+        {
+            "glm": {
+                "status": "failed",
+                "returncode": 2,
+                "finished_at": "2026-05-16T12:00:05",
+            },
+        },
+        status="failed",
+    )
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "failed" in out
+    assert "rc=2" in out
+
+
+def test_t20_status_renders_timed_out_provider_returncode_124(tmp_path):
+    md = _m1_metadata(
+        {
+            "glm": {
+                "status": "timed_out",
+                "returncode": 124,
+                "finished_at": "2026-05-16T12:00:10",
+            },
+        },
+        status="timed_out",
+    )
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "timed_out" in out
+    assert "rc=124" in out
+
+
+def test_t21_status_pre_m1_metadata_falls_back_to_results_rendering(tmp_path):
+    """Pre-M1 metadata (no provider_states key) still renders correctly via
+    the legacy `Providers:` results section. T1-T15 already exercise this
+    code path; this test is the explicit cross-reference."""
+    md = _basic_metadata({"glm": 0, "deepseek": 0})
+    assert "provider_states" not in md
+    _make_review(tmp_path, metadata=md)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # Existing legacy section still renders results.
+    assert "Providers:" in out
+    assert "Status: completed" in out
+    # No live-state section when M1 metadata absent.
+    assert "Live state:" not in out

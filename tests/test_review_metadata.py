@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import sys
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -100,7 +99,9 @@ def test_update_provider_state_queued_to_running_writes_pid_started_at(tmp_path)
     assert glm["started_at"] == "2026-05-16T12:00:01"
 
 
-def test_update_provider_state_running_to_finished_writes_returncode_finished_at(tmp_path):
+def test_update_provider_state_running_to_finished_writes_returncode_finished_at(
+    tmp_path,
+):
     review_dir = _init(tmp_path)
     rm.update_provider_state(review_dir, "glm", status="running", pid=99)
     rm.update_provider_state(
@@ -182,7 +183,9 @@ def _finalize_after_all(tmp_path, terminal_states):
 
 
 def test_finalize_metadata_all_finished_top_status_finished(tmp_path):
-    review_dir = _finalize_after_all(tmp_path, {"glm": "finished", "deepseek": "finished"})
+    review_dir = _finalize_after_all(
+        tmp_path, {"glm": "finished", "deepseek": "finished"}
+    )
     data = json.loads((review_dir / "metadata.json").read_text())
     assert data["status"] == "finished"
     assert data["finished_at"] is not None
@@ -190,7 +193,9 @@ def test_finalize_metadata_all_finished_top_status_finished(tmp_path):
 
 
 def test_finalize_metadata_any_failed_top_status_failed(tmp_path):
-    review_dir = _finalize_after_all(tmp_path, {"glm": "finished", "deepseek": "failed"})
+    review_dir = _finalize_after_all(
+        tmp_path, {"glm": "finished", "deepseek": "failed"}
+    )
     data = json.loads((review_dir / "metadata.json").read_text())
     assert data["status"] == "failed"
 
@@ -219,7 +224,9 @@ def test_update_provider_state_concurrent_writes_no_lost_update(tmp_path):
 
     def write_deepseek():
         for i in range(20):
-            rm.update_provider_state(review_dir, "deepseek", status="running", pid=100 + i)
+            rm.update_provider_state(
+                review_dir, "deepseek", status="running", pid=100 + i
+            )
 
     t1 = threading.Thread(target=write_glm)
     t2 = threading.Thread(target=write_deepseek)
@@ -253,7 +260,9 @@ def test_backwardcompat_providers_remains_list(tmp_path):
 def test_backwardcompat_results_finalized_entries_match_legacy_shape(tmp_path):
     """After finalize, each results[i] has exactly the legacy keys per
     scripts/codex.py:1732-1738 (run_provider's return dict)."""
-    review_dir = _finalize_after_all(tmp_path, {"glm": "finished", "deepseek": "finished"})
+    review_dir = _finalize_after_all(
+        tmp_path, {"glm": "finished", "deepseek": "finished"}
+    )
     data = json.loads((review_dir / "metadata.json").read_text())
     legacy_keys = {"provider", "returncode", "raw", "started_at", "finished_at"}
     for entry in data["results"]:
@@ -265,30 +274,29 @@ def test_backwardcompat_results_finalized_entries_match_legacy_shape(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_read_metadata_retries_once_on_json_decode_error(tmp_path):
-    """Simulate a mid-write read: write partial JSON, then atomically
-    replace with valid JSON 50ms later from a background thread.
-    read_metadata's retry-after-100ms catches the valid content."""
+def test_read_metadata_retries_once_on_json_decode_error(tmp_path, monkeypatch):
+    """Mock-based: read_text returns invalid JSON the first call, valid
+    JSON the second. Asserts read_metadata's retry kicks in. Avoids the
+    threading + sleep timing fragility of an end-to-end race simulation."""
     review_dir = tmp_path / "20260516-120000-x"
     review_dir.mkdir()
     metadata_path = review_dir / "metadata.json"
-    metadata_path.write_text('{"status": "running"')  # truncated, invalid
+    metadata_path.write_text('{"status": "running"}')  # valid on disk
 
-    def fix_after_delay():
-        time.sleep(0.05)
-        # Atomic replace so the second read never sees a torn write
-        # mid-replace — see init_metadata's _write_atomic() pattern.
-        tmp = metadata_path.with_suffix(".json.fixtmp")
-        tmp.write_text('{"status": "running"}')
-        tmp.replace(metadata_path)
+    original_read_text = Path.read_text
+    calls = {"n": 0}
 
-    fixer = threading.Thread(target=fix_after_delay)
-    fixer.start()
-    try:
-        data = rm.read_metadata(review_dir)
-        assert data == {"status": "running"}
-    finally:
-        fixer.join()
+    def fake_read_text(self, *args, **kwargs):
+        if self == metadata_path:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return '{"status": "running"'  # truncated, invalid
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    data = rm.read_metadata(review_dir)
+    assert data == {"status": "running"}
+    assert calls["n"] >= 2, "expected retry after JSONDecodeError"
 
 
 def test_read_metadata_raises_after_retry_exhausted(tmp_path):

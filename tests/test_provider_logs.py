@@ -19,7 +19,6 @@ These tests are RED before C.2 GREEN and prove:
 from __future__ import annotations
 
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -86,9 +85,7 @@ def test_run_provider_creates_logs_files_before_completion(tmp_path):
 
     t.join(timeout=5)
     assert not t.is_alive(), "run_provider thread didn't finish"
-    assert seen, (
-        "logs/p.stdout.log should contain partial output BEFORE provider exits"
-    )
+    assert seen, "logs/p.stdout.log should contain partial output BEFORE provider exits"
     assert result_holder["result"]["returncode"] == 0
 
 

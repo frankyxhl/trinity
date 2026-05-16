@@ -155,10 +155,7 @@ def finalize_metadata(review_dir: Path, results: list[dict]) -> None:
         data = read_metadata(review_dir)
         data["finished_at"] = _now_iso()
         data["results"] = list(results)
-        terminal = [
-            s.get("status")
-            for s in data.get("provider_states", {}).values()
-        ]
+        terminal = [s.get("status") for s in data.get("provider_states", {}).values()]
         if "failed" in terminal:
             data["status"] = "failed"
         elif "timed_out" in terminal:

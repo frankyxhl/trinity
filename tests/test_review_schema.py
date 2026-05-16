@@ -263,7 +263,9 @@ def test_a5_enriched_all_pass_full_snapshot(tmp_path):
         "This synthesis is deterministic. Inspect raw provider outputs for findings and conflicts.\n"
         "\n"
     )
-    assert content == expected, f"snapshot mismatch:\n---got---\n{content}\n---expected---\n{expected}"
+    assert content == expected, (
+        f"snapshot mismatch:\n---got---\n{content}\n---expected---\n{expected}"
+    )
 
 
 def test_a5_enriched_fix_status(tmp_path):

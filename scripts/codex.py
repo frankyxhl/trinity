@@ -1814,8 +1814,12 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     # Log file handles are now closed; compose raw_path from disk content.
     if outcome[0] == "finished":
         _, rc, finished = outcome
-        stdout_text = stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
-        stderr_text = stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+        stdout_text = (
+            stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
+        )
+        stderr_text = (
+            stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+        )
         raw_path.write_text(raw_output(stdout_text, stderr_text))
         return {
             "provider": provider,
@@ -1836,8 +1840,12 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
         }
     # timeout
     _, exc, timeout_val, finished = outcome
-    stdout_text = stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
-    stderr_text = stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+    stdout_text = (
+        stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
+    )
+    stderr_text = (
+        stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+    )
     partial = timeout_partial_output(exc, stdout_text, stderr_text)
     output = f"ERROR: timeout after {timeout_val}s\n{exc}\n"
     if partial:
@@ -2330,9 +2338,7 @@ def cmd_review(args):
             # threading it into metadata after init.
             data = _rm.read_metadata(review_dir)
             data["strict_review"] = {
-                key: value
-                for key, value in strict_review.items()
-                if key != "template"
+                key: value for key, value in strict_review.items() if key != "template"
             }
             (review_dir / "metadata.json").write_text(
                 json.dumps(data, indent=2, ensure_ascii=False) + "\n"
@@ -2351,9 +2357,7 @@ def cmd_review(args):
         if strict_review is not None:
             data = _rm.read_metadata(review_dir)
             data["strict_review"] = {
-                key: value
-                for key, value in strict_review.items()
-                if key != "template"
+                key: value for key, value in strict_review.items() if key != "template"
             }
             (review_dir / "metadata.json").write_text(
                 json.dumps(data, indent=2, ensure_ascii=False) + "\n"
@@ -2595,6 +2599,30 @@ def _print_review_summary(review_dir):
     print(f"Latest review: {review_dir}  (started {ago})")
     print(f"  Scope: {scope}   Mode: {mode}   Preset: {preset}")
     print()
+    # TRN-2018 M1: live provider_states section. Rendered when the metadata
+    # was written by init_metadata/update_provider_state (M1+ reviews).
+    # Pre-M1 metadata lacks this key; rendering falls through to the legacy
+    # `Providers:` section below.
+    provider_states = metadata.get("provider_states")
+    if provider_states:
+        print("  Live state:")
+        ls_name_width = max([10] + [len(p) for p in provider_states.keys()])
+        for prov, state in provider_states.items():
+            status_str = state.get("status", "?")
+            bits = [f"{prov:{ls_name_width}s}", status_str]
+            pid = state.get("pid")
+            if pid is not None:
+                bits.append(f"pid={pid}")
+            rc = state.get("returncode")
+            if rc is not None:
+                bits.append(f"rc={rc}")
+            ls_elapsed = _format_duration(
+                _format_elapsed(state.get("started_at"), state.get("finished_at"))
+            )
+            if ls_elapsed and ls_elapsed != "?":
+                bits.append(f"elapsed {ls_elapsed}")
+            print("    " + "  ".join(bits))
+        print()
     print("  Providers:")
     if not results:
         print("    (no results in metadata)")
@@ -2665,12 +2693,13 @@ def cmd_status(args):
     # `cmd_review` actually writes artifacts.
     root = resolve_health_root(args.root)
     reviews_dir = root / ".trinity" / "reviews"
+    # TRN-2018 M1 behavior change (per CHG L154): missing or empty reviews
+    # dir now exits 0 with `no reviews found` on stdout. Previous behavior:
+    # exit 1 with `no reviews dir at <path>` or `no reviews under <path>`
+    # on stderr. Flagged in CHANGELOG.
     if not reviews_dir.is_dir():
-        print(
-            f"trinity: no reviews dir at {reviews_dir}",
-            file=sys.stderr,
-        )
-        return 1
+        print("no reviews found")
+        return 0
 
     # Sort key: (timestamp_prefix, mtime). The fixed-width
     # %Y%m%d-%H%M%S prefix gives chronological order across distinct
@@ -2692,11 +2721,8 @@ def cmd_status(args):
         reverse=True,
     )
     if not candidates:
-        print(
-            f"trinity: no reviews under {reviews_dir}",
-            file=sys.stderr,
-        )
-        return 1
+        print("no reviews found")
+        return 0
     return _print_review_summary(candidates[0])
 
 

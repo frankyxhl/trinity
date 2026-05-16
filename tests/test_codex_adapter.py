@@ -1638,16 +1638,20 @@ def test_strict_cor_reviewer_at_9_2_passes():
     import json as _json
     from pathlib import Path as _Path
     import sys as _sys
+
     _ROOT = _Path(__file__).resolve().parent.parent
     if str(_ROOT / "scripts") not in _sys.path:
         _sys.path.insert(0, str(_ROOT / "scripts"))
     import codex as _codex_mod
-    payload = _json.dumps({
-        "decision": "PASS",
-        "weighted_score": 9.2,
-        "blocking": [],
-        "advisories": [],
-    })
+
+    payload = _json.dumps(
+        {
+            "decision": "PASS",
+            "weighted_score": 9.2,
+            "blocking": [],
+            "advisories": [],
+        }
+    )
     raw = f"```json\n{payload}\n```"
     result = _codex_mod.parse_structured_review(raw, pass_threshold=9.0)
     assert result is not None
@@ -1659,16 +1663,20 @@ def test_fast_review_panel_at_9_4_coerces_to_FIX():
     import json as _json
     from pathlib import Path as _Path
     import sys as _sys
+
     _ROOT = _Path(__file__).resolve().parent.parent
     if str(_ROOT / "scripts") not in _sys.path:
         _sys.path.insert(0, str(_ROOT / "scripts"))
     import codex as _codex_mod
-    payload = _json.dumps({
-        "decision": "PASS",
-        "weighted_score": 9.4,
-        "blocking": [],
-        "advisories": [],
-    })
+
+    payload = _json.dumps(
+        {
+            "decision": "PASS",
+            "weighted_score": 9.4,
+            "blocking": [],
+            "advisories": [],
+        }
+    )
     raw = f"```json\n{payload}\n```"
     result = _codex_mod.parse_structured_review(raw)
     assert result is not None
@@ -1680,27 +1688,33 @@ def test_parse_structured_review_default_threshold():
     import json as _json
     from pathlib import Path as _Path
     import sys as _sys
+
     _ROOT = _Path(__file__).resolve().parent.parent
     if str(_ROOT / "scripts") not in _sys.path:
         _sys.path.insert(0, str(_ROOT / "scripts"))
     import codex as _codex_mod
+
     # Score 9.5 should PASS (>= 9.5)
-    payload_pass = _json.dumps({
-        "decision": "PASS",
-        "weighted_score": 9.5,
-        "blocking": [],
-        "advisories": [],
-    })
+    payload_pass = _json.dumps(
+        {
+            "decision": "PASS",
+            "weighted_score": 9.5,
+            "blocking": [],
+            "advisories": [],
+        }
+    )
     raw_pass = f"```json\n{payload_pass}\n```"
     result_pass = _codex_mod.parse_structured_review(raw_pass)
     assert result_pass["effective_decision"] == "PASS"
     # Score 9.4 should FIX (< 9.5)
-    payload_fix = _json.dumps({
-        "decision": "PASS",
-        "weighted_score": 9.4,
-        "blocking": [],
-        "advisories": [],
-    })
+    payload_fix = _json.dumps(
+        {
+            "decision": "PASS",
+            "weighted_score": 9.4,
+            "blocking": [],
+            "advisories": [],
+        }
+    )
     raw_fix = f"```json\n{payload_fix}\n```"
     result_fix = _codex_mod.parse_structured_review(raw_fix)
     assert result_fix["effective_decision"] == "FIX"
