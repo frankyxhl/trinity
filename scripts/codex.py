@@ -2672,8 +2672,11 @@ def _print_review_summary(review_dir):
         # write_synthesis()) as a user interruption.
         overall = incomplete_status
     elif not results:
-        # Empty results list isn't "completed" — no providers ran.
-        overall = "unknown (no results)"
+        # TRN-2018 M1: when init_metadata has written the M1 top-level status
+        # field, prefer it (e.g. "running" mid-review) over "unknown (no
+        # results)". Pre-M1 metadata lacks the top-level status key.
+        m1_status = metadata.get("status")
+        overall = m1_status if m1_status else "unknown (no results)"
     elif any(r.get("returncode") != 0 for r in results):
         # Any non-success rc (non-zero OR missing — None != 0) → partial.
         # The visual marker for rc=None is ✗, so the overall status must
