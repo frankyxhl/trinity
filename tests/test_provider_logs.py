@@ -186,6 +186,35 @@ def test_raw_txt_format_unchanged_with_stderr(tmp_path):
     )
 
 
+def test_run_provider_nonzero_rc_marks_state_failed(tmp_path):
+    """R2 fix for codex P2 finding 3249xxxx: when a provider exits cleanly
+    with rc != 0, run_provider must record provider_states.<p>.status as
+    'failed' (not 'finished'), so finalize_metadata correctly surfaces the
+    top-level status as 'failed' via the failed > timed_out > finished
+    precedence."""
+    review_dir = _init_review(tmp_path)
+    provider_config = {"cli": str(FIXTURES / "fake_provider_fail.sh"), "timeout": 10}
+    registry = codex_mod.ActiveProcessRegistry()
+    result = codex_mod.run_provider(
+        "p",
+        provider_config,
+        tmp_path / "prompt.md",
+        review_dir,
+        tmp_path,
+        registry,
+    )
+    assert result["returncode"] == 2
+    import json
+
+    state = json.loads((review_dir / "metadata.json").read_text())[
+        "provider_states"
+    ]["p"]
+    assert state["status"] == "failed", (
+        f"expected failed (rc=2 != 0); got {state['status']!r}"
+    )
+    assert state["returncode"] == 2
+
+
 def test_active_process_registry_remove_called_on_normal_exit(tmp_path):
     """After run_provider returns, the registry snapshot must NOT contain
     the provider — preserves codex.py:1782's finally-block contract."""

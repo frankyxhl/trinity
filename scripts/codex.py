@@ -1751,14 +1751,19 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             )
             popen.wait(timeout=timeout)
             finished = timestamp()
+            # TRN-2018 M1: derive terminal state from returncode. A clean
+            # exit with rc != 0 is `failed`, not `finished`. finalize_metadata's
+            # top-level status precedence (failed > timed_out > finished)
+            # then correctly surfaces `failed` for any provider with non-zero rc.
+            terminal_state = "finished" if popen.returncode == 0 else "failed"
             progress(
-                f"provider {provider} finished returncode={popen.returncode} "
+                f"provider {provider} {terminal_state} returncode={popen.returncode} "
                 f"elapsed={elapsed_seconds(started_monotonic)}s"
             )
             _rm.update_provider_state(
                 review_dir,
                 provider,
-                status="finished",
+                status=terminal_state,
                 returncode=popen.returncode,
                 finished_at=finished,
             )
