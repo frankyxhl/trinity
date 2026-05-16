@@ -1707,6 +1707,17 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     # can read partial output while the provider runs. raw/<p>.txt is
     # composed from the (closed) log files after completion for backward
     # compat with downstream consumers.
+    #
+    # KNOWN M1 LIMITATION (codex R4 P2 advisory):
+    # `buffering=1` only affects the parent file object. Child processes
+    # that block-buffer stdout when not connected to a TTY (typical for
+    # Python/Node wrappers without explicit flush) won't actually emit
+    # to disk until they exit or fill their buffer — so live log
+    # visibility for those providers is best-effort. PTY-based or
+    # stdbuf/unbuffer strategies are deferred to M2 (CHG-2018 milestone 2
+    # ships heartbeat polling + stall detection where this matters most).
+    # Shell-style providers (the fake fixtures + most CLI tools that
+    # write small lines) work as intended on M1.
     raw_path = review_dir / "raw" / f"{provider}.txt"
     # Defensive: production cmd_review path creates logs/ via make_review_dir,
     # but unit tests that build review_dir manually may skip it.
