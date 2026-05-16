@@ -270,6 +270,56 @@ def test_backwardcompat_results_finalized_entries_match_legacy_shape(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# strict_review threading (R6 fix for codex R5 P2)
+# ---------------------------------------------------------------------------
+
+
+def test_init_metadata_with_strict_review_is_written_atomically(tmp_path):
+    """R6 fix (codex R5 P2): strict_review is threaded through init_metadata's
+    initial atomic write, not appended via a separate Path.write_text after.
+    A status reader during a strict review must not observe a torn JSON."""
+    review_dir = _init(
+        tmp_path,
+        strict_review={"sop": "COR-1602", "rubric": "COR-1609", "pass_threshold": 9.0},
+    )
+    data = json.loads((review_dir / "metadata.json").read_text())
+    assert data["strict_review"] == {
+        "sop": "COR-1602",
+        "rubric": "COR-1609",
+        "pass_threshold": 9.0,
+    }
+
+
+def test_finalize_metadata_preserves_strict_review(tmp_path):
+    """finalize_metadata reads + mutates only finished_at/results/status/
+    provider_states. Other top-level keys (including strict_review from
+    init) must survive."""
+    review_dir = _init(
+        tmp_path,
+        providers=("glm",),
+        strict_review={"sop": "COR-1602"},
+    )
+    rm.update_provider_state(
+        review_dir, "glm", status="finished", returncode=0, finished_at="t"
+    )
+    rm.finalize_metadata(
+        review_dir,
+        [
+            {
+                "provider": "glm",
+                "returncode": 0,
+                "raw": "raw/glm.txt",
+                "started_at": "t",
+                "finished_at": "t",
+            }
+        ],
+    )
+    data = json.loads((review_dir / "metadata.json").read_text())
+    assert data["strict_review"] == {"sop": "COR-1602"}
+    assert data["status"] == "finished"
+
+
+# ---------------------------------------------------------------------------
 # append_result (R3 fix for codex R2 P2)
 # ---------------------------------------------------------------------------
 

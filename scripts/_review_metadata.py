@@ -95,6 +95,7 @@ def init_metadata(
     scope: str,
     root: str,
     input: dict,
+    strict_review: dict | None = None,
 ) -> None:
     """Write the initial metadata.json before any provider executes.
 
@@ -103,6 +104,11 @@ def init_metadata(
     test_codex_adapter, downstream consumers) see no missing keys; M1
     additions (review_id, review_dir, status, started_at, finished_at,
     provider_states) are additive.
+
+    `strict_review` (codex R5 P2 fix): when present, merged into the
+    initial atomic write so callers don't need a follow-up write_text
+    that would race against status readers. finalize_metadata reads +
+    mutates only finished_at/results/status, preserving strict_review.
     """
     data = {
         "review_id": review_id,
@@ -118,6 +124,8 @@ def init_metadata(
         "results": [],
         "provider_states": {p: {"status": "queued"} for p in providers},
     }
+    if strict_review is not None:
+        data["strict_review"] = strict_review
     with _lock_for(review_dir):
         _write_atomic(review_dir, data)
 

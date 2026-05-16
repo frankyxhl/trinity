@@ -2350,6 +2350,16 @@ def cmd_review(args):
         # TRN-2018 M1: write metadata.json with all providers queued BEFORE
         # run_providers. This gives `trinity status --latest` a live view
         # while providers run, instead of waiting until completion.
+        # R5 fix (codex R5 P2): strict_review threaded into the initial
+        # atomic write — finalize_metadata mutates only finished_at /
+        # results / status / provider_states, so strict_review survives
+        # through the post-run update without a separate write_text that
+        # would race readers.
+        strict_review_block = (
+            {key: value for key, value in strict_review.items() if key != "template"}
+            if strict_review is not None
+            else None
+        )
         _rm.init_metadata(
             review_dir,
             review_id=review_dir.name,
@@ -2359,17 +2369,8 @@ def cmd_review(args):
             scope=args.scope,
             root=str(root),
             input=review_input["metadata"],
+            strict_review=strict_review_block,
         )
-        if strict_review is not None:
-            # Preserve strict_review block alongside the live state by
-            # threading it into metadata after init.
-            data = _rm.read_metadata(review_dir)
-            data["strict_review"] = {
-                key: value for key, value in strict_review.items() if key != "template"
-            }
-            (review_dir / "metadata.json").write_text(
-                json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-            )
         results = run_providers(
             max_workers,
             providers,
@@ -2380,15 +2381,6 @@ def cmd_review(args):
         )
         progress("writing metadata")
         _rm.finalize_metadata(review_dir, results)
-        # Re-apply strict_review if it was set (finalize rewrites the file).
-        if strict_review is not None:
-            data = _rm.read_metadata(review_dir)
-            data["strict_review"] = {
-                key: value for key, value in strict_review.items() if key != "template"
-            }
-            (review_dir / "metadata.json").write_text(
-                json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-            )
         progress("writing synthesis")
         summary, synthesis_path = write_synthesis(
             review_dir, args.scope, results, strict_review=strict_review
