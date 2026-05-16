@@ -2636,8 +2636,14 @@ def _print_review_summary(review_dir):
             rc = state.get("returncode")
             if rc is not None:
                 bits.append(f"rc={rc}")
+            # TRN-2018 R4 fix (codex R3 P2): for currently-running providers,
+            # finished_at is absent; use `now` as the end time so the row
+            # shows elapsed-so-far. Terminal states use their finished_at.
+            end_iso = state.get("finished_at") or (
+                now_iso if status_str == "running" else None
+            )
             ls_elapsed = _format_duration(
-                _format_elapsed(state.get("started_at"), state.get("finished_at"))
+                _format_elapsed(state.get("started_at"), end_iso)
             )
             if ls_elapsed and ls_elapsed != "?":
                 bits.append(f"elapsed {ls_elapsed}")
@@ -2691,18 +2697,25 @@ def _print_review_summary(review_dir):
         # would mislabel an exception-after-metadata-write (e.g. inside
         # write_synthesis()) as a user interruption.
         overall = incomplete_status
+    elif metadata.get("status") == "running":
+        # TRN-2018 R4 fix (codex R3 P2): when M1's top-level status is
+        # `running`, a partial `results[]` (one provider finished while
+        # another is still queued/running) must NOT report `completed`.
+        # The live state is authoritative — defer to it until terminal.
+        overall = "running"
+    elif metadata.get("status") in ("failed", "timed_out", "finished"):
+        # M1 terminal: top-level status is authoritative (correctly accounts
+        # for failed/timed_out providers via finalize_metadata precedence).
+        overall = metadata["status"]
     elif not results:
-        # TRN-2018 M1: when init_metadata has written the M1 top-level status
-        # field, prefer it (e.g. "running" mid-review) over "unknown (no
-        # results)". Pre-M1 metadata lacks the top-level status key.
-        m1_status = metadata.get("status")
-        overall = m1_status if m1_status else "unknown (no results)"
+        # Pre-M1 with no results (or M1 without a top-level status set,
+        # which shouldn't happen but is defended).
+        overall = "unknown (no results)"
     elif any(r.get("returncode") != 0 for r in results):
-        # Any non-success rc (non-zero OR missing — None != 0) → partial.
-        # The visual marker for rc=None is ✗, so the overall status must
-        # not contradict that by reporting "completed".
+        # Pre-M1 path: any non-success rc → partial.
         overall = "partial"
     else:
+        # Pre-M1 path: all-zero results → completed.
         overall = "completed"
     print(f"  Status: {overall}")
     return 0

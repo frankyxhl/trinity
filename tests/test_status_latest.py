@@ -708,6 +708,67 @@ def test_t22_status_header_uses_metadata_started_at_when_results_empty(tmp_path)
     assert "ago" in out
 
 
+def test_t23_status_partial_results_with_running_top_status_says_running(tmp_path):
+    """R4 fix (codex R3 P2 first finding): when M1's top-level status is
+    `running` and one provider has appended a successful result (rc=0)
+    while another is still running, the final `Status:` line must say
+    `running` — NOT `completed` derived from the all-zero partial results."""
+    md = _m1_metadata(
+        {
+            "glm": {
+                "status": "finished",
+                "pid": 1,
+                "started_at": "2026-05-16T12:00:01",
+                "finished_at": "2026-05-16T12:00:30",
+                "returncode": 0,
+            },
+            "deepseek": {
+                "status": "running",
+                "pid": 2,
+                "started_at": "2026-05-16T12:00:02",
+            },
+        },
+        status="running",  # top-level still running (one provider still going)
+        results=[
+            {
+                "provider": "glm",
+                "returncode": 0,
+                "raw": "raw/glm.txt",
+                "started_at": "2026-05-16T12:00:01",
+                "finished_at": "2026-05-16T12:00:30",
+            }
+        ],
+    )
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Status: running" in out, out
+    assert "Status: completed" not in out
+
+
+def test_t24_status_running_provider_shows_elapsed_with_now_as_end(tmp_path):
+    """R4 fix (codex R3 P2 second finding): a running provider has no
+    finished_at; the elapsed-time column must use `now` as the end time
+    so the live row shows elapsed-so-far instead of being blank."""
+    # started_at set ~10s in the past so the rendered elapsed is non-trivial
+    started = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 10))
+    md = _m1_metadata(
+        {
+            "glm": {"status": "running", "pid": 99, "started_at": started},
+        }
+    )
+    md["started_at"] = started
+    _make_review(tmp_path, metadata=md, write_synthesis=False)
+    result = _run_status(tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # Live-state row for running provider should include `elapsed <duration>`
+    assert "Live state:" in out
+    assert "running" in out
+    assert "elapsed" in out, f"running provider row missing elapsed time: {out!r}"
+
+
 def test_t21_status_pre_m1_metadata_falls_back_to_results_rendering(tmp_path):
     """Pre-M1 metadata (no provider_states key) still renders correctly via
     the legacy `Providers:` results section. T1-T15 already exercise this
