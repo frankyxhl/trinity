@@ -266,9 +266,9 @@ def test_backwardcompat_results_finalized_entries_match_legacy_shape(tmp_path):
 
 
 def test_read_metadata_retries_once_on_json_decode_error(tmp_path):
-    """Simulate a mid-write read: write partial JSON, then valid JSON 50ms
-    later from a background thread. read_metadata returns the valid parse
-    without raising. With 100ms retry budget, this should succeed."""
+    """Simulate a mid-write read: write partial JSON, then atomically
+    replace with valid JSON 50ms later from a background thread.
+    read_metadata's retry-after-100ms catches the valid content."""
     review_dir = tmp_path / "20260516-120000-x"
     review_dir.mkdir()
     metadata_path = review_dir / "metadata.json"
@@ -276,7 +276,11 @@ def test_read_metadata_retries_once_on_json_decode_error(tmp_path):
 
     def fix_after_delay():
         time.sleep(0.05)
-        metadata_path.write_text('{"status": "running"}')
+        # Atomic replace so the second read never sees a torn write
+        # mid-replace — see init_metadata's _write_atomic() pattern.
+        tmp = metadata_path.with_suffix(".json.fixtmp")
+        tmp.write_text('{"status": "running"}')
+        tmp.replace(metadata_path)
 
     fixer = threading.Thread(target=fix_after_delay)
     fixer.start()

@@ -1702,7 +1702,17 @@ def _review_schema_addendum(task_type, strict_review=None):
 
 
 def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
+    # TRN-2018 M1: stdout/stderr stream to logs/<p>.std{out,err}.log via
+    # line-buffered file handles so `trinity status` and external watchers
+    # can read partial output while the provider runs. raw/<p>.txt is
+    # composed from the (closed) log files after completion for backward
+    # compat with downstream consumers.
     raw_path = review_dir / "raw" / f"{provider}.txt"
+    # Defensive: production cmd_review path creates logs/ via make_review_dir,
+    # but unit tests that build review_dir manually may skip it.
+    (review_dir / "logs").mkdir(exist_ok=True)
+    stdout_path = review_dir / "logs" / f"{provider}.stdout.log"
+    stderr_path = review_dir / "logs" / f"{provider}.stderr.log"
     cmd = provider_command(provider, provider_config) + [
         build_prompt_handoff(prompt_path)
     ]
@@ -1714,59 +1724,109 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     started_monotonic = time.monotonic()
     progress(f"starting provider {provider} timeout={timeout}s")
     popen = None
-    try:
-        popen = subprocess.Popen(
-            cmd,
-            cwd=str(root),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-            env=build_provider_env(),
-        )
-        registry.add(provider, popen, started)
-        _rm.update_provider_state(
-            review_dir,
-            provider,
-            status="running",
-            pid=getattr(popen, "pid", None),
-            started_at=started,
-        )
-        stdout, stderr = popen.communicate(timeout=timeout)
-        raw_path.write_text(raw_output(stdout, stderr))
-        finished = timestamp()
-        progress(
-            f"provider {provider} finished returncode={popen.returncode} "
-            f"elapsed={elapsed_seconds(started_monotonic)}s"
-        )
-        _rm.update_provider_state(
-            review_dir,
-            provider,
-            status="finished",
-            returncode=popen.returncode,
-            finished_at=finished,
-        )
+    outcome = None  # tuple describing terminal state; consumed below for raw compose
+    with (
+        open(stdout_path, "w", buffering=1, encoding="utf-8") as fout,
+        open(stderr_path, "w", buffering=1, encoding="utf-8") as ferr,
+    ):
+        try:
+            popen = subprocess.Popen(
+                cmd,
+                cwd=str(root),
+                stdout=fout,
+                stderr=ferr,
+                text=True,
+                start_new_session=True,
+                env=build_provider_env(),
+            )
+            registry.add(provider, popen, started)
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status="running",
+                pid=getattr(popen, "pid", None),
+                started_at=started,
+                stdout_path=str(stdout_path.relative_to(review_dir)),
+                stderr_path=str(stderr_path.relative_to(review_dir)),
+            )
+            popen.wait(timeout=timeout)
+            finished = timestamp()
+            progress(
+                f"provider {provider} finished returncode={popen.returncode} "
+                f"elapsed={elapsed_seconds(started_monotonic)}s"
+            )
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status="finished",
+                returncode=popen.returncode,
+                finished_at=finished,
+            )
+            outcome = ("finished", popen.returncode, finished)
+        except FileNotFoundError as exc:
+            finished = timestamp()
+            progress(
+                f"provider {provider} failed returncode=127 "
+                f"elapsed={elapsed_seconds(started_monotonic)}s"
+            )
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status="failed",
+                returncode=127,
+                finished_at=finished,
+            )
+            outcome = ("filenotfound", str(exc), finished)
+        except subprocess.TimeoutExpired as exc:
+            cleanup_result = terminate_process_group(popen)
+            # Best effort: wait briefly so the child fully exits before we
+            # close its stdout/stderr file handles.
+            try:
+                popen.wait(timeout=1)
+            except (subprocess.TimeoutExpired, ValueError):
+                pass
+            finished = timestamp()
+            progress(
+                f"provider {provider} timed out returncode=124 "
+                f"cleanup={cleanup_result} elapsed={elapsed_seconds(started_monotonic)}s"
+            )
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status="timed_out",
+                returncode=124,
+                finished_at=finished,
+            )
+            outcome = ("timeout", exc, timeout, finished)
+        except Exception:
+            if popen is not None and popen.poll() is None:
+                terminate_process_group(popen)
+            raise
+        finally:
+            try:
+                fout.flush()
+                ferr.flush()
+            except Exception:
+                pass
+            if popen is not None:
+                registry.remove(provider, popen)
+
+    # Log file handles are now closed; compose raw_path from disk content.
+    if outcome[0] == "finished":
+        _, rc, finished = outcome
+        stdout_text = stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
+        stderr_text = stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+        raw_path.write_text(raw_output(stdout_text, stderr_text))
         return {
             "provider": provider,
-            "returncode": popen.returncode,
+            "returncode": rc,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
             "finished_at": finished,
         }
-    except FileNotFoundError as exc:
-        raw_path.write_text(f"ERROR: command not found: {exc}\n")
-        progress(
-            f"provider {provider} failed returncode=127 "
-            f"elapsed={elapsed_seconds(started_monotonic)}s"
-        )
-        finished = timestamp()
-        _rm.update_provider_state(
-            review_dir,
-            provider,
-            status="failed",
-            returncode=127,
-            finished_at=finished,
-        )
+    if outcome[0] == "filenotfound":
+        _, msg, finished = outcome
+        raw_path.write_text(f"ERROR: command not found: {msg}\n")
         return {
             "provider": provider,
             "returncode": 127,
@@ -1774,45 +1834,22 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             "started_at": started,
             "finished_at": finished,
         }
-    except subprocess.TimeoutExpired as exc:
-        cleanup_result = terminate_process_group(popen)
-        stdout = None
-        stderr = None
-        try:
-            stdout, stderr = popen.communicate(timeout=1)
-        except (subprocess.TimeoutExpired, ValueError):
-            pass
-        partial = timeout_partial_output(exc, stdout, stderr)
-        output = f"ERROR: timeout after {timeout}s\n{exc}\n"
-        if partial:
-            output += "\n[partial output]\n" + partial
-        raw_path.write_text(output)
-        progress(
-            f"provider {provider} timed out returncode=124 "
-            f"cleanup={cleanup_result} elapsed={elapsed_seconds(started_monotonic)}s"
-        )
-        finished = timestamp()
-        _rm.update_provider_state(
-            review_dir,
-            provider,
-            status="timed_out",
-            returncode=124,
-            finished_at=finished,
-        )
-        return {
-            "provider": provider,
-            "returncode": 124,
-            "raw": str(raw_path.relative_to(review_dir)),
-            "started_at": started,
-            "finished_at": finished,
-        }
-    except Exception:
-        if popen is not None and popen.poll() is None:
-            terminate_process_group(popen)
-        raise
-    finally:
-        if popen is not None:
-            registry.remove(provider, popen)
+    # timeout
+    _, exc, timeout_val, finished = outcome
+    stdout_text = stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
+    stderr_text = stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+    partial = timeout_partial_output(exc, stdout_text, stderr_text)
+    output = f"ERROR: timeout after {timeout_val}s\n{exc}\n"
+    if partial:
+        output += "\n[partial output]\n" + partial
+    raw_path.write_text(output)
+    return {
+        "provider": provider,
+        "returncode": 124,
+        "raw": str(raw_path.relative_to(review_dir)),
+        "started_at": started,
+        "finished_at": finished,
+    }
 
 
 def review_parallelism(config, providers):

@@ -227,9 +227,15 @@ def test_a9_run_provider_passes_env_to_popen():
         def __init__(self, *args, **kwargs):
             captured["env"] = kwargs.get("env")
             self.returncode = 0
+            self.pid = 12345
 
         def communicate(self, timeout=None):
             return ("ok\n", "")
+
+        def wait(self, timeout=None):
+            # TRN-2018 M1: run_provider uses Popen.wait() now (file-handle
+            # stdout/stderr); mock returns immediately with rc=0.
+            return 0
 
     class FakeRegistry:
         def add(self, *args, **kwargs):
