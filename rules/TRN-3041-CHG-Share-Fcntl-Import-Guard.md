@@ -46,8 +46,9 @@ this change applies the same pattern to the `fcntl` guard.
 | 3 | `scripts/install.py` | Remove inline `try: import fcntl` guard; import `fcntl` from `_compat` with the same dual package/direct import style used for `_version`. No behavioral change to `atomic_update` locking. |
 | 4 | `tests/test_compat.py` | New focused tests for `_compat`: normal import exposes a module with `flock`, and a simulated missing-`fcntl` import exits 1 with the existing message. |
 | 5 | Existing script tests | Existing `tests/test_session.py` and `tests/test_install.py` continue to exercise the lock-using paths unchanged. No fixture contract changes expected. |
-| 6 | `CHANGELOG.md` | `[Unreleased] ### Changed` entry describing the shared guard and referencing #78. |
-| 7 | `rules/TRN-0000-REF-Document-Index.md` | Regenerated with TRN-3041 entry via `af index --root .`. |
+| 6 | `install.sh` + `tests/test_install_sh.sh` | Curl-style installer downloads `scripts/_compat.py`; shell install happy-path manifest asserts the helper is installed before `scripts/install.py` runs. |
+| 7 | `CHANGELOG.md` | `[Unreleased] ### Changed` entry describing the shared guard and referencing #78. |
+| 8 | `rules/TRN-0000-REF-Document-Index.md` | Regenerated with TRN-3041 entry via `af index --root .`. |
 
 ## Acceptance Criteria
 
@@ -64,8 +65,12 @@ this change applies the same pattern to the `fcntl` guard.
 - [ ] `scripts/session.py` and `scripts/install.py` import `fcntl` at module
   scope from `_compat`, so existing `fcntl.flock` / `LOCK_*` call sites remain
   ordinary module-level references.
+- [ ] `install.sh` downloads `scripts/_compat.py` before invoking
+  `scripts/install.py`; `tests/test_install_sh.sh` asserts the helper is
+  present in the installed scripts directory.
 - [ ] `pytest tests/test_compat.py tests/test_session.py tests/test_install.py -q`
   passes.
+- [ ] `bash tests/test_install_sh.sh` passes.
 - [ ] `.venv/bin/ruff check scripts/_compat.py scripts/session.py scripts/install.py tests/test_compat.py`
   passes.
 - [ ] `.venv/bin/ruff format --check scripts/_compat.py scripts/session.py scripts/install.py tests/test_compat.py`
@@ -83,9 +88,11 @@ this change applies the same pattern to the `fcntl` guard.
    `ImportError` so the test does not depend on the host platform lacking
    `fcntl`.
 4. Run the focused pytest target and lint/format checks.
-5. Regenerate `rules/TRN-0000-REF-Document-Index.md`.
-6. Add the changelog entry.
-7. Run `make verify-built` and `af validate --root .`.
+5. Add `_compat.py` to the curl installer download list and shell install
+   manifest.
+6. Regenerate `rules/TRN-0000-REF-Document-Index.md`.
+7. Add the changelog entry.
+8. Run `make verify-built` and `af validate --root .`.
 
 ## Plan Review
 
@@ -108,6 +115,7 @@ Local verification after worker implementation and orchestrator cleanup:
 
 - `pytest tests/test_compat.py tests/test_session.py tests/test_install.py -q`
   → 31 passed.
+- `bash tests/test_install_sh.sh` → passed after R2 installer-manifest fix.
 - `.venv/bin/ruff check scripts/_compat.py scripts/session.py scripts/install.py tests/test_compat.py`
   → passed.
 - `.venv/bin/ruff format --check scripts/_compat.py scripts/session.py scripts/install.py tests/test_compat.py`
@@ -127,3 +135,4 @@ code. The helper is private to `scripts/` and does not create a public API.
 | 2026-05-17 | Initial draft (Status: Proposed). Closes #78. | Codex |
 | 2026-05-18 | Plan-review gate met (glm 9.50 / deepseek 9.55); applied DeepSeek advisories to AC. | Codex |
 | 2026-05-18 | Worker implementation completed; local focused verification passed. | trinity-glm + Codex |
+| 2026-05-18 | R2 bot/CI fix: add `_compat.py` to curl installer download list and install manifest. | Codex |

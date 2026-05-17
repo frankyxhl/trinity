@@ -58,6 +58,7 @@ _download() {
 _download "SKILL.md"                  "${HOME}/.claude/skills/trinity/SKILL.md"
 _download "scripts/__init__.py"       "${HOME}/.claude/skills/trinity/scripts/__init__.py"
 _download "scripts/_version.py"       "${HOME}/.claude/skills/trinity/scripts/_version.py"
+_download "scripts/_compat.py"        "${HOME}/.claude/skills/trinity/scripts/_compat.py"
 _download "scripts/session.py"        "${HOME}/.claude/skills/trinity/scripts/session.py"
 _download "scripts/config.py"         "${HOME}/.claude/skills/trinity/scripts/config.py"
 _download "scripts/discover.py"       "${HOME}/.claude/skills/trinity/scripts/discover.py"

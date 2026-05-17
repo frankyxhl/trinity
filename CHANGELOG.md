@@ -36,7 +36,8 @@
   unsupported-platform message to stderr and exits 1. Duplicated inline
   guards in `scripts/session.py` and `scripts/install.py` replaced
   with dual-mode `from ._compat import fcntl` / `from _compat import fcntl`
-  imports. No behavioral change to lock call sites. Closes #78.
+  imports, and the curl installer now downloads the shared helper alongside
+  the other Python scripts. No behavioral change to lock call sites. Closes #78.
 - TRN-2018 M1 — `trinity status` (and `trinity status --latest`) behavior
   change: missing or empty `.trinity/reviews/` directory now exits **0**
   with `no reviews found` on **stdout** (was: exit 1 with

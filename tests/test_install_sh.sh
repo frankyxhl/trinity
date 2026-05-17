@@ -35,7 +35,7 @@ FAIL=0
 _pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 _fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
-# T1: Happy path — all 11 files installed
+# T1: Happy path - all installer files installed
 t1_happy_path() {
     FAKE_HOME=$(mktemp -d)
     HOME="${FAKE_HOME}" TRINITY_BASE_URL="file://${REPO_DIR}" \
@@ -59,6 +59,7 @@ t1_happy_path() {
         ".claude/skills/trinity/SKILL.md"
         ".claude/skills/trinity/scripts/__init__.py"
         ".claude/skills/trinity/scripts/_version.py"
+        ".claude/skills/trinity/scripts/_compat.py"
         ".claude/skills/trinity/scripts/session.py"
         ".claude/skills/trinity/scripts/config.py"
         ".claude/skills/trinity/scripts/discover.py"
