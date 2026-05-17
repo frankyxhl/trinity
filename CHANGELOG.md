@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Added
+- TRN-2018 M1 — review status observability. `trinity status` now renders a
+  live `Live state:` section when reading M1 metadata, showing each provider
+  in `queued` / `running` / `finished` / `failed` / `timed_out` state with
+  `pid`, `rc`, and elapsed seconds (when set). Pre-M1 metadata still renders
+  via the legacy `Providers:` section unchanged. `metadata.json` is now
+  written by `init_metadata` before `run_providers` and updated atomically
+  via `_review_metadata.update_provider_state` as each provider transitions
+  through its lifecycle, so observers no longer have to wait for the entire
+  review to finish to see state.
+- Incremental `logs/<provider>.std{out,err}.log` files written during
+  `trinity review`. Stdout streams through a PTY-backed reader so
+  line-buffered child processes flush progress before exit; stderr streams
+  to its own log file. The existing `raw/<provider>.txt` artifact is composed
+  from these logs after completion and preserves the `_STDERR_SENTINEL`
+  boundary contract (TRN-3022 coupling).
 - `trinity session-path <provider>[:<instance>]` — resolve absolute JSONL
   transcript path for a Trinity session. Unblocks token-efficiency audits
   and replay debugging. Closes #108.
@@ -16,6 +31,19 @@
   rationale and surfaces.
 
 ### Changed
+- TRN-2018 M1 — `trinity status` (and `trinity status --latest`) behavior
+  change: missing or empty `.trinity/reviews/` directory now exits **0**
+  with `no reviews found` on **stdout** (was: exit 1 with
+  `no reviews dir at <path>` / `no reviews under <path>` on stderr). Per
+  CHG-2018 §Status Command contract.
+- TRN-2018 M1 — `make_review_dir` (scripts/codex.py:1261) now creates
+  `logs/` alongside `raw/` when constructing the review directory.
+- TRN-2018 M1 — interrupted reviews (`KeyboardInterrupt` / `ReviewInterrupted`)
+  now leave both `metadata.json` (init-time state with `status=running` and
+  `provider_states` for each selected provider) and `incomplete.json`
+  (cleanup status). Previously: interrupted reviews left only `incomplete.json`.
+  `_print_review_summary` continues to surface `incomplete.json`'s status as
+  the top-level verdict, so this change is internal to the artifact layout.
 - `scripts/_version.py` — new shared module exposing `load_version()`. The
   identical inlined `_load_version()` helper that lived in `scripts/session.py`,
   `scripts/config.py`, `scripts/discover.py`, `scripts/install.py`, and

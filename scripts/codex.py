@@ -5,10 +5,12 @@ import argparse
 import concurrent.futures
 import datetime as dt
 import difflib
+import errno
 import fnmatch
 import json
 import math
 import os
+import pty
 from pathlib import Path
 import re
 import shlex
@@ -18,11 +20,14 @@ import subprocess
 import sys
 import threading
 import time
+import tty
 
 try:
     from ._version import load_version
+    from . import _review_metadata as _rm
 except ImportError:
     from _version import load_version
+    import _review_metadata as _rm
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -1270,6 +1275,7 @@ def make_review_dir(out_dir, scope):
         except FileExistsError:
             continue
         (review_dir / "raw").mkdir()
+        (review_dir / "logs").mkdir()
         return review_dir
     raise SystemExit("trinity-codex: unable to create unique review directory")
 
@@ -1426,6 +1432,36 @@ def timeout_partial_output(exc, stdout=None, stderr=None):
         normalize(stdout) or normalize(exc.stdout),
         normalize(stderr) or normalize(exc.stderr),
     )
+
+
+def _set_raw_pty(fd):
+    """Disable PTY newline translation while keeping child stdout as a TTY."""
+    try:
+        tty.setraw(fd)
+    except OSError:
+        pass
+
+
+def _copy_pty_to_file(master_fd, output_path, errors):
+    try:
+        with open(output_path, "ab", buffering=0) as out:
+            while True:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError as exc:
+                    if exc.errno == errno.EIO:
+                        break
+                    raise
+                if not chunk:
+                    break
+                out.write(chunk)
+    except Exception as exc:
+        errors.append(exc)
+    finally:
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
 
 
 _UNIVERSAL_ENV_KEEP_LITERAL = frozenset(
@@ -1699,7 +1735,16 @@ def _review_schema_addendum(task_type, strict_review=None):
 
 
 def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
+    # TRN-2018 M1: stdout streams through a PTY into logs/<p>.stdout.log so
+    # child processes that line-buffer on isatty() emit live output instead of
+    # block-buffering until exit. stderr still streams to its own log file.
+    # raw/<p>.txt is composed from closed logs for backward compatibility.
     raw_path = review_dir / "raw" / f"{provider}.txt"
+    # Defensive: production cmd_review path creates logs/ via make_review_dir,
+    # but unit tests that build review_dir manually may skip it.
+    (review_dir / "logs").mkdir(exist_ok=True)
+    stdout_path = review_dir / "logs" / f"{provider}.stdout.log"
+    stderr_path = review_dir / "logs" / f"{provider}.stderr.log"
     cmd = provider_command(provider, provider_config) + [
         build_prompt_handoff(prompt_path)
     ]
@@ -1711,75 +1756,187 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     started_monotonic = time.monotonic()
     progress(f"starting provider {provider} timeout={timeout}s")
     popen = None
+    outcome = None  # tuple describing terminal state; consumed below for raw compose
+    stdout_path.write_bytes(b"")
+    stdout_master_fd = None
+    stdout_slave_fd = None
+    stdout_thread = None
+    stdout_reader_errors = []
     try:
-        popen = subprocess.Popen(
-            cmd,
-            cwd=str(root),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-            env=build_provider_env(),
+        stdout_master_fd, stdout_slave_fd = pty.openpty()
+        _set_raw_pty(stdout_slave_fd)
+    except OSError as exc:
+        raise RuntimeError(f"failed to create PTY for provider stdout: {exc}") from exc
+    with open(stderr_path, "w", buffering=1, encoding="utf-8") as ferr:
+        try:
+            popen = subprocess.Popen(
+                cmd,
+                cwd=str(root),
+                stdout=stdout_slave_fd,
+                stderr=ferr,
+                text=True,
+                start_new_session=True,
+                env=build_provider_env(),
+            )
+            os.close(stdout_slave_fd)
+            stdout_slave_fd = None
+            stdout_thread = threading.Thread(
+                target=_copy_pty_to_file,
+                args=(stdout_master_fd, stdout_path, stdout_reader_errors),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stdout_master_fd = None
+            registry.add(provider, popen, started)
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status="running",
+                pid=getattr(popen, "pid", None),
+                started_at=started,
+                stdout_path=str(stdout_path.relative_to(review_dir)),
+                stderr_path=str(stderr_path.relative_to(review_dir)),
+            )
+            popen.wait(timeout=timeout)
+            finished = timestamp()
+            # TRN-2018 M1: derive terminal state from returncode. A clean
+            # exit with rc != 0 is `failed`, not `finished`. finalize_metadata's
+            # top-level status precedence (failed > timed_out > finished)
+            # then correctly surfaces `failed` for any provider with non-zero rc.
+            terminal_state = "finished" if popen.returncode == 0 else "failed"
+            progress(
+                f"provider {provider} {terminal_state} returncode={popen.returncode} "
+                f"elapsed={elapsed_seconds(started_monotonic)}s"
+            )
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status=terminal_state,
+                returncode=popen.returncode,
+                finished_at=finished,
+            )
+            outcome = ("finished", popen.returncode, finished)
+        except FileNotFoundError as exc:
+            finished = timestamp()
+            progress(
+                f"provider {provider} failed returncode=127 "
+                f"elapsed={elapsed_seconds(started_monotonic)}s"
+            )
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status="failed",
+                returncode=127,
+                finished_at=finished,
+            )
+            outcome = ("filenotfound", str(exc), finished)
+        except subprocess.TimeoutExpired as exc:
+            cleanup_result = terminate_process_group(popen)
+            # Best effort: wait briefly so the child fully exits before we
+            # close its stdout/stderr file handles.
+            try:
+                popen.wait(timeout=1)
+            except (subprocess.TimeoutExpired, ValueError):
+                pass
+            finished = timestamp()
+            progress(
+                f"provider {provider} timed out returncode=124 "
+                f"cleanup={cleanup_result} elapsed={elapsed_seconds(started_monotonic)}s"
+            )
+            _rm.update_provider_state(
+                review_dir,
+                provider,
+                status="timed_out",
+                returncode=124,
+                finished_at=finished,
+            )
+            outcome = ("timeout", exc, timeout, finished)
+        except Exception:
+            if popen is not None and popen.poll() is None:
+                terminate_process_group(popen)
+            raise
+        finally:
+            try:
+                ferr.flush()
+            except Exception:
+                pass
+            if stdout_slave_fd is not None:
+                try:
+                    os.close(stdout_slave_fd)
+                except OSError:
+                    pass
+            if stdout_master_fd is not None:
+                try:
+                    os.close(stdout_master_fd)
+                except OSError:
+                    pass
+            if stdout_thread is not None:
+                stdout_thread.join()
+            if popen is not None:
+                registry.remove(provider, popen)
+    if stdout_reader_errors:
+        raise RuntimeError(
+            f"provider {provider} stdout reader failed: {stdout_reader_errors[0]}"
         )
-        registry.add(provider, popen, started)
-        stdout, stderr = popen.communicate(timeout=timeout)
-        raw_path.write_text(raw_output(stdout, stderr))
-        finished = timestamp()
-        progress(
-            f"provider {provider} finished returncode={popen.returncode} "
-            f"elapsed={elapsed_seconds(started_monotonic)}s"
+
+    # Log file handles are now closed; compose raw_path from disk content.
+    # TRN-2018 R3 fix (codex R2 P2): append the result entry to metadata
+    # immediately so status readers can discover completed providers'
+    # artifacts before the full review finishes (parallel-provider case).
+    # finalize_metadata later overwrites results with the canonical
+    # ordered list from run_providers, so duplicate appends are harmless.
+    if outcome[0] == "finished":
+        _, rc, finished = outcome
+        stdout_text = (
+            stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
         )
-        return {
+        stderr_text = (
+            stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+        )
+        raw_path.write_text(raw_output(stdout_text, stderr_text))
+        result = {
             "provider": provider,
-            "returncode": popen.returncode,
+            "returncode": rc,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
             "finished_at": finished,
         }
-    except FileNotFoundError as exc:
-        raw_path.write_text(f"ERROR: command not found: {exc}\n")
-        progress(
-            f"provider {provider} failed returncode=127 "
-            f"elapsed={elapsed_seconds(started_monotonic)}s"
-        )
-        return {
+        _rm.append_result(review_dir, result)
+        return result
+    if outcome[0] == "filenotfound":
+        _, msg, finished = outcome
+        raw_path.write_text(f"ERROR: command not found: {msg}\n")
+        result = {
             "provider": provider,
             "returncode": 127,
             "raw": str(raw_path.relative_to(review_dir)),
             "started_at": started,
-            "finished_at": timestamp(),
+            "finished_at": finished,
         }
-    except subprocess.TimeoutExpired as exc:
-        cleanup_result = terminate_process_group(popen)
-        stdout = None
-        stderr = None
-        try:
-            stdout, stderr = popen.communicate(timeout=1)
-        except (subprocess.TimeoutExpired, ValueError):
-            pass
-        partial = timeout_partial_output(exc, stdout, stderr)
-        output = f"ERROR: timeout after {timeout}s\n{exc}\n"
-        if partial:
-            output += "\n[partial output]\n" + partial
-        raw_path.write_text(output)
-        progress(
-            f"provider {provider} timed out returncode=124 "
-            f"cleanup={cleanup_result} elapsed={elapsed_seconds(started_monotonic)}s"
-        )
-        return {
-            "provider": provider,
-            "returncode": 124,
-            "raw": str(raw_path.relative_to(review_dir)),
-            "started_at": started,
-            "finished_at": timestamp(),
-        }
-    except Exception:
-        if popen is not None and popen.poll() is None:
-            terminate_process_group(popen)
-        raise
-    finally:
-        if popen is not None:
-            registry.remove(provider, popen)
+        _rm.append_result(review_dir, result)
+        return result
+    # timeout
+    _, exc, timeout_val, finished = outcome
+    stdout_text = (
+        stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
+    )
+    stderr_text = (
+        stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
+    )
+    partial = timeout_partial_output(exc, stdout_text, stderr_text)
+    output = f"ERROR: timeout after {timeout_val}s\n{exc}\n"
+    if partial:
+        output += "\n[partial output]\n" + partial
+    raw_path.write_text(output)
+    result = {
+        "provider": provider,
+        "returncode": 124,
+        "raw": str(raw_path.relative_to(review_dir)),
+        "started_at": started,
+        "finished_at": finished,
+    }
+    _rm.append_result(review_dir, result)
+    return result
 
 
 def review_parallelism(config, providers):
@@ -2242,6 +2399,30 @@ def cmd_review(args):
         prompt_path = review_dir / "prompt.md"
         progress("writing prompt")
         prompt_path.write_text(prompt)
+        # TRN-2018 M1: write metadata.json with all providers queued BEFORE
+        # run_providers. This gives `trinity status --latest` a live view
+        # while providers run, instead of waiting until completion.
+        # R5 fix (codex R5 P2): strict_review threaded into the initial
+        # atomic write — finalize_metadata mutates only finished_at /
+        # results / status / provider_states, so strict_review survives
+        # through the post-run update without a separate write_text that
+        # would race readers.
+        strict_review_block = (
+            {key: value for key, value in strict_review.items() if key != "template"}
+            if strict_review is not None
+            else None
+        )
+        _rm.init_metadata(
+            review_dir,
+            review_id=review_dir.name,
+            review_dir_str=str(review_dir),
+            providers=providers,
+            preset=preset_metadata,
+            scope=args.scope,
+            root=str(root),
+            input=review_input["metadata"],
+            strict_review=strict_review_block,
+        )
         results = run_providers(
             max_workers,
             providers,
@@ -2250,26 +2431,20 @@ def cmd_review(args):
             review_dir,
             root,
         )
-        metadata = {
-            "scope": args.scope,
-            "root": str(root),
-            "providers": providers,
-            "preset": preset_metadata,
-            "input": review_input["metadata"],
-            "results": results,
-        }
-        if strict_review is not None:
-            metadata["strict_review"] = {
-                key: value for key, value in strict_review.items() if key != "template"
-            }
-        progress("writing metadata")
-        (review_dir / "metadata.json").write_text(
-            json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
-        )
+        # TRN-2018 R7 fix (codex R6 P2): per CHG L88-89, top-level
+        # `finished_at` stays null until synthesis.md is written.
+        # finalize_metadata must run AFTER write_synthesis succeeds so
+        # a concurrent `trinity status` poll never observes
+        # status=finished while synthesis.md is missing. If
+        # write_synthesis raises, finalize is skipped; the exception
+        # handler writes incomplete.json and metadata.json stays in
+        # `status=running` for the partial review.
         progress("writing synthesis")
         summary, synthesis_path = write_synthesis(
             review_dir, args.scope, results, strict_review=strict_review
         )
+        progress("writing metadata")
+        _rm.finalize_metadata(review_dir, results)
         # TRN-3028: emit the completion line directly to stderr without the
         # `trinity: ` progress prefix so callers can key off the documented
         # "trinity review: <verdict> — ..." prefix at the START of the line.
@@ -2495,14 +2670,48 @@ def _print_review_summary(review_dir):
     results = metadata.get("results", [])
 
     # "started Xm ago" — earliest started_at across results, vs now.
+    # TRN-2018 R3 fix (codex R2 P2): when M1 metadata is mid-review (results
+    # still empty because run_providers hasn't finished), fall back to the
+    # top-level `started_at` written by init_metadata so the header doesn't
+    # render "started ?" in the exact state the live-status feature is for.
     started_isos = [r.get("started_at") for r in results if r.get("started_at")]
-    earliest = min(started_isos) if started_isos else None
+    earliest = min(started_isos) if started_isos else metadata.get("started_at")
     now_iso = dt.datetime.now().isoformat(timespec="seconds")
     ago = _format_ago(now_iso, earliest) if earliest else "?"
 
     print(f"Latest review: {review_dir}  (started {ago})")
     print(f"  Scope: {scope}   Mode: {mode}   Preset: {preset}")
     print()
+    # TRN-2018 M1: live provider_states section. Rendered when the metadata
+    # was written by init_metadata/update_provider_state (M1+ reviews).
+    # Pre-M1 metadata lacks this key; rendering falls through to the legacy
+    # `Providers:` section below.
+    provider_states = metadata.get("provider_states")
+    if provider_states:
+        print("  Live state:")
+        ls_name_width = max([10] + [len(p) for p in provider_states.keys()])
+        for prov, state in provider_states.items():
+            status_str = state.get("status", "?")
+            bits = [f"{prov:{ls_name_width}s}", status_str]
+            pid = state.get("pid")
+            if pid is not None:
+                bits.append(f"pid={pid}")
+            rc = state.get("returncode")
+            if rc is not None:
+                bits.append(f"rc={rc}")
+            # TRN-2018 R4 fix (codex R3 P2): for currently-running providers,
+            # finished_at is absent; use `now` as the end time so the row
+            # shows elapsed-so-far. Terminal states use their finished_at.
+            end_iso = state.get("finished_at") or (
+                now_iso if status_str == "running" else None
+            )
+            ls_elapsed = _format_duration(
+                _format_elapsed(state.get("started_at"), end_iso)
+            )
+            if ls_elapsed and ls_elapsed != "?":
+                bits.append(f"elapsed {ls_elapsed}")
+            print("    " + "  ".join(bits))
+        print()
     print("  Providers:")
     if not results:
         print("    (no results in metadata)")
@@ -2551,15 +2760,25 @@ def _print_review_summary(review_dir):
         # would mislabel an exception-after-metadata-write (e.g. inside
         # write_synthesis()) as a user interruption.
         overall = incomplete_status
+    elif metadata.get("status") == "running":
+        # TRN-2018 R4 fix (codex R3 P2): when M1's top-level status is
+        # `running`, a partial `results[]` (one provider finished while
+        # another is still queued/running) must NOT report `completed`.
+        # The live state is authoritative — defer to it until terminal.
+        overall = "running"
+    elif metadata.get("status") in ("failed", "timed_out", "finished"):
+        # M1 terminal: top-level status is authoritative (correctly accounts
+        # for failed/timed_out providers via finalize_metadata precedence).
+        overall = metadata["status"]
     elif not results:
-        # Empty results list isn't "completed" — no providers ran.
+        # Pre-M1 with no results (or M1 without a top-level status set,
+        # which shouldn't happen but is defended).
         overall = "unknown (no results)"
     elif any(r.get("returncode") != 0 for r in results):
-        # Any non-success rc (non-zero OR missing — None != 0) → partial.
-        # The visual marker for rc=None is ✗, so the overall status must
-        # not contradict that by reporting "completed".
+        # Pre-M1 path: any non-success rc → partial.
         overall = "partial"
     else:
+        # Pre-M1 path: all-zero results → completed.
         overall = "completed"
     print(f"  Status: {overall}")
     return 0
@@ -2573,12 +2792,13 @@ def cmd_status(args):
     # `cmd_review` actually writes artifacts.
     root = resolve_health_root(args.root)
     reviews_dir = root / ".trinity" / "reviews"
+    # TRN-2018 M1 behavior change (per CHG L154): missing or empty reviews
+    # dir now exits 0 with `no reviews found` on stdout. Previous behavior:
+    # exit 1 with `no reviews dir at <path>` or `no reviews under <path>`
+    # on stderr. Flagged in CHANGELOG.
     if not reviews_dir.is_dir():
-        print(
-            f"trinity: no reviews dir at {reviews_dir}",
-            file=sys.stderr,
-        )
-        return 1
+        print("no reviews found")
+        return 0
 
     # Sort key: (timestamp_prefix, mtime). The fixed-width
     # %Y%m%d-%H%M%S prefix gives chronological order across distinct
@@ -2600,11 +2820,8 @@ def cmd_status(args):
         reverse=True,
     )
     if not candidates:
-        print(
-            f"trinity: no reviews under {reviews_dir}",
-            file=sys.stderr,
-        )
-        return 1
+        print("no reviews found")
+        return 0
     return _print_review_summary(candidates[0])
 
 

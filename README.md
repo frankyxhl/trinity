@@ -313,6 +313,40 @@ providers emit a fenced JSON block (`decision`, `weighted_score`, `blocking`,
 with per-provider scores and a Findings section. Providers that don't emit
 the block continue to work via legacy returncode-based rendering. (#39)
 
+### Check review status
+
+```bash
+trinity status              # newest review (default; --latest is reserved for forward-compat)
+trinity status --latest     # explicit; same as bare `trinity status` today
+```
+
+`trinity status` summarises the most recent review under `.trinity/reviews/`.
+With TRN-2018 M1, it shows a **Live state** section for in-progress reviews —
+each provider with its current state (`queued`/`running`/`finished`/`failed`/
+`timed_out`), pid when running, return code when terminal, and elapsed time:
+
+```text
+Latest review: .trinity/reviews/20260516-120000-rules  (started 2m ago)
+  Scope: rules/   Mode: working-tree   Preset: fast-review
+
+  Live state:
+    glm        running  pid=12345  elapsed 2m 03s
+    deepseek   queued
+
+  Providers:
+    (no results in metadata)
+
+  Synthesis: missing
+  Status: running
+```
+
+Provider stdout/stderr stream to `.trinity/reviews/<id>/logs/<provider>.std{out,err}.log`
+while the review runs — `tail -f` works on those files for live progress. Stdout
+uses a PTY-backed reader so line-buffered CLIs flush progress before exit. The
+post-completion `raw/<provider>.txt` is composed from the same logs and remains
+backward-compatible. If no reviews exist, `trinity status` exits 0 with `no
+reviews found`.
+
 ### Update a PR after review fixes
 
 ```bash
