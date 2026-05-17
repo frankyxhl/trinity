@@ -3,9 +3,9 @@
 Currently `run_provider` (scripts/codex.py:1701) uses
 `Popen(stdout=PIPE, stderr=PIPE) + communicate(timeout=...)`, so
 nothing is written to disk until communicate() returns. C.2 refactors
-this to `Popen(stdout=open(path, 'w', buffering=1), stderr=...)` so
-the logs/<p>.std{out,err}.log files appear and grow while the
-provider runs.
+this to stream logs/<p>.std{out,err}.log while the provider runs. R8
+routes stdout through a PTY so child processes that line-buffer on
+isatty() do not block-buffer progress until exit.
 
 These tests are RED before C.2 GREEN and prove:
 1. logs/<p>.stdout.log exists during provider execution
@@ -86,6 +86,50 @@ def test_run_provider_creates_logs_files_before_completion(tmp_path):
     t.join(timeout=5)
     assert not t.is_alive(), "run_provider thread didn't finish"
     assert seen, "logs/p.stdout.log should contain partial output BEFORE provider exits"
+    assert result_holder["result"]["returncode"] == 0
+
+
+def test_run_provider_pty_flushes_child_line_buffered_stdout(tmp_path):
+    """Python block-buffers stdout to a regular file, but line-buffers when
+    stdout is a TTY. The PTY path should therefore make the first newline
+    visible before the fixture wakes from its 1s sleep, even though the fixture
+    never calls flush()."""
+    review_dir = _init_review(tmp_path)
+    provider_config = {
+        "cli": f"{sys.executable} {FIXTURES / 'fake_provider_buffered.py'}",
+        "timeout": 10,
+    }
+    registry = codex_mod.ActiveProcessRegistry()
+    result_holder: dict = {}
+
+    def run():
+        result_holder["result"] = codex_mod.run_provider(
+            "p",
+            provider_config,
+            tmp_path / "prompt.md",
+            review_dir,
+            tmp_path,
+            registry,
+        )
+
+    t = threading.Thread(target=run)
+    t.start()
+
+    stdout_log = review_dir / "logs" / "p.stdout.log"
+    deadline = time.time() + 1.5
+    seen = False
+    while time.time() < deadline and t.is_alive():
+        if (
+            stdout_log.exists()
+            and "buffered output before sleep" in stdout_log.read_text()
+        ):
+            seen = True
+            break
+        time.sleep(0.05)
+
+    t.join(timeout=5)
+    assert not t.is_alive(), "run_provider thread didn't finish"
+    assert seen, "PTY-backed stdout should flush the first buffered line live"
     assert result_holder["result"]["returncode"] == 0
 
 

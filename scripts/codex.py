@@ -5,10 +5,12 @@ import argparse
 import concurrent.futures
 import datetime as dt
 import difflib
+import errno
 import fnmatch
 import json
 import math
 import os
+import pty
 from pathlib import Path
 import re
 import shlex
@@ -18,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import tty
 
 try:
     from ._version import load_version
@@ -1431,6 +1434,36 @@ def timeout_partial_output(exc, stdout=None, stderr=None):
     )
 
 
+def _set_raw_pty(fd):
+    """Disable PTY newline translation while keeping child stdout as a TTY."""
+    try:
+        tty.setraw(fd)
+    except OSError:
+        pass
+
+
+def _copy_pty_to_file(master_fd, output_path, errors):
+    try:
+        with open(output_path, "ab", buffering=0) as out:
+            while True:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError as exc:
+                    if exc.errno == errno.EIO:
+                        break
+                    raise
+                if not chunk:
+                    break
+                out.write(chunk)
+    except Exception as exc:
+        errors.append(exc)
+    finally:
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+
+
 _UNIVERSAL_ENV_KEEP_LITERAL = frozenset(
     {
         "PATH",
@@ -1702,22 +1735,10 @@ def _review_schema_addendum(task_type, strict_review=None):
 
 
 def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
-    # TRN-2018 M1: stdout/stderr stream to logs/<p>.std{out,err}.log via
-    # line-buffered file handles so `trinity status` and external watchers
-    # can read partial output while the provider runs. raw/<p>.txt is
-    # composed from the (closed) log files after completion for backward
-    # compat with downstream consumers.
-    #
-    # KNOWN M1 LIMITATION (codex R4 P2 advisory):
-    # `buffering=1` only affects the parent file object. Child processes
-    # that block-buffer stdout when not connected to a TTY (typical for
-    # Python/Node wrappers without explicit flush) won't actually emit
-    # to disk until they exit or fill their buffer — so live log
-    # visibility for those providers is best-effort. PTY-based or
-    # stdbuf/unbuffer strategies are deferred to M2 (CHG-2018 milestone 2
-    # ships heartbeat polling + stall detection where this matters most).
-    # Shell-style providers (the fake fixtures + most CLI tools that
-    # write small lines) work as intended on M1.
+    # TRN-2018 M1: stdout streams through a PTY into logs/<p>.stdout.log so
+    # child processes that line-buffer on isatty() emit live output instead of
+    # block-buffering until exit. stderr still streams to its own log file.
+    # raw/<p>.txt is composed from closed logs for backward compatibility.
     raw_path = review_dir / "raw" / f"{provider}.txt"
     # Defensive: production cmd_review path creates logs/ via make_review_dir,
     # but unit tests that build review_dir manually may skip it.
@@ -1736,20 +1757,36 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     progress(f"starting provider {provider} timeout={timeout}s")
     popen = None
     outcome = None  # tuple describing terminal state; consumed below for raw compose
-    with (
-        open(stdout_path, "w", buffering=1, encoding="utf-8") as fout,
-        open(stderr_path, "w", buffering=1, encoding="utf-8") as ferr,
-    ):
+    stdout_path.write_bytes(b"")
+    stdout_master_fd = None
+    stdout_slave_fd = None
+    stdout_thread = None
+    stdout_reader_errors = []
+    try:
+        stdout_master_fd, stdout_slave_fd = pty.openpty()
+        _set_raw_pty(stdout_slave_fd)
+    except OSError as exc:
+        raise RuntimeError(f"failed to create PTY for provider stdout: {exc}") from exc
+    with open(stderr_path, "w", buffering=1, encoding="utf-8") as ferr:
         try:
             popen = subprocess.Popen(
                 cmd,
                 cwd=str(root),
-                stdout=fout,
+                stdout=stdout_slave_fd,
                 stderr=ferr,
                 text=True,
                 start_new_session=True,
                 env=build_provider_env(),
             )
+            os.close(stdout_slave_fd)
+            stdout_slave_fd = None
+            stdout_thread = threading.Thread(
+                target=_copy_pty_to_file,
+                args=(stdout_master_fd, stdout_path, stdout_reader_errors),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stdout_master_fd = None
             registry.add(provider, popen, started)
             _rm.update_provider_state(
                 review_dir,
@@ -1820,12 +1857,27 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
             raise
         finally:
             try:
-                fout.flush()
                 ferr.flush()
             except Exception:
                 pass
+            if stdout_slave_fd is not None:
+                try:
+                    os.close(stdout_slave_fd)
+                except OSError:
+                    pass
+            if stdout_master_fd is not None:
+                try:
+                    os.close(stdout_master_fd)
+                except OSError:
+                    pass
+            if stdout_thread is not None:
+                stdout_thread.join()
             if popen is not None:
                 registry.remove(provider, popen)
+    if stdout_reader_errors:
+        raise RuntimeError(
+            f"provider {provider} stdout reader failed: {stdout_reader_errors[0]}"
+        )
 
     # Log file handles are now closed; compose raw_path from disk content.
     # TRN-2018 R3 fix (codex R2 P2): append the result entry to metadata

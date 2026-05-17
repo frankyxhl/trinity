@@ -341,7 +341,8 @@ Latest review: .trinity/reviews/20260516-120000-rules  (started 2m ago)
 ```
 
 Provider stdout/stderr stream to `.trinity/reviews/<id>/logs/<provider>.std{out,err}.log`
-while the review runs — `tail -f` works on those files for live progress. The
+while the review runs — `tail -f` works on those files for live progress. Stdout
+uses a PTY-backed reader so line-buffered CLIs flush progress before exit. The
 post-completion `raw/<provider>.txt` is composed from the same logs and remains
 backward-compatible. If no reviews exist, `trinity status` exits 0 with `no
 reviews found`.

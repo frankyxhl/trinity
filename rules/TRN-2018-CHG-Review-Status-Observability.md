@@ -325,10 +325,10 @@ partial write.
 1. RED: add fake provider tests proving stdout/stderr files exist while or
    immediately after provider execution starts.
 2. GREEN: change provider execution from `subprocess.run(..., stdout=PIPE,
-   stderr=PIPE)` to `subprocess.Popen` with stdout/stderr file handles.
-   Open log files with line buffering, for example `open(path, "w",
-   buffering=1)`, and flush handles in the polling loop so small provider
-   output appears on disk promptly.
+   stderr=PIPE)` to `subprocess.Popen` with live log sinks. Route stdout
+   through a PTY-backed reader into `logs/<provider>.stdout.log` so child
+   processes that line-buffer on `isatty()` flush progress before exit; route
+   stderr to `logs/<provider>.stderr.log` with line-buffered file handles.
 3. GREEN: compose legacy `raw/<provider>.txt` from the stdout/stderr logs after
    completion.
 4. Implement timeout manually with `Popen.wait(timeout=...)`; on timeout, kill
@@ -336,8 +336,8 @@ partial write.
    any partial stdout/stderr logs.
    - Send `terminate()` first.
    - If the process does not exit within 5 seconds, send `kill()`.
-   - After the process exits or is killed, close stdout/stderr file handles
-     before composing `raw/<provider>.txt`.
+   - After the process exits or is killed, close stdout/stderr sinks before
+     composing `raw/<provider>.txt`.
 5. Preserve current failure semantics for missing commands (`127`) and normal
    non-zero return codes. If `Popen()` raises `FileNotFoundError`, create empty
    stdout/stderr log files, write the existing command-not-found message to

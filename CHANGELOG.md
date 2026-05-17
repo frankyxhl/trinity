@@ -13,10 +13,11 @@
   through its lifecycle, so observers no longer have to wait for the entire
   review to finish to see state.
 - Incremental `logs/<provider>.std{out,err}.log` files written during
-  `trinity review`. Stdout/stderr stream to line-buffered file handles
-  while the provider runs; the existing `raw/<provider>.txt` artifact is
-  composed from these logs after completion and preserves the
-  `_STDERR_SENTINEL` boundary contract (TRN-3022 coupling).
+  `trinity review`. Stdout streams through a PTY-backed reader so
+  line-buffered child processes flush progress before exit; stderr streams
+  to its own log file. The existing `raw/<provider>.txt` artifact is composed
+  from these logs after completion and preserves the `_STDERR_SENTINEL`
+  boundary contract (TRN-3022 coupling).
 - `trinity session-path <provider>[:<instance>]` — resolve absolute JSONL
   transcript path for a Trinity session. Unblocks token-efficiency audits
   and replay debugging. Closes #108.
