@@ -31,6 +31,12 @@
   rationale and surfaces.
 
 ### Changed
+- TRN-3043 — designated `.agents/skills/trinity/SKILL.md` as the source of
+  truth for the Codex skill text and made `plugins/trinity/skills/trinity/SKILL.md`
+  a build-time copy. New `scripts/build_codex_skill.sh` wired into
+  `make build` and `make verify-built`; pre-commit hook now also enforces
+  byte-identity between the two copies. Both files remain on disk for
+  packaging portability. Closes #76.
 - `scripts/_compat.py` — new shared module exposing the guarded `fcntl`
   import. On `ImportError` (e.g. Windows), prints the existing
   unsupported-platform message to stderr and exits 1. Duplicated inline

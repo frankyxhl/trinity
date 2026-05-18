@@ -10,13 +10,15 @@ setup:          ## Create venv and install dev dependencies (uv → pip fallback
 		python3 -m venv .venv && .venv/bin/pip install pytest pytest-cov 'pytest-bdd>=7,<8' coverage[toml] ruff; \
 	fi
 
-build:          ## Compose providers/*.md from _base/ partials and *.delta.md (TRN-2004)
+build:          ## Compose providers/*.md (TRN-2004) and copy Codex skill (TRN-3043)
 	@bash scripts/build_providers.sh
+	@bash scripts/build_codex_skill.sh
 
-verify-built:   ## Confirm committed providers/*.md matches partial sources (TRN-2004)
+verify-built:   ## Confirm generated artifacts match sources (TRN-2004 providers, TRN-3043 codex skill)
 	@bash scripts/build_providers.sh --check
+	@bash scripts/build_codex_skill.sh --check
 
-install-hooks:  ## Install git pre-commit hook to run verify-built (TRN-2004)
+install-hooks:  ## Install git pre-commit hook to run generated-artifact checks (TRN-2004, TRN-3043)
 	@cp scripts/pre-commit-hook.sh .git/hooks/pre-commit
 	@chmod +x .git/hooks/pre-commit
 	@echo "Installed pre-commit hook → .git/hooks/pre-commit"
@@ -119,6 +121,9 @@ release-prep:   ## Stage release-metadata commit + local tag (TRN-1004): no push
 	$(MAKE) test
 	$(MAKE) lint
 	@git diff --quiet providers/ || (echo "release-prep: providers/ has uncommitted changes — run 'make build' and commit first"; exit 1)
+	@git diff --quiet .agents/skills/trinity/SKILL.md plugins/trinity/skills/trinity/SKILL.md && \
+		git diff --cached --quiet .agents/skills/trinity/SKILL.md plugins/trinity/skills/trinity/SKILL.md || \
+		(echo "release-prep: Codex skill copy has uncommitted changes — run 'make build' and commit first"; exit 1)
 	@git reset HEAD
 	@git add VERSION scripts/__init__.py CHANGELOG.md SKILL.md plugins/trinity/.codex-plugin/plugin.json README.md
 	@git commit -m "Release v$(CURRENT_VERSION)"

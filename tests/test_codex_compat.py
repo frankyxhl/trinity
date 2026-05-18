@@ -1,7 +1,9 @@
 """Tests for Codex skill/plugin compatibility packaging."""
 
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -145,3 +147,217 @@ def test_claude_skill_documents_nested_dispatch_guard():
     assert "Nested Trinity dispatch is disabled" in text
     assert "claude-code provider wrapper" in text
     assert "exit 1" in text
+
+
+# ---------------------------------------------------------------------------
+# TRN-3043 / issue #76 — build_codex_skill.sh is the single source-of-truth
+# enforcement for the .agents/ ↔ plugins/ SKILL.md pair.
+# ---------------------------------------------------------------------------
+
+BUILD_CODEX_SKILL = ROOT / "scripts" / "build_codex_skill.sh"
+MAKEFILE = ROOT / "Makefile"
+PRE_COMMIT_HOOK = ROOT / "scripts" / "pre-commit-hook.sh"
+
+
+def test_build_codex_skill_script_exists_and_is_executable():
+    assert BUILD_CODEX_SKILL.exists(), f"missing: {BUILD_CODEX_SKILL}"
+    assert os.access(BUILD_CODEX_SKILL, os.X_OK), f"not executable: {BUILD_CODEX_SKILL}"
+
+
+def test_build_codex_skill_check_passes_on_committed_tree():
+    result = subprocess.run(
+        ["bash", str(BUILD_CODEX_SKILL), "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"build_codex_skill --check failed on committed tree:\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def _copy_build_codex_skill_fixture(tmp_path):
+    script = tmp_path / "scripts" / "build_codex_skill.sh"
+    source = tmp_path / ".agents" / "skills" / "trinity" / "SKILL.md"
+    target = tmp_path / "plugins" / "trinity" / "skills" / "trinity" / "SKILL.md"
+
+    script.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    script.write_text(BUILD_CODEX_SKILL.read_text())
+    script.chmod(0o755)
+    return script, source, target
+
+
+def test_build_codex_skill_build_mode_copies_source_and_keeps_regular_file(tmp_path):
+    script, source, target = _copy_build_codex_skill_fixture(tmp_path)
+    source.write_text("canonical skill\n")
+    target.write_text("stale plugin skill\n")
+
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        f"build_codex_skill failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert target.read_text() == source.read_text()
+    assert target.is_file()
+    assert not target.is_symlink()
+
+
+def test_build_codex_skill_build_mode_replaces_symlink_target(tmp_path):
+    script, source, target = _copy_build_codex_skill_fixture(tmp_path)
+    symlink_target = tmp_path / "outside-symlink-target.md"
+    source.write_text("canonical skill\n")
+    symlink_target.write_text("old target contents\n")
+    target.symlink_to(symlink_target)
+
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        f"build_codex_skill failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert target.read_text() == source.read_text()
+    assert target.is_file()
+    assert not target.is_symlink()
+    assert symlink_target.read_text() == "old target contents\n"
+
+
+def test_build_codex_skill_check_rejects_intentional_drift(tmp_path):
+    script, source, target = _copy_build_codex_skill_fixture(tmp_path)
+    source.write_text("canonical skill\n")
+    target.write_text("drifted plugin skill\n")
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "drift detected" in result.stderr
+    assert "DRIFT" in result.stderr
+
+
+def test_build_codex_skill_check_rejects_symlink_target(tmp_path):
+    script, source, target = _copy_build_codex_skill_fixture(tmp_path)
+    symlink_target = tmp_path / "outside-symlink-target.md"
+    source.write_text("canonical skill\n")
+    symlink_target.write_text("canonical skill\n")
+    target.symlink_to(symlink_target)
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "NOT A REGULAR FILE" in result.stderr
+
+
+def test_build_codex_skill_rejects_missing_source_with_exit_2(tmp_path):
+    script, source, target = _copy_build_codex_skill_fixture(tmp_path)
+    target.write_text("canonical skill\n")
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "source missing or not regular" in result.stderr
+    assert str(source.relative_to(tmp_path)) in result.stderr
+
+
+def test_build_codex_skill_rejects_unknown_argument_with_exit_2(tmp_path):
+    script, source, target = _copy_build_codex_skill_fixture(tmp_path)
+    source.write_text("canonical skill\n")
+    target.write_text("canonical skill\n")
+
+    result = subprocess.run(
+        ["bash", str(script), "--unknown"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "unknown argument: --unknown" in result.stderr
+    assert "usage: scripts/build_codex_skill.sh [--check]" in result.stderr
+
+
+def test_build_codex_skill_check_rejects_staged_drift_after_partial_add(tmp_path):
+    script, source, target = _copy_build_codex_skill_fixture(tmp_path)
+    source.write_text("canonical v1\n")
+    target.write_text("canonical v1\n")
+
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True
+    )
+    subprocess.run(
+        [
+            "git",
+            "add",
+            str(source.relative_to(tmp_path)),
+            str(target.relative_to(tmp_path)),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    source.write_text("canonical v2\n")
+    target.write_text("canonical v2\n")
+    subprocess.run(
+        ["git", "add", str(source.relative_to(tmp_path))],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "staged drift detected" in result.stderr
+    assert "index:plugins/trinity/skills/trinity/SKILL.md" in result.stderr
+
+
+def test_makefile_wires_build_codex_skill_into_build_and_verify_built():
+    text = MAKEFILE.read_text()
+    assert "scripts/build_codex_skill.sh" in text
+    assert "scripts/build_codex_skill.sh --check" in text
+
+
+def test_makefile_release_prep_guards_codex_skill_dirty_tree():
+    text = MAKEFILE.read_text()
+    assert "git diff --quiet .agents/skills/trinity/SKILL.md" in text
+    assert "git diff --cached --quiet .agents/skills/trinity/SKILL.md" in text
+    assert "plugins/trinity/skills/trinity/SKILL.md" in text
+    assert "release-prep: Codex skill copy has uncommitted changes" in text
+
+
+def test_pre_commit_hook_runs_build_codex_skill_check():
+    text = PRE_COMMIT_HOOK.read_text()
+    assert "scripts/build_codex_skill.sh --check" in text
