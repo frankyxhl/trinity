@@ -2,9 +2,9 @@
 
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
 **Date:** 2026-04-26
-**Last updated:** 2026-04-26
+**Last updated:** 2026-05-18
 **Last reviewed:** 2026-04-26
-**Status:** In Progress
+**Status:** Completed
 **PRP:** TRN-2008 (Approved — Round 2: Codex 8.9/PASS, Gemini 9.8/PASS, GLM 8.8/PASS, DeepSeek 10/PASS)
 **Implementer:** Claude Opus 4.7
 
@@ -123,4 +123,5 @@ Per PRP TRN-2008 §Test Cases, T1–T14:
 
 | Date | Change | By |
 |------|--------|----|
+| 2026-05-18 | Status reconciled to Completed before archiving superseded PRP TRN-2008 (TRN-3043). | Codex |
 | 2026-04-26 | Initial draft after PRP TRN-2008 approval (Round 2 PASS from all four reviewers) | Claude Opus 4.7 |
