@@ -23,13 +23,9 @@ except ImportError:
 __version__ = load_version()
 
 try:
-    import fcntl
+    from ._compat import fcntl
 except ImportError:
-    print(
-        "trinity-scripts: unsupported platform (fcntl not available). Windows is not supported.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+    from _compat import fcntl
 
 
 def trinity_path(project_dir):

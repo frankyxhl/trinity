@@ -31,6 +31,13 @@
   rationale and surfaces.
 
 ### Changed
+- `scripts/_compat.py` — new shared module exposing the guarded `fcntl`
+  import. On `ImportError` (e.g. Windows), prints the existing
+  unsupported-platform message to stderr and exits 1. Duplicated inline
+  guards in `scripts/session.py` and `scripts/install.py` replaced
+  with dual-mode `from ._compat import fcntl` / `from _compat import fcntl`
+  imports, and the curl installer now downloads the shared helper alongside
+  the other Python scripts. No behavioral change to lock call sites. Closes #78.
 - TRN-2018 M1 — `trinity status` (and `trinity status --latest`) behavior
   change: missing or empty `.trinity/reviews/` directory now exits **0**
   with `no reviews found` on **stdout** (was: exit 1 with
