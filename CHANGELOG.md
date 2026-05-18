@@ -31,6 +31,10 @@
   rationale and surfaces.
 
 ### Changed
+- TRN-3043 — archived completed PRPs for TRN-2002, TRN-2008, and
+  TRN-2010 under `rules/archive/`, removing them from the active TRN-0000
+  document index. Reconciled stale TRN-2003 and TRN-2009 CHG statuses to
+  `Completed`. Closes #75.
 - `scripts/_compat.py` — new shared module exposing the guarded `fcntl`
   import. On `ImportError` (e.g. Windows), prints the existing
   unsupported-platform message to stderr and exits 1. Duplicated inline
