@@ -69,6 +69,7 @@
 | 3039 | CHG | Align With Promoted PKG |
 | 3040 | CHG | Trinity Session Path |
 | 3041 | CHG | Share Fcntl Import Guard |
+| 3042 | CHG | Plan Review Minimax And Worker Role Split |
 
 ---
 

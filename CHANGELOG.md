@@ -38,6 +38,11 @@
   with dual-mode `from ._compat import fcntl` / `from _compat import fcntl`
   imports, and the curl installer now downloads the shared helper alongside
   the other Python scripts. No behavioral change to lock call sites. Closes #78.
+- TRN-3042 — TRN-1008 plan-review now requires GLM + DeepSeek + MiniMax
+  (`trinity-minimax` added as the third plan reviewer). Code-review remains
+  GLM + DeepSeek unless explicitly overridden. Worker routing is now
+  role-split: implementation work goes to GLM; test-code work goes to
+  DeepSeek. TRN-1209 bindings updated in lockstep.
 - TRN-2018 M1 — `trinity status` (and `trinity status --latest`) behavior
   change: missing or empty `.trinity/reviews/` directory now exits **0**
   with `no reviews found` on **stdout** (was: exit 1 with
