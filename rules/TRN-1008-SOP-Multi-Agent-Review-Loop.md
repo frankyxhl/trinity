@@ -590,7 +590,7 @@ Items 4-6 are §7 exit criteria (not §8 entry criteria). "Just committed and pu
 | `prompt` | What to fire on wake-up — usually a poll instruction referencing the just-pushed head SHA | self-contained (the wakeup is a fresh turn) |
 | `reason` | One-sentence telemetry shown to the user | be specific: `Poll PR #<N> R<m> bot review on head <sha>` |
 
-**MUST-DO after every R-push** — call `ScheduleWakeup` immediately. Forgetting this is a real SOP violation: the orchestrator goes idle and bot/CI signals accumulate unobserved. The only exceptions are (a) the user just instructed something else, OR (b) the PR is already mergeable and you're handing off.
+**MUST-DO after every R-push when wakeups are available** — call `ScheduleWakeup` immediately. In runtimes without `ScheduleWakeup`, run the bounded no-wakeup fallback before ending the turn. Forgetting the applicable poll handoff is a real SOP violation: the orchestrator goes idle and bot/CI signals accumulate unobserved. The only exceptions are (a) the user just instructed something else, OR (b) the Review Completion Gate is already `CLEAN` and you're handing off.
 
 The `prompt` parameter MUST include:
 
@@ -625,7 +625,7 @@ The `prompt` parameter MUST include:
 
 ```bash
 HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
-gh pr checks "$PR" --repo "$REPO"
+gh pr checks "$PR" --repo "$REPO" --required
 gh api graphql \
   -f owner="${REPO%/*}" \
   -f name="${REPO#*/}" \
@@ -670,7 +670,7 @@ Interpretation rules:
 
 ```mermaid
 flowchart TD
-    A[R<n> pushed] --> B[Use ScheduleWakeup tool<br/>delay=270s]
+    A[R<n> pushed] --> B[Use ScheduleWakeup tool<br/>or bounded no-wakeup poll]
     B --> C{CI status?}
     C -- "Green<br/>both runners" --> E{Thread-aware<br/>GitHub review state<br/>current for this head?}
     C -- "Pending /<br/>queued" --> F0[Wait another 270s]

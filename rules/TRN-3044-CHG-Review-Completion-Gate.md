@@ -91,7 +91,7 @@ The SOP amendment should include a command shape equivalent to:
 
 ```bash
 HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
-gh pr checks "$PR" --repo "$REPO"
+gh pr checks "$PR" --repo "$REPO" --required
 gh api graphql \
   -f owner="${REPO%/*}" \
   -f name="${REPO#*/}" \
@@ -176,3 +176,4 @@ Rollback is a revert of the SOP/REF/CHANGELOG edits. No code, data, or external 
 | 2026-05-20 | R6: codex-bot P2 fix — §7 item 4 now allows either `ScheduleWakeup` or the bounded no-wakeup fallback, avoiding deadlock in no-wakeup runtimes. | Codex |
 | 2026-05-20 | R7: codex-bot P2 fix — §8 entry-gate now accepts either an armed wake or a completed bounded no-wakeup poll for the current head. | Codex |
 | 2026-05-20 | R8: plan-review advisory fix — paginate reviews as well as reviewThreads, default cursors to null for the first call, document `reviewDecision=null`, and add explicit ACs for no-wakeup and docs-only CI paths. | Codex |
+| 2026-05-20 | R9: codex-bot P2 fix — make the post-push poll handoff conditional on wakeup availability and use `gh pr checks --required` for required-CI gate evaluation. | Codex |
