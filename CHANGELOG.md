@@ -31,6 +31,16 @@
   rationale and surfaces.
 
 ### Changed
+- TRN-3044 — TRN-1008 now requires an explicit Review Completion Gate before
+  a PR can be called done or mergeable. The gate records `CLEAN` / `WAIT` /
+  `BLOCKED` for the current head SHA, requires paginated GitHub reviews and
+  thread-aware review state, treats stale bot reviews and unresolved non-outdated review
+  threads as blockers, and adds a bounded no-wakeup fallback for runtimes without
+  `ScheduleWakeup`. The §7 post-push closure checklist expands to 6 items
+  to record the gate state, and TRN-1209 now clarifies bot-actor API login
+  matching for current-head evidence. Pure-docs PRs skipped by workflow
+  `paths-ignore` record `CI=N/A (paths-ignore)` when no required checks are
+  configured.
 - TRN-3043 — designated `.agents/skills/trinity/SKILL.md` as the source of
   truth for the Codex skill text and made `plugins/trinity/skills/trinity/SKILL.md`
   a build-time copy. New `scripts/build_codex_skill.sh` wired into

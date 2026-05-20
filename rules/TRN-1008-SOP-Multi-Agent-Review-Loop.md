@@ -1,8 +1,8 @@
 # SOP-1008: Multi-Agent Review Loop
 
 **Applies to:** Trinity project (`frankyxhl/trinity`) — progenitor of the COR-1617 PKG cluster (see §0 below)
-**Last updated:** 2026-05-18
-**Last reviewed:** 2026-05-10
+**Last updated:** 2026-05-20
+**Last reviewed:** 2026-05-20
 **Status:** Active
 **Related:** TRN-1007 (PR readiness gate), TRN-1209 (parameter bindings — instantiates COR-1622 for trinity), TRN-1800 (evolution philosophy / weights), CLD-1802 (atomicity surface definition; PKG-layer doc — see `~/.claude/rules/CLD-1802-*.md`), **COR-1617** (Multi-Agent Workflow Loop — PKG umbrella generalized from this SOP), **COR-1618** (Out-of-Band Consent Auto-Pick — PKG generalization of §1 rocket-gate), **COR-1619** (Orchestrator vs Worker Dispatch — §5), **COR-1620** (Self-Pacing Loop Primitives — §1 idle-with-retry / §8 / §10 / §12 wake mechanics), **COR-1621** (Multi-Reviewer Triage — §9), **COR-1622** (parameter schema TRN-1209 instantiates), **COR-1602** (Multi Model Parallel Review — phases §4 and §8 inherit), **COR-1615** (GitHub App PR Review Bot Loop — phase §8 inherits), COR-1505 (Branch and Identity Hygiene — §2), COR-1104 (CHG sizing — §3), COR-1612 / COR-1614 / COR-1616 (PR-loop SOPs the panel inherits from). See [frankyxhl/alfred#115](https://github.com/frankyxhl/alfred/issues/115) for the original promotion proposal; COR-1617 §Lineage is the canonical record.
 
@@ -25,10 +25,10 @@ After promotion, this SOP is retained as a **trinity-specific overlay** that con
 | §4 Plan-review (3-provider plan-review tier) | **COR-1602** + **COR-1617** §4 | plan-review tier `[trinity-glm, trinity-deepseek, trinity-minimax]` at threshold ≥9.5 (TRN-3042); codex-as-bot post-push instead of as panel reviewer |
 | §5 Dispatch (orchestrator vs worker) | **COR-1619** | role-routed workers: `<implementation-worker-agent>` = `trinity-glm via droid exec`; `<test-code-worker-agent>` = `trinity-deepseek` |
 | §6 Verify implementation | **COR-1617** §6 | `af validate --root .` is normative |
-| §7 PR open + closure-checklist | **COR-1617** §7 | 5-item post-push closure-checklist (per #94) |
-| §8 Iterate (CI + bot + code-review panel) | **COR-1615** + **COR-1620** | post-R-push wake @ 270s; entry-gate verifies prior R-push closed all 5 closure artifacts |
+| §7 PR open + closure-checklist | **COR-1617** §7 | 6-item post-push closure-checklist (per #94 + CHG-3044) |
+| §8 Iterate (CI + bot + code-review panel) | **COR-1615** + **COR-1620** | post-R-push wake @ 270s; entry-gate verifies prior R-push closed all 6 closure artifacts; Review Completion Gate (`CLEAN` / `WAIT` / `BLOCKED`) |
 | §9 Triage | **COR-1621** | — |
-| §10 Handoff | **COR-1617** §10 + **COR-1620** | dual-trigger CHG-3036 (mergeable-handoff arms §12 in State B; merge-watch continues for actual merge); §10 (B) merge-watch wake procedure with watched-branch token |
+| §10 Handoff | **COR-1617** §10 + **COR-1620** | dual-trigger CHG-3036 (mergeable-handoff arms §12 in State B; merge-watch continues for actual merge); §10 (B) merge-watch wake procedure with watched-branch token; handoff requires Review Completion Gate `CLEAN` |
 | §11 Retrospective | **COR-1617** §11 | adopted from alfred v1.16.0 PKG; codex-catch metric uses TRN-1209 `<bot-actors>` binding (`chatgpt-codex-connector[bot]`) for `Trinity-miss/codex-catch` row |
 | §12 Loop restart | **COR-1617** §12 + **COR-1620** | dual-state precondition (State A post-merge / State B post-mergeable-handoff per CHG-3036); 3-branch State-B guard with multi-condition for agent-prefix branches |
 | §Threat Model (rocket-gate rationale) | **COR-1618** §Threat Model | comment-based CLARIFY threat analysis (CHG-3038 §Threat Model assessment) |
@@ -99,8 +99,8 @@ The loop has 13 phases:
 4.   Plan-review    ← 3-provider plan-review tier (glm + deepseek + minimax), all individual ≥9.5
 5.   Dispatch       ← role-routed worker heuristic (implementation=trinity-glm, test-code=trinity-deepseek)
 6.   Verify implementation ← read symbols, tests, lint, af-validate
-7.   PR open + post-push closure-checklist (per #94) ← push to fork, gh pr create + 5-item closure
-8.   Iterate (CI + bot + code-review panel; entry-gate verifies prior R-push closed all 5 artifacts)
+7.   PR open + post-push closure-checklist (per #94 + CHG-3044) ← push to fork, gh pr create + 6-item closure
+8.   Iterate (CI + bot + code-review panel; entry-gate verifies prior R-push closed all 6 artifacts; Review Completion Gate)
 9.   Triage         ← real bug → fix; advisory → batch into R3+
 10.  Handoff       ← "mergeable" = orchestrator done (declares mergeable + arms §12 in State B); merge-watch continues for actual merge (parallel triggers per CHG-3036)
 11.  Retrospective ← run COR-1617 §11 synchronously when §10 (B) merge-watch observes mergedAt (deferred under State B mergeable-handoff path; on-/off-watched-branch dual-path per §11)
@@ -554,7 +554,7 @@ If any check fails, fix locally before push (or re-dispatch worker for substanti
 
 ### 7. PR open
 
-> *Shared with COR-1617 §7 (push to `<pr-push-remote>`; `gh pr create --base main`; bare-`Closes #N` rule); trinity overlay: 5-item post-push closure-checklist (per #94).*
+> *Shared with COR-1617 §7 (push to `<pr-push-remote>`; `gh pr create --base main`; bare-`Closes #N` rule); trinity overlay: 6-item post-push closure-checklist (per #94 + CHG-3044).*
 
 ```bash
 git add <specific-paths>                 # never -A (sweeps untracked tmp/, drafts)
@@ -565,21 +565,22 @@ gh pr create --repo "$REPO" --base main --head "$AGENT_GH_LOGIN:<branch>" ...   
 
 PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue>`. Plan-review gate scores belong in the body when applicable.
 
-**Post-push closure-checklist (5 items — §7 exit criteria per #94).** Every R-push is INCOMPLETE until all 5 items have landed:
+**Post-push closure-checklist (6 items — §7 exit criteria per #94 + CHG-3044).** Every R-push is INCOMPLETE until all 6 items have landed:
 
 1. **Commit + push** — the code is on the fork remote.
 2. **Reply to each new bot inline finding** via `gh api repos/$REPO/pulls/$N/comments/$ID/replies` with commit SHA + one-line description of the fix.
 3. **React 👍/👎 to each bot finding** via `gh api repos/$REPO/pulls/comments/$ID/reactions`.
-4. **Arm next wake** — `ScheduleWakeup` per §8 R11 cadence.
+4. **Arm or execute the next poll** — if `ScheduleWakeup` is available, arm it per §8 R11 cadence; if not, run the §8 bounded no-wakeup fallback before ending the turn.
 5. **Surface idle-status line** in chat output. Canonical format: `**Idle until <HH:MM:SS> <TZ> (~<relative>)** — <signal-class> on PR #<n> head \`<sha>\`. Chat to pre-empt.`
+6. **Record Review Completion Gate state** — report `CLEAN`, `WAIT`, or `BLOCKED` for the just-pushed head per §8.
 
-Items 4-5 are §7 exit criteria (not §8 entry criteria). "Just committed and pushed" without the other four is the antipattern the wait-state guard (§Guard Rails) prevents.
+Items 4-6 are §7 exit criteria (not §8 entry criteria). "Just committed and pushed" without the other five is the antipattern the wait-state guard (§Guard Rails) prevents. Do not say `done`, `complete`, or `mergeable` while the Review Completion Gate is `WAIT` or `BLOCKED`.
 
 ### 8. Iterate (CI + bot + code-review panel)
 
-> *Shared with COR-1615 (GitHub App PR Review Bot Loop) + COR-1620 (wake mechanics); trinity overlays: post-R-push wake @ 270s; entry-gate verifies prior R-push closed all 5 §7 closure-checklist artifacts; ref-style wake prompts per CHG-3037.*
+> *Shared with COR-1615 (GitHub App PR Review Bot Loop) + COR-1620 (wake mechanics); trinity overlays: post-R-push wake @ 270s; entry-gate verifies prior R-push closed all 6 §7 closure-checklist artifacts; Review Completion Gate per CHG-3044; ref-style wake prompts per CHG-3037.*
 
-**Entry-gate verification (per #94).** Each R-iteration starts with confirming the previous R-push closed all 5 §7 closure-checklist artifacts. If any are missing, complete them before proceeding with the iterate cycle. Additionally, verify a wake is armed for the current HEAD; if not, arm immediately and re-poll on wake.
+**Entry-gate verification (per #94 + CHG-3044).** Each R-iteration starts with confirming the previous R-push closed all 6 §7 closure-checklist artifacts. If any are missing, complete them before proceeding with the iterate cycle. Additionally, verify that the current HEAD has either an armed wake OR a completed bounded no-wakeup poll; if neither happened, perform the applicable path immediately and re-poll from its result.
 
 **`ScheduleWakeup` is the iterate-phase mechanism.** It is a Claude Code **runtime tool** (not a skill, not a slash command) that schedules a future re-wake of the orchestrator with a specified prompt. The tool has three parameters:
 
@@ -601,11 +602,77 @@ The `prompt` parameter MUST include:
 
 **Relationship to `/loop`** — `/loop` is a slash command the *user* types (only the user can invoke it; the orchestrator cannot). `/loop <seconds>` runs cron-mode (fixed interval); `/loop` with no argument runs dynamic mode where the orchestrator self-paces using `ScheduleWakeup`. For PR-iteration (this phase), `ScheduleWakeup` works regardless of whether `/loop` is active — but in `/loop` dynamic mode the wakeups feed back into the loop's continuation; outside `/loop`, each wakeup completes when this conversation turn ends.
 
+**Review Completion Gate (CHG-3044).** Every R-push exits §8 with exactly one state for the current head SHA:
+
+| State | Meaning | Required next action |
+|-------|---------|----------------------|
+| `CLEAN` | All required signals are current-head clean. | Proceed to §10 handoff. |
+| `WAIT` | A required signal is still pending inside the active polling window. | Continue polling via `ScheduleWakeup`, or the no-wakeup fallback below. |
+| `BLOCKED` | A required signal failed, is stale after the polling budget, or shows unresolved current review work. | Triage/fix, or report the exact blocked signal and the explicit GitHub write action needed. |
+
+`CLEAN` requires ALL of the following for the same `headRefOid`:
+
+1. Required CI checks are terminal and successful on the current head; OR the PR is a pure-docs change skipped by workflow `paths-ignore`, no branch-protection required checks are configured, and local doc validation has passed. In that docs-only case record `CI=N/A (paths-ignore)` rather than `WAIT`.
+2. The code-review panel (`trinity-glm` + `trinity-deepseek`) has run against the current head and passes the §8 threshold.
+3. GitHub review state has been read with thread-aware data (`reviewThreads` via GraphQL or the GitHub plugin helper), and every review-thread page has been exhausted before counting unresolved threads. Flat `gh pr view` metadata alone is insufficient when review-thread state matters.
+4. There are no unresolved non-outdated review threads.
+5. `reviewDecision` is not `REVIEW_REQUIRED` or `CHANGES_REQUESTED` when GitHub reports that field. If GitHub reports `null` or omits the field because required reviews are not configured, do not block solely on that field; rely on the thread, stale-evidence, and current-head review checks below.
+6. No stale bot review/comment from an older commit is being used as current evidence. A review where `commit.oid != headRefOid` is stale for current-head gating.
+
+`WAIT` covers pending CI, a still-running panel, or no current-head GitHub review/clearance signal inside the active polling window. `BLOCKED` covers failed CI, a failed panel, `reviewDecision=REVIEW_REQUIRED` with unresolved current threads, stale-only bot evidence after the polling budget, or any current bot finding that has not been triaged. While the gate is `WAIT` or `BLOCKED`, the orchestrator MUST NOT say `done`, `complete`, `clean`, or `mergeable`.
+
+**Thread-aware poll shape.** Use `$REPO` from §1 and capture `HEAD` after the push:
+
+```bash
+HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
+gh pr checks "$PR" --repo "$REPO"
+gh api graphql \
+  -f owner="${REPO%/*}" \
+  -f name="${REPO#*/}" \
+  -F number="$PR" \
+  -f query='query($owner:String!, $name:String!, $number:Int!, $reviewsCursor:String = null, $threadsCursor:String = null) {
+    repository(owner:$owner, name:$name) {
+      pullRequest(number:$number) {
+        headRefOid
+        mergeStateStatus
+        reviewDecision
+        reviews(first: 100, after: $reviewsCursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes { author { login } state submittedAt commit { oid } }
+        }
+        reviewThreads(first: 100, after: $threadsCursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            isResolved
+            isOutdated
+            path
+            line
+            comments(last: 3) {
+              nodes { author { login } createdAt body }
+            }
+          }
+        }
+      }
+    }
+  }'
+```
+
+Interpretation rules:
+
+- A review with `commit.oid != headRefOid` does not satisfy "bot reviewed this commit."
+- The GraphQL example above is one page. Repeat it with `reviewsCursor=<endCursor>` and `threadsCursor=<endCursor>` until both `reviews.pageInfo.hasNextPage` and `reviewThreads.pageInfo.hasNextPage` are false; review and unresolved-thread counts are invalid until all pages are read. The variables default to `null` for the first call.
+- An unresolved thread with `isOutdated == false` blocks `CLEAN`, even if the local diff appears to contain the fix.
+- Clearance comments can explain why a thread became resolved, but auxiliary clearance bots are not a substitute for the normative bot actor unless TRN-1209 says so.
+- If GitHub shows `reviewDecision=APPROVED`, no unresolved non-outdated threads, and no current bot findings, the GitHub review portion of the gate is clean even when no new advisory text was posted.
+- If no current-head bot review/clearance signal appears after the polling budget, report `WAIT` or `BLOCKED` with the exact missing signal. Do not silently stop.
+
+**No-wakeup fallback.** Some runtimes do not expose `ScheduleWakeup`. In that environment, run a bounded direct poll before ending the turn: at least 3 polls separated by at least 60 seconds, unless all signals reach a terminal state sooner. If the gate is still not `CLEAN`, final output must name the state (`WAIT` or `BLOCKED`), current head SHA, CI status, panel status, `reviewDecision`, unresolved-thread count, and the next needed action. GitHub write actions remain gated: do not resolve threads, reply to comments, or post `@codex review` unless the user explicitly authorizes that write.
+
 ```mermaid
 flowchart TD
     A[R<n> pushed] --> B[Use ScheduleWakeup tool<br/>delay=270s]
     B --> C{CI status?}
-    C -- "Green<br/>both runners" --> E{Bot reviewed<br/>this commit?}
+    C -- "Green<br/>both runners" --> E{Thread-aware<br/>GitHub review state<br/>current for this head?}
     C -- "Pending /<br/>queued" --> F0[Wait another 270s]
     F0 --> C
     C -- "Cancelled" --> F1[Re-trigger workflow<br/>then wait 270s]
@@ -618,7 +685,7 @@ flowchart TD
     D --> A
     E -- No --> F[Wait another 270s]
     F --> E
-    E -- Yes --> G{Bot 👍<br/>no NEW findings<br/>since last poll?}
+    E -- Yes --> G{Review Completion Gate<br/>GitHub portion clean?}
     G -- No --> H[Triage bot finding<br/>see phase 9<br/>note: bot may post<br/>new findings on later<br/>commits — re-poll each R]
     H --> A
     G -- Yes --> I{Code-review<br/>panel run yet<br/>on this head?}
@@ -626,7 +693,7 @@ flowchart TD
     J --> K{"Both ≥ 9.5<br/>blocking empty?"}
     K -- No --> L[Triage panel findings<br/>see phase 9]
     L --> A
-    K -- Yes --> M[Mergeable<br/>→ phase 10]
+    K -- Yes --> M[Gate CLEAN<br/>→ phase 10]
     I -- Yes --> M
 ```
 
@@ -648,7 +715,7 @@ flowchart TD
 ScheduleWakeup(
   delaySeconds=270,
   reason="Poll PR #73 R10 bot review on head 760164d",
-  prompt="PR #73 (TRN-1008) R10 head 760164d poll. R10 fixed 3 P1 + 2 P2 (locked-field invalid → REST API; --paginate per-page bug → jq -rs slurp; TOCTOU vs claim-comment self-cancel → body-sha256-hash; git pull → git switch -C; trigger-table contradiction). Check (1) new bot comments on 760164d, (2) PR mergeable status, (3) bot 👍 reaction. If new findings, fix them. If clean, hand off to user for merge per §10. This poll is in §1 'Continuation' trigger mode."
+  prompt="PR #73 (TRN-1008) R10 head 760164d poll. R10 fixed 3 P1 + 2 P2 (locked-field invalid → REST API; --paginate per-page bug → jq -rs slurp; TOCTOU vs claim-comment self-cancel → body-sha256-hash; git pull → git switch -C; trigger-table contradiction). Run the §8 Review Completion Gate: CI, thread-aware GitHub review state, unresolved review threads, and code-review panel on head 760164d. If new findings, fix them. If gate CLEAN, hand off to user for merge per §10. This poll is in §1 'Continuation' trigger mode."
 )
 ```
 
@@ -705,7 +772,7 @@ Re-dispatch the panel only when blockers (or convergent advisories) were address
 
 > *Shared with COR-1617 §10 + COR-1620 (wake mechanics); trinity overlays: dual-trigger CHG-3036 (mergeable-handoff arms §12 in State B; merge-watch continues for actual merge); §10 (B) merge-watch wake procedure with watched-branch token + ref-style prompts per CHG-3037.*
 
-When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
+When PR is mergeable (Review Completion Gate is `CLEAN`, no open blocker labels):
 
 - The orchestrator's job is done.
 - Frank merges manually as repo owner. `ryosaeba1985` cannot merge under branch protection.
@@ -715,7 +782,7 @@ When PR is mergeable (CI green, bot 👍, panel gate met, no open blockers):
 
 **(A) Mergeable-handoff trigger (NEW — fires immediately on mergeable predicate)**:
 
-The mergeable predicate is the SAME 4-signal check §10 already uses to declare handoff to the user: CI green on current HEAD + bot 👍 with no NEW findings + code-review panel gate met (both reviewers individual ≥9.5 + blocking empty) + no open blocker labels on the PR. The moment all four are satisfied, the orchestrator:
+The mergeable predicate is: Review Completion Gate `CLEAN` for the current head SHA + no open blocker labels on the PR. The gate already includes current-head CI, thread-aware GitHub review state, and code-review panel success; do not re-expand or shortcut it with stale bot/panel evidence. The moment both signals are satisfied, the orchestrator:
 
 1. **Surfaces the mergeable declaration** to the user (canonical chat output: "PR #<N> is mergeable; awaiting your merge click. Proceeding to next issue per §12 State B.").
 2. **Arms the §12 wake** via `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §12 loop-restart from mergeable-handoff PR #<N>", prompt="Execute TRN-1008 §12 State-B guard literally per §Guard Rails 'Wake-procedure duty'. Bindings: PR=#<N>; watched_branch=<B>.")` — fires ONCE on first-mergeable. The 60s delay is §8's hard floor and matches §12 State A's post-merge cadence. The wake's `prompt=` is a § REFERENCE per CHG-3037: the orchestrator's Wake-procedure duty (§Guard Rails) requires it to `Read` §12 State-B guard prose on wake and execute it literally — the SOP §12 prose is the live SSOT for the conjunctive 3-branch acceptance contract (regex match + open-PR check + own-PR-mergeable check), and the prompt carries only the binding parameters (`PR`, `watched_branch`). Inline pseudocode of the State-B guard in the prompt was retired by CHG-3037 to eliminate prompt-vs-§-prose drift (the failure mode caught in PR #109 R4). Does NOT wait for `mergedAt`.
@@ -785,7 +852,7 @@ flowchart TD
     REGEX -- No --> NOOP_BRANCH
     REGEX -- Yes --> PR_CHECK{Open PR exists<br/>for current branch?<br/>gh pr list --head<br/>--state open ≥1}
     PR_CHECK -- No --> NOOP_INFLIGHT["Wake is no-op<br/>(committed-but-not-PR'd<br/>work in flight —<br/>resume, don't start new)"]
-    PR_CHECK -- Yes --> MERGEABLE_CHECK{That PR's own<br/>mergeable predicate met?<br/>CI green + bot 👍 +<br/>panel ≥9.5 + no blockers}
+    PR_CHECK -- Yes --> MERGEABLE_CHECK{That PR's own<br/>mergeable predicate met?<br/>Review Completion Gate CLEAN<br/>+ no blockers}
     MERGEABLE_CHECK -- No --> NOOP_ITERATE["Wake is no-op<br/>(PR still in CI/bot/panel<br/>iterate phase —<br/>don't abandon mid-flight)"]
     MERGEABLE_CHECK -- "Yes — all 3<br/>conjunctive conditions<br/>satisfied" --> STATE_B_C["State B branch (c) —<br/>agent-prefix branch w/<br/>own mergeable PR"]
     STATE_A --> ACCEPT["Enter §1 phase 1<br/>(scan_rocket_issues.sh →<br/>verify_rocket_eligibility →<br/>§1.5 comprehension check)"]
@@ -806,7 +873,7 @@ When fired, the wake is `ScheduleWakeup(delaySeconds=60, reason="TRN-1008 §12 l
 
 - (a) `main` — State A canonical (merge happened, cleanup ran), OR State B where operator merged within the 60s arm window.
 - (b) The prior PR's watched-branch token (set when §10 first armed the mergeable-handoff wake) — State B where operator hasn't merged yet AND orchestrator hasn't moved on.
-- (c) An agent-prefix branch matching regex `^(codex|claude)/` THAT HAS AN OPEN PR **AND that PR has itself reached mergeable state** (own §10 mergeable predicate satisfied: CI green + bot 👍 + panel ≥9.5 + no open blockers). The two accepted prefixes reflect the two LLM-orchestrator families that author Trinity PRs: `codex/` (historical convention from Codex/GPT worker era) and `claude/` (Anthropic Claude orchestrator). Verify with: (1) `gh pr list --head <current-branch> --state open --json number -q 'length'` ≥ 1, AND (2) the PR's own mergeable predicate is satisfied. If (1) fails (committed-but-not-PR'd work in flight) OR (2) fails (PR exists but still in CI/bot/panel iterate phase), the wake is a no-op — orchestrator must resume in-flight work on this PR, not start a new issue. This prevents two failure modes: (i) State-B wake fires from `codex/foo` or `claude/foo` with unfinished local work and orphans commits; (ii) State-B wake fires while orchestrator is mid-iteration on a NEW PR — prior PR's merge dropped `open_count` to 1, cap allows pickup, the new PR's review loop is abandoned mid-flight.
+- (c) An agent-prefix branch matching regex `^(codex|claude)/` THAT HAS AN OPEN PR **AND that PR has itself reached mergeable state** (own §10 mergeable predicate satisfied: Review Completion Gate `CLEAN` + no open blocker labels). The two accepted prefixes reflect the two LLM-orchestrator families that author Trinity PRs: `codex/` (historical convention from Codex/GPT worker era) and `claude/` (Anthropic Claude orchestrator). Verify with: (1) `gh pr list --head <current-branch> --state open --json number -q 'length'` ≥ 1, AND (2) the PR's own mergeable predicate is satisfied. If (1) fails (committed-but-not-PR'd work in flight) OR (2) fails (PR exists but still in CI/bot/panel iterate phase), the wake is a no-op — orchestrator must resume in-flight work on this PR, not start a new issue. This prevents two failure modes: (i) State-B wake fires from `codex/foo` or `claude/foo` with unfinished local work and orphans commits; (ii) State-B wake fires while orchestrator is mid-iteration on a NEW PR — prior PR's merge dropped `open_count` to 1, cap allows pickup, the new PR's review loop is abandoned mid-flight.
 
 Any other branch (e.g., a user-directed checkout to an unrelated feature branch, a detached HEAD, a hotfix branch, OR an agent-prefix branch (`codex/*` / `claude/*`) with no open PR, OR an agent-prefix branch whose PR is still in CI/bot/panel iterate phase) → wake is a no-op (mirrors §10 merge-watch case (f) cancellation guard). The stop-marker check (`if -e $(git rev-parse --git-path trinity-loop-stopped), no-op`) runs FIRST per the shared FIRST/SECOND/THIRD guard structure; the 3-branch git-branch acceptance check runs SECOND.
 
@@ -903,7 +970,7 @@ CI status must be split four ways — conflating them produces false-positive "f
 | Timeout | Log + re-trigger ONCE; 3 timeouts on same PR → abort + surface "likely test or infra regression" |
 | Failed | Read the failing log; fix in code; push R<n+1> |
 
-**Bot polling — three endpoints (missing any one leaves inline blockers untriaged):** `gh api repos/$REPO/pulls/$N/reviews` (review summaries — REST snake_case `submitted_at`, includes `commit_id`), `gh api repos/$REPO/issues/$N/comments` (PR conversation — REST snake_case `created_at`, no commit anchor), `gh api repos/$REPO/pulls/$N/comments` (**inline path/line review comments — the form codex bot uses; NOT served by `gh pr view --json comments`**; includes `commit_id`). **Filter by current HEAD before considering "bot reviewed this commit?":** for `pulls/$N/reviews` and `pulls/$N/comments`, require `.commit_id == "$(git rev-parse HEAD)"`; for `issues/$N/comments` (no commit anchor), require `.updated_at > <timestamp of current HEAD push>` — use `updated_at` not `created_at` to also catch bots that EDIT a sticky comment per R-push (created_at stays on the first round; updated_at advances). Without these filters, R<n-1>'s stale bot evidence satisfies the "bot reviewed?" check on R<n> and the orchestrator hands off prematurely. Re-poll all three on every R-push; bot 👍 doesn't carry forward across R-pushes. **Field-name rule**: `gh api` = REST = `snake_case`; `gh pr view --json` = gh wrapper = `camelCase`. Pick one form (REST is recommended — only `gh api` exposes the inline-review endpoint) and stick with it; mixing produces null timestamps and silent misses.
+**Bot polling — thread-aware final gate plus legacy REST fallback:** the §8 Review Completion Gate is the final handoff authority because it reads `reviewThreads` resolution state. When using raw REST endpoints for intermediate triage, poll all three endpoints (missing any one leaves inline blockers untriaged): `gh api repos/$REPO/pulls/$N/reviews` (review summaries — REST snake_case `submitted_at`, includes `commit_id`), `gh api repos/$REPO/issues/$N/comments` (PR conversation — REST snake_case `created_at`, no commit anchor), `gh api repos/$REPO/pulls/$N/comments` (**inline path/line review comments — the form codex bot uses; NOT served by `gh pr view --json comments`**; includes `commit_id`). **Filter by current HEAD before considering "bot reviewed this commit?":** for `pulls/$N/reviews` and `pulls/$N/comments`, require `.commit_id == "$(git rev-parse HEAD)"`; for `issues/$N/comments` (no commit anchor), require `.updated_at > <timestamp of current HEAD push>` — use `updated_at` not `created_at` to also catch bots that EDIT a sticky comment per R-push (created_at stays on the first round; updated_at advances). Without these filters, R<n-1>'s stale bot evidence satisfies the "bot reviewed?" check on R<n> and the orchestrator hands off prematurely. Re-poll on every R-push; stale bot evidence does not carry forward across R-pushes. **Field-name rule**: `gh api` = REST = `snake_case`; `gh pr view --json` = gh wrapper = `camelCase`; GraphQL fields are camelCase. Pick one API form per command and stick with it; mixing produces null timestamps and silent misses.
 
 ### ScheduleWakeup unavailable / loop stop conditions
 
@@ -937,14 +1004,12 @@ The same prompt-embedded counter pattern applies to §10 merge-watch wakes — u
 
 ### Mergeable-but-revoked (CHG-3036)
 
-§10 (A) mergeable-handoff fires once on first-mergeable observation (CI green + bot 👍 + panel ≥9.5 + no open blockers). Between that moment and the prior PR's actual merge, the mergeable predicate can be revoked.
+§10 (A) mergeable-handoff fires once on first-mergeable observation (Review Completion Gate `CLEAN` + no open blocker labels). Between that moment and the prior PR's actual merge, the mergeable predicate can be revoked.
 
-**Revocation triggers** — any of the 4 mergeable-predicate signals can flip back to non-clean post-handoff:
+**Revocation triggers** — either top-level mergeable-predicate signal can flip back to non-clean post-handoff. The Review Completion Gate contains the former CI / bot / panel sub-signals:
 
-1. **CI fails on a new commit**: a force-push or follow-up commit on the prior PR's branch triggers a new CI run; if it fails (test regression, lint, build), CI status leaves "green".
-2. **Bot 👍 retracted**: codex re-finds an issue on a force-push; the bot may post a new finding or re-review and retract its previous approval. Bot 👍 is per-HEAD-SHA, not sticky.
-3. **Panel re-score below gate**: a new commit re-triggers panel review (per §8 entry-gate verification); if either reviewer scores below 9.5 OR posts a new blocker, panel gate is no longer met.
-4. **Blocker label re-applied**: operator (or another orchestrator) re-applies a blocker label to the PR; the "no open blockers" predicate flips false.
+1. **Review Completion Gate flips away from `CLEAN`**: a force-push or follow-up commit can cause CI to fail, make the bot evidence stale, introduce a new unresolved review thread, or require a fresh code-review panel. Any of those makes the gate `WAIT` or `BLOCKED`.
+2. **Blocker label re-applied**: operator (or another orchestrator) re-applies a blocker label to the PR; the "no open blockers" predicate flips false.
 
 **Recovery flow**: zero explicit re-routing required. The merge-watch wake (§10 (B)) is armed independently at the moment of mergeable-handoff and continues polling `mergedAt` regardless of mergeable-predicate revocation — `mergedAt` is the merge-status truth, and revocation cannot un-merge. If the prior PR remains unmerged because revocation made it un-mergeable, merge-watch keeps polling until either (i) re-alignment happens and Frank merges (merge-watch fires cleanup + §11 + §12-arm as normal when `current_branch == watched_branch`), (ii) the 24-wake / 12 h cap exhausts and merge-watch surfaces to the user, OR (iii) the orchestrator has moved on to a new agent-prefix branch (`codex/*` or `claude/*`, per case (f) cancellation guard) — off-branch wakes skip cleanup/§12-arm but still poll `mergedAt` and run §11 inline (read-only) on observed merge per the Closes #83 amendment.
 
@@ -979,7 +1044,7 @@ When worker output fails verification (spot-check finds wrong symbols, test fail
 - **Idle declared without canonical status line.** Any chat output containing "I'll wait" / "standing by" / "monitoring" / "idle" without the canonical idle-status line format (`**Idle until <HH:MM:SS> <TZ> (~<relative>)** — <signal-class> on PR #<n> head \`<sha>\`. Chat to pre-empt.`) is the antipattern this rule detects.
 - **Bot inline thread on current HEAD with no reply or 👍/👎 after fix-commit.** After pushing a fix for a bot finding, the orchestrator MUST reply to the bot's inline comment AND react 👍/👎. A current HEAD with bot inline comments that have no orchestrator reply or reaction is the "silent close" antipattern.
 
-**Recovery:** The orchestrator MUST self-verify the §7 closure-checklist (5 items) before declaring R-push complete. If any item is missing, the R-push is incomplete — complete the missing items before proceeding. See §7 exit criteria for the canonical checklist.
+**Recovery:** The orchestrator MUST self-verify the §7 closure-checklist (6 items) before declaring R-push complete. If any item is missing, the R-push is incomplete — complete the missing items before proceeding. See §7 exit criteria for the canonical checklist.
 
 ---
 
@@ -987,6 +1052,7 @@ When worker output fails verification (spot-check finds wrong symbols, test fail
 
 | Date | Change | By |
 |------|--------|----|
+| 2026-05-20 | TRN-3044: §7 post-push closure checklist expands to 6 items and §8 gains the Review Completion Gate (`CLEAN` / `WAIT` / `BLOCKED`). Handoff now requires gate `CLEAN` plus no blocker labels; stale bot/panel evidence and unresolved non-outdated GitHub review threads block completion. Added no-wakeup fallback for runtimes without `ScheduleWakeup`. | Codex |
 | 2026-05-18 | TRN-3042: §4 plan-review tier adds `trinity-minimax` as a required reviewer (`glm` + `deepseek` + `minimax`, all ≥9.5); §5 role-routes implementation work to GLM and test-code work to DeepSeek; §8 explicitly keeps code-review on GLM + DeepSeek unless the user requests MiniMax for a specific PR. TRN-1209 bindings updated in lockstep. Direct user request. | Codex |
 | 2026-05-08 | Initial draft (TRN-1008): captures multi-agent review loop developed across PR #66 → #73; intended for promotion to COR-1200 once stable | Claude Opus 4.7 |
 | 2026-05-08 | R3: applied 3-of-4 comprehensibility-review findings (gemini + codex + glm-reviewer); deepseek deferred due to API outage. PKG-promotion parameterisation deferred to a follow-up CHG. | Claude Opus 4.7 |

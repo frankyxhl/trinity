@@ -1,8 +1,8 @@
 # REF-1209: Multi-Agent Loop Project Configuration
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-18
-**Last reviewed:** 2026-05-10
+**Last updated:** 2026-05-20
+**Last reviewed:** 2026-05-20
 **Status:** Active
 **Related:** TRN-1008 (Multi-Agent Review Loop — trinity overlay that consumes these bindings), COR-1622 (parameter schema authored from), COR-1617 (umbrella SOP), COR-1618 (consent gate), COR-1619 (worker dispatch), COR-1620 (loop primitives), COR-1621 (triage), COR-1615 (bot loop)
 
@@ -81,7 +81,7 @@ COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Wit
 
 | Key | Trinity value | Notes |
 |-----|---------------|-------|
-| `<bot-actors>` | `[chatgpt-codex-connector[bot]]` | Trinity's PR-review GitHub App. PASS signal: 👍 on PR body. Auxiliary clearance bot `iterwheel-clearance[bot]` is observable but not normative. |
+| `<bot-actors>` | `[chatgpt-codex-connector[bot]]` | Trinity's PR-review GitHub App. API surfaces may expose the login as `chatgpt-codex-connector` without the `[bot]` suffix; matching code must account for the concrete API field being read. PASS/clean evidence is current-head anchored per TRN-1008 §8 Review Completion Gate. Auxiliary clearance bot `iterwheel-clearance[bot]` is observable but not normative. |
 
 ### Loop primitives (COR-1620)
 
@@ -136,3 +136,4 @@ If `<intake-quality-mode>` ever changes (e.g. from `2FA` to `1FA`), every previo
 | 2026-05-10 | R6 (PR #118 codex-bot R5 P2 ×2, two semantic findings): supersedes R2 §Resilience defaults and adds `<worker-min-loc>` override to match TRN-1008's actual prose-level behaviour. (a) `<worker-min-loc>` bound to `0` (was schema default `30`) so COR-1619's LoC-threshold branch always falls through to structural-question branches, matching TRN-1008 §5's "worker DEFAULT + exceptions list" stance. (b) `<cli-retry-attempts>` bound to `1` (was `3`) and `<cli-retry-on-failure>` bound to `mark-non-viable` (was `pause-and-ask`) to match TRN-1008 §Failure Modes "retry once + mark unavailable + abort if below quorum". The R2 note that ruled out `mark-non-viable` was wrong: COR-1622 §Guard Rails enforces an auto-escalation when the panel can't sustain ≥3 viable + dissenter check, which always-fires for trinity's 2-provider tier — so `mark-non-viable` semantically equals TRN-1008's "abort & surface". Both bindings now preserve operator-visible behaviour; the R2 entry above is preserved for archaeology. | Claude Opus 4.7 |
 | 2026-05-10 | R7 (PR #118 codex-bot R6 P2): R5's footnote definition was placed BETWEEN table rows, which terminated the GFM table at the agent-branch row and orphaned the last two binding rows (`CLARIFY round-counter cap`, `Fast-review-tier providers`). Moved the footnote definition to AFTER the final `\|...\|` row of the §Trinity-only extensions table; reference link `[^pipe-esc]` still resolves. | Claude Opus 4.7 |
 | 2026-05-18 | TRN-3042: split panel bindings into 3-provider plan-review tier (`glm` + `deepseek` + `minimax`) and 2-provider code-review tier (`glm` + `deepseek`); split worker routing into implementation=`trinity-glm` and test-code=`trinity-deepseek`. | Codex |
+| 2026-05-20 | TRN-3044: clarify bot-actor API login matching and current-head anchoring for the Review Completion Gate. | Codex |
