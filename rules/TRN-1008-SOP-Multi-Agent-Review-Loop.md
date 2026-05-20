@@ -570,7 +570,7 @@ PR body includes: Summary / Why / Surfaces / Test plan / Files / `Closes #<issue
 1. **Commit + push** — the code is on the fork remote.
 2. **Reply to each new bot inline finding** via `gh api repos/$REPO/pulls/$N/comments/$ID/replies` with commit SHA + one-line description of the fix.
 3. **React 👍/👎 to each bot finding** via `gh api repos/$REPO/pulls/comments/$ID/reactions`.
-4. **Arm or execute the next poll** — if `ScheduleWakeup` is available, arm it per §8 R11 cadence; if not, run the §8 bounded no-wakeup fallback before ending the turn.
+4. **Complete the current-head poll handoff** — satisfy exactly one §8 poll path for the just-pushed head: if `ScheduleWakeup` is available, arm it per §8 R11 cadence; if not, run the §8 bounded no-wakeup fallback before ending the turn. `ScheduleWakeup` is never mandatory in a runtime that does not expose it.
 5. **Surface idle-status line** in chat output. Canonical format: `**Idle until <HH:MM:SS> <TZ> (~<relative>)** — <signal-class> on PR #<n> head \`<sha>\`. Chat to pre-empt.`
 6. **Record Review Completion Gate state** — report `CLEAN`, `WAIT`, or `BLOCKED` for the just-pushed head per §8.
 
@@ -590,7 +590,12 @@ Items 4-6 are §7 exit criteria (not §8 entry criteria). "Just committed and pu
 | `prompt` | What to fire on wake-up — usually a poll instruction referencing the just-pushed head SHA | self-contained (the wakeup is a fresh turn) |
 | `reason` | One-sentence telemetry shown to the user | be specific: `Poll PR #<N> R<m> bot review on head <sha>` |
 
-**MUST-DO after every R-push when wakeups are available** — call `ScheduleWakeup` immediately. In runtimes without `ScheduleWakeup`, run the bounded no-wakeup fallback before ending the turn. Forgetting the applicable poll handoff is a real SOP violation: the orchestrator goes idle and bot/CI signals accumulate unobserved. The only exceptions are (a) the user just instructed something else, OR (b) the Review Completion Gate is already `CLEAN` and you're handing off.
+**MUST-DO after every R-push: complete one poll handoff for the current head.** This requirement has two mutually exclusive implementations:
+
+- **Wake-capable runtime:** call `ScheduleWakeup` immediately.
+- **No-wakeup runtime:** run the bounded no-wakeup fallback before ending the turn.
+
+Forgetting the applicable poll handoff is a real SOP violation: the orchestrator goes idle and bot/CI signals accumulate unobserved. Do not read any §8 `ScheduleWakeup` sentence as applying to runtimes where that tool is unavailable. The only exceptions are (a) the user just instructed something else, OR (b) the Review Completion Gate is already `CLEAN` and you're handing off.
 
 The `prompt` parameter MUST include:
 
@@ -612,7 +617,7 @@ The `prompt` parameter MUST include:
 
 `CLEAN` requires ALL of the following for the same `headRefOid`:
 
-1. Required CI checks are terminal and successful on the current head; OR the PR is a pure-docs change skipped by workflow `paths-ignore`, no branch-protection required checks are configured, and local doc validation has passed. In that docs-only case record `CI=N/A (paths-ignore)` rather than `WAIT`.
+1. Required CI checks are terminal and successful on the current head; OR the PR is a pure-docs change skipped by workflow `paths-ignore`, `gh pr checks --required` reports no required checks, and local doc validation has passed. In that docs-only case record `CI=N/A (paths-ignore)` rather than `WAIT`. Empty required-check output is not by itself a pass for code changes; inspect all reported checks or branch-protection context before treating CI as not applicable.
 2. The code-review panel (`trinity-glm` + `trinity-deepseek`) has run against the current head and passes the §8 threshold.
 3. GitHub review state has been read with thread-aware data (`reviewThreads` via GraphQL or the GitHub plugin helper), and every review-thread page has been exhausted before counting unresolved threads. Flat `gh pr view` metadata alone is insufficient when review-thread state matters.
 4. There are no unresolved non-outdated review threads.
@@ -660,6 +665,7 @@ gh api graphql \
 Interpretation rules:
 
 - A review with `commit.oid != headRefOid` does not satisfy "bot reviewed this commit."
+- `gh pr checks --required` is the gate command for CI because optional checks must not block `CLEAN`. If it reports no checks, classify CI as `N/A (paths-ignore)` only for the pure-docs skipped-CI case above; otherwise gather the full check set or branch-protection context before declaring the CI signal clean.
 - The GraphQL example above is one page. Repeat it with `reviewsCursor=<endCursor>` and `threadsCursor=<endCursor>` until both `reviews.pageInfo.hasNextPage` and `reviewThreads.pageInfo.hasNextPage` are false; review and unresolved-thread counts are invalid until all pages are read. The variables default to `null` for the first call.
 - An unresolved thread with `isOutdated == false` blocks `CLEAN`, even if the local diff appears to contain the fix.
 - Clearance comments can explain why a thread became resolved, but auxiliary clearance bots are not a substitute for the normative bot actor unless TRN-1209 says so.

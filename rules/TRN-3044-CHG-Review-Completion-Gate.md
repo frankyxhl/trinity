@@ -70,7 +70,7 @@ Incorrect outcome: `done` or `mergeable`.
 ## Acceptance Criteria
 
 - [ ] TRN-1008 defines a Review Completion Gate with exactly three terminal classifications: `CLEAN`, `WAIT`, `BLOCKED`.
-- [ ] `CLEAN` requires CI green on the current head (or `CI=N/A (paths-ignore)` for pure-docs skipped CI with no required checks), Trinity code-review panel pass on the current head, no unresolved non-outdated review threads, and current-head GitHub review evidence that is not stale-only.
+- [ ] `CLEAN` requires CI green on the current head (or `CI=N/A (paths-ignore)` for pure-docs skipped CI when `gh pr checks --required` reports no required checks), Trinity code-review panel pass on the current head, no unresolved non-outdated review threads, and current-head GitHub review evidence that is not stale-only.
 - [ ] `WAIT` covers pending CI, pending panel review, or no current-head bot review inside the active polling window.
 - [ ] `BLOCKED` covers failed CI, failed panel review, `reviewDecision=REVIEW_REQUIRED` with unresolved current review threads, stale-only bot reviews after the bounded polling window, or any current bot finding that has not been triaged.
 - [ ] TRN-1008 says stale reviews/comments from older commits do not satisfy "bot reviewed this commit".
@@ -78,8 +78,8 @@ Incorrect outcome: `done` or `mergeable`.
 - [ ] TRN-1008 says `reviewDecision=null` or an absent `reviewDecision` field does not block `CLEAN` by itself when required reviews are not configured.
 - [ ] TRN-1008 says the GitHub review portion of the gate is clean when `reviewDecision=APPROVED`, no unresolved non-outdated threads exist, and no current bot findings exist, even if no new advisory text was posted.
 - [ ] TRN-1008 says the orchestrator must not say "done", "complete", or "mergeable" while the gate is `WAIT` or `BLOCKED`.
-- [ ] TRN-1008 includes a no-wakeup fallback scenario: when `ScheduleWakeup` is unavailable, run a bounded poll of at least 3 cycles separated by at least 60 seconds, then report `WAIT` or `BLOCKED` with the exact missing signal.
-- [ ] TRN-1008 says pure-docs skipped CI only counts as `CI=N/A (paths-ignore)` when no required checks are configured and local doc validation passed.
+- [ ] TRN-1008 includes a no-wakeup fallback scenario: when `ScheduleWakeup` is unavailable, run a bounded poll of at least 3 cycles separated by at least 60 seconds, then report `WAIT` or `BLOCKED` with the exact missing signal; no §8 wake requirement may be interpreted as mandatory in no-wakeup runtimes.
+- [ ] TRN-1008 says pure-docs skipped CI only counts as `CI=N/A (paths-ignore)` when `gh pr checks --required` reports no required checks and local doc validation passed; empty required-check output alone is not enough for code changes.
 - [ ] TRN-1008 preserves GitHub write safety: do not resolve threads, reply to comments, or post `@codex review` unless the user explicitly authorizes that write action.
 - [ ] TRN-1209 bot-polling row clarifies API login matching for `chatgpt-codex-connector[bot]`.
 - [ ] CHANGELOG includes this SOP hardening.
@@ -135,6 +135,7 @@ gh api graphql \
 Interpretation rules:
 
 - A review with `commit.oid != headRefOid` is stale for current-head gating.
+- `gh pr checks --required` is the CI gate command. If it reports no checks, classify CI as `N/A (paths-ignore)` only for pure-docs skipped-CI changes with local doc validation; code changes require additional check/branch-protection context before CI can be treated as clean.
 - The reference query is one page. Repeat it with `reviewsCursor=<endCursor>` and `threadsCursor=<endCursor>` until both `reviews.pageInfo.hasNextPage` and `reviewThreads.pageInfo.hasNextPage` are false; review and unresolved-thread counts are invalid until all pages are read. Both cursor variables default to `null` for the first call.
 - An unresolved thread with `isOutdated == false` blocks `CLEAN`, even when local code already contains the fix.
 - A current-head clearance comment can explain a resolved thread, but auxiliary clearance bots are not a substitute for the normative bot actor unless TRN-1209 says so.
@@ -177,3 +178,4 @@ Rollback is a revert of the SOP/REF/CHANGELOG edits. No code, data, or external 
 | 2026-05-20 | R7: codex-bot P2 fix — §8 entry-gate now accepts either an armed wake or a completed bounded no-wakeup poll for the current head. | Codex |
 | 2026-05-20 | R8: plan-review advisory fix — paginate reviews as well as reviewThreads, default cursors to null for the first call, document `reviewDecision=null`, and add explicit ACs for no-wakeup and docs-only CI paths. | Codex |
 | 2026-05-20 | R9: codex-bot P2 fix — make the post-push poll handoff conditional on wakeup availability and use `gh pr checks --required` for required-CI gate evaluation. | Codex |
+| 2026-05-20 | R10: codex-bot P2 fix — make §7/§8 poll handoff a single current-head rule with wake-capable and no-wakeup implementations, and document empty `--required` CI output handling. | Codex |
