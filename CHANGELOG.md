@@ -31,13 +31,6 @@
   rationale and surfaces.
 
 ### Changed
-- `install-manifest.json` — new manifest-driven install file listing. Both
-  `install.sh` and `make install` read provider/script/bin file lists from
-  this single source of truth instead of maintaining hardcoded, drift-prone
-  copies. Add a new provider or script by editing `install-manifest.json`
-  alone; both consumers pick it up automatically. The old TRN-1801
-  install-list parity-diff check is subsumed by the manifest — drift between
-  the two consumers is no longer possible by construction. Closes #79.
 - TRN-3043 — designated `.agents/skills/trinity/SKILL.md` as the source of
   truth for the Codex skill text and made `plugins/trinity/skills/trinity/SKILL.md`
   a build-time copy. New `scripts/build_codex_skill.sh` wired into
