@@ -31,6 +31,16 @@
   rationale and surfaces.
 
 ### Changed
+- TRN-3044 — TRN-1008 now requires an explicit Review Completion Gate before
+  a PR can be called done or mergeable. The gate records `CLEAN` / `WAIT` /
+  `BLOCKED` for the current head SHA, requires paginated GitHub reviews and
+  thread-aware review state, treats stale bot reviews and unresolved non-outdated review
+  threads as blockers, and adds a bounded no-wakeup fallback for runtimes without
+  `ScheduleWakeup`. The §7 post-push closure checklist expands to 6 items
+  to record the gate state, and TRN-1209 now clarifies bot-actor API login
+  matching for current-head evidence. Pure-docs PRs skipped by workflow
+  `paths-ignore` record `CI=N/A (paths-ignore)` when no required checks are
+  configured.
 - `install-manifest.json` — new manifest-driven install file listing. Both
   `install.sh` and `make install` read provider/script/bin file lists from
   this single source of truth instead of maintaining hardcoded, drift-prone
