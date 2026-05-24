@@ -50,17 +50,7 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	cp SKILL.md ~/.claude/skills/trinity/SKILL.md
 	cp -r scripts/. ~/.claude/skills/trinity/scripts/
 	cp providers/registry.json ~/.claude/skills/trinity/providers/registry.json
-	cp providers/glm.md ~/.claude/agents/trinity-glm.md
-	cp providers/minimax.md ~/.claude/agents/trinity-minimax.md
-	cp providers/codex.md ~/.claude/agents/trinity-codex.md
-	cp providers/gemini.md ~/.claude/agents/trinity-gemini.md
-	cp providers/openrouter.md ~/.claude/agents/trinity-openrouter.md
-	cp providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
-	cp providers/claude-code.md ~/.claude/agents/trinity-claude-code.md
-	cp providers/bin/deepseek ~/.claude/skills/trinity/bin/deepseek
-	cp providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
-	cp providers/bin/claude-code ~/.claude/skills/trinity/bin/claude-code
-	chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code
+	python3 scripts/install_from_manifest.py
 	python3 ~/.claude/skills/trinity/scripts/install.py register-from-registry \
 		~/.claude/skills/trinity/providers/registry.json \
 		--global-config ~/.claude/trinity.json
