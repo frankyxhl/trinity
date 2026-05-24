@@ -49,36 +49,44 @@ mkdir -p "${HOME}/.claude/skills/trinity/bin"
 mkdir -p "${HOME}/.claude/skills/trinity/providers"
 mkdir -p "${HOME}/.claude/agents"
 
-# Download each file
+# Download the install manifest
+CURRENT_FILE="install-manifest.json"
+MANIFEST_PATH=$(mktemp)
+curl -fsSL "${BASE_URL}/install-manifest.json" -o "${MANIFEST_PATH}"
 _download() {
     CURRENT_FILE="$1"
     curl -fsSL "${BASE_URL}/${CURRENT_FILE}" -o "$2"
 }
 
-_download "SKILL.md"                  "${HOME}/.claude/skills/trinity/SKILL.md"
-_download "scripts/__init__.py"       "${HOME}/.claude/skills/trinity/scripts/__init__.py"
-_download "scripts/_version.py"       "${HOME}/.claude/skills/trinity/scripts/_version.py"
-_download "scripts/_compat.py"        "${HOME}/.claude/skills/trinity/scripts/_compat.py"
-_download "scripts/session.py"        "${HOME}/.claude/skills/trinity/scripts/session.py"
-_download "scripts/config.py"         "${HOME}/.claude/skills/trinity/scripts/config.py"
-_download "scripts/discover.py"       "${HOME}/.claude/skills/trinity/scripts/discover.py"
-_download "scripts/install.py"        "${HOME}/.claude/skills/trinity/scripts/install.py"
-_download "scripts/scan_rocket_issues.sh" "${HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh"
-chmod +x "${HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh"
-_download "providers/glm.md"          "${HOME}/.claude/agents/trinity-glm.md"
-_download "providers/minimax.md"      "${HOME}/.claude/agents/trinity-minimax.md"
-_download "providers/codex.md"        "${HOME}/.claude/agents/trinity-codex.md"
-_download "providers/gemini.md"       "${HOME}/.claude/agents/trinity-gemini.md"
-_download "providers/openrouter.md"   "${HOME}/.claude/agents/trinity-openrouter.md"
-_download "providers/deepseek.md"     "${HOME}/.claude/agents/trinity-deepseek.md"
-_download "providers/claude-code.md"  "${HOME}/.claude/agents/trinity-claude-code.md"
-_download "providers/bin/deepseek"    "${HOME}/.claude/skills/trinity/bin/deepseek"
-_download "providers/bin/openrouter"  "${HOME}/.claude/skills/trinity/bin/openrouter"
-_download "providers/bin/claude-code" "${HOME}/.claude/skills/trinity/bin/claude-code"
-_download "providers/registry.json"   "${HOME}/.claude/skills/trinity/providers/registry.json"
-chmod +x "${HOME}/.claude/skills/trinity/bin/deepseek" \
-         "${HOME}/.claude/skills/trinity/bin/openrouter" \
-         "${HOME}/.claude/skills/trinity/bin/claude-code"
+# Parse the manifest and generate a shell fragment with download + chmod commands.
+# Output lines:   download <src> <dest>  or  chmod <dest>
+# Using python3 instead of jq so this works even when jq is not installed.
+CURRENT_FILE=""
+MANIFEST_COMMANDS=$(python3 -c "
+import json, sys
+
+with open('${MANIFEST_PATH}') as f:
+    manifest = json.load(f)
+
+for entry in manifest.get('files', []):
+    src = entry['src']
+    dest = entry['dest']
+    mode = entry.get('mode', '')
+    full_dest = '${HOME}/' + dest
+    # Use a safe delimiter (NUL not possible in JSON, use a pipe)
+    sys.stdout.write(src + '|' + full_dest + '|' + mode + '\n')
+")
+
+# Iterate over manifest entries
+# IFS='|' splits the pipe-delimited fields
+while IFS='|' read -r src full_dest mode; do
+    _download "${src}" "${full_dest}"
+    if [ -n "${mode}" ]; then
+        chmod +x "${full_dest}"
+    fi
+done <<< "${MANIFEST_COMMANDS}"
+
+rm -f "${MANIFEST_PATH}"
 
 # Validate the downloaded registry is parseable JSON before invoking
 # register-from-registry (TRN-3020 §"Surfaces" item 4: a truncated download
