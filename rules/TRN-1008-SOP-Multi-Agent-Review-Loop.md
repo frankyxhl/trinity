@@ -1009,7 +1009,7 @@ The same prompt-embedded counter pattern applies to §10 merge-watch wakes — u
 
 ### Mergeable-but-revoked (CHG-3036)
 
-§10 (A) mergeable-handoff fires once on first-mergeable observation (Review Completion Gate  + no open blocker labels). Between that moment and the prior PR's actual merge, the mergeable predicate can be revoked.
+§10 (A) mergeable-handoff fires once on first-mergeable observation (Review Completion Gate `CLEAN` + no open blocker labels). Between that moment and the prior PR's actual merge, the mergeable predicate can be revoked.
 
 **Revocation triggers** — either top-level mergeable-predicate signal can flip back to non-clean post-handoff. The Review Completion Gate contains the former CI / bot / panel sub-signals:
 
