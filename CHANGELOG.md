@@ -162,6 +162,12 @@
   orchestrator-side concurrent-PR cap (N≤2, fail-closed); §2 branch hygiene
   notes State-B rebase-cost; §Failure Modes adds "Mergeable-but-revoked"
   subsection. Closes #106.
+- `rules/TRN-2002-PRP-Remote-Install-Script.md`, `rules/TRN-2008-PRP-Remove-Zsh-Dependency.md`,
+  `rules/TRN-2010-PRP-Codex-Review-Adapter.md` — archived to `rules/archive/`. These PRP
+  documents covered completed CHG work (TRN-2003, TRN-2009, TRN-2011 respectively) and were
+  superseded by the corresponding implementation records. The active `rules/` directory is
+  now uncluttered while preserving full git history via `--follow` on the archive paths.
+  Closes #75.
 
 ### Added
 - `providers/minimax.delta.md` + `providers/minimax.md` (auto-built) — new trinity-minimax worker provider backed by MiniMax 2.7 via `droid exec --model minimax-m2.7`. Mirrors the GLM-5.1 wiring; second non-Anthropic non-OpenAI voice for review/dispatch. Closes #103.
