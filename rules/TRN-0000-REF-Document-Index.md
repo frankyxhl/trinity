@@ -23,15 +23,12 @@
 | 1800 | REF | Evolution Philosophy |
 | 1801 | SOP | Evolve Trinity |
 | 2001 | CHG | Release Infrastructure |
-| 2002 | PRP | Remote Install Script |
 | 2003 | CHG | Remote Install Script |
 | 2004 | CHG | Provider Files Refactor |
 | 2005 | CHG | Codex GPT 5.5 Pin |
 | 2006 | CHG | Release On Tag Workflow |
 | 2007 | CHG | One Click Release |
-| 2008 | PRP | Remove Zsh Dependency |
 | 2009 | CHG | Remove Zsh Dependency |
-| 2010 | PRP | Codex Review Adapter |
 | 2011 | CHG | Codex Review Adapter |
 | 2012 | CHG | Claude Code Provider |
 | 2013 | CHG | Trinity Review Presets |
