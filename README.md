@@ -356,7 +356,7 @@ make pr-update PR=26 MESSAGE="Add follow-up fix" MODE=commit REVIEW="Codex found
 make pr-update PR=26 MESSAGE="Post validation evidence" MODE=comment-only REVIEW="No actionable findings"
 ```
 
-`make pr-update` wraps `dev/pr_update.py`. It requires a clean working tree
+`make pr-update` runs `scripts/pr-update.sh`. It requires a clean working tree
 (no unstaged/untracked files), a configured upstream branch, and staged
 changes for `MODE=amend` (default) or `MODE=commit`. It runs `make test`,
 `make lint`, and `af validate --root .` before any push or comment.

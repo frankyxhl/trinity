@@ -121,7 +121,7 @@ Five file changes, one commit:
 
 ## Test / BDD / Coverage Expectations
 
-- `make coverage` exits 0 with `coverage report` showing TOTAL ≥ 80% and per-module numbers within ±2% of the baseline (codex.py 82%, session.py 81%, install.py 75%, config.py 88%, discover.py 88%, pr_update.py 87%).
+- `make coverage` exits 0 with `coverage report` showing TOTAL ≥ 80% and per-module numbers within ±2% of the baseline (codex.py 82%, session.py 81%, install.py 75%, config.py 88%, discover.py 88%).
 - The new `.coveragerc`, `conftest.py`, and `sitecustomize_shim.py` MUST NOT change `make test` pass/fail counts. Existing 141 pytest + 113 + 105 + 10 + 2 shell cases stay green.
 - The CI workflow runs `make setup && make test && make coverage` on both `ubuntu-latest` and `macos-latest` and exits 0 on both.
 
@@ -129,7 +129,8 @@ Five file changes, one commit:
 
 ## Acceptance
 
-- `make coverage` on `main` post-merge reports TOTAL ≥ 80% line coverage on `scripts/` + `dev/`.
+- `make coverage` on `main` post-merge reports TOTAL ≥ 80% line coverage on `scripts/`.
+
 - `make test` continues to produce the same pass count as before slice B.
 - A PR opened against `main` post-merge shows two passing checks (Test (ubuntu-latest), Test (macos-latest)) within ~5 min.
 - TRN-1801 evolve cycles can now read `make coverage` output as a candidate-evaluation signal.
@@ -142,7 +143,8 @@ Five file changes, one commit:
 ```bash
 make verify-built          # passes (no providers/_base/ changes)
 make test                  # existing 141 + 113 + 105 + 10 + 2 PASS, no regressions
-make coverage              # exits 0, TOTAL ≥ 80% on scripts/ + dev/
+make coverage              # exits 0, TOTAL ≥ 80% on scripts/
+
 make lint                  # ruff clean
 af validate --root .       # 0 issues
 ```
@@ -163,10 +165,10 @@ $ make coverage
 .venv/bin/coverage erase
 .venv/bin/coverage run -m pytest tests/ -q
 .venv/bin/coverage combine     (combines parent + ~70 subprocess .coverage.* parallel data files)
-.venv/bin/coverage report --include='scripts/*,dev/*' --fail-under=80
+.venv/bin/coverage report --include='scripts/*' --fail-under=80
+
 Name                  Stmts   Miss  Cover
 -----------------------------------------
-dev/pr_update.py        208     27    87%
 scripts/__init__.py       1      0   100%
 scripts/codex.py        844    151    82%
 scripts/config.py        82     10    88%
@@ -174,7 +176,7 @@ scripts/discover.py      91     11    88%
 scripts/install.py      126     32    75%
 scripts/session.py      169     33    80%
 -----------------------------------------
-TOTAL                  1521    264    83%
+TOTAL                  1313    237    82%
 
 $ make lint
 All checks passed!     (19 files already formatted)

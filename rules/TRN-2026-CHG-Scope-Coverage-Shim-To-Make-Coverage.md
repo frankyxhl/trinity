@@ -144,7 +144,8 @@ Total expected change: ~30 lines (mostly docstring rewrites). Code delta is net 
 
 `Makefile`'s `release-prep:` target (line ~126) invokes `make test` — also benefits, no change required.
 
-`dev/pr_update.py` (line 10) validates `make test` — also benefits.
+`scripts/pr-update.sh` validates `make test` — also benefits.
+
 
 ### Backwards compatibility
 
@@ -193,7 +194,7 @@ Specifically for THIS CHG, applying the rule:
 
 - (1) caller flow: `make coverage` → inline `VAR=val coverage run -m pytest` → pytest collects conftest → conftest reads env → mutates PYTHONPATH → child `subprocess.run(...)` inherits env → child Python imports `sitecustomize` → `coverage.process_startup()` reads env. Any link broken = subprocess coverage broken.
 - (2) writer schema: `coverage.process_startup()` (verified against `coverage/control.py:1437`) is a no-op when neither `COVERAGE_PROCESS_START` nor `COVERAGE_PROCESS_CONFIG` is set. Safe to leave `sitecustomize.py` runtime unchanged.
-- (3) sibling sites: `make test`, `make coverage`, `release.yml`, `test.yml`, `Makefile release-prep:`, `dev/pr_update.py` — all 6 caller paths verified above.
+- (3) sibling sites: `make test`, `make coverage`, `release.yml`, `test.yml`, `Makefile release-prep:`, `scripts/pr-update.sh` — all 6 caller paths verified above.
 - (4) value-handling siblings: `git grep COVERAGE_PROCESS_START` returns only `tests/conftest.py`, `tests/sitecustomize.py`, `rules/TRN-202[03]*.md` (historical docs). Post-CHG: Makefile becomes the unique writer; conftest is the sole reader (sitecustomize calls `coverage.process_startup()` which reads env directly inside `coverage` package). No siblings to grep.
 - (5) comment-stated invariants:
   - **Invariant A** ("conftest is no-op when `COVERAGE_PROCESS_START` is unset") — verified by acceptance criterion A3 (empirical: `make test` writes zero `.coverage*` files).
