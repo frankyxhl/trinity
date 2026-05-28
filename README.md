@@ -361,8 +361,8 @@ make pr-update PR=26 MESSAGE="Post validation evidence" MODE=comment-only REVIEW
 changes for `MODE=amend` (default) or `MODE=commit`. It runs `make test`,
 `make lint`, and `af validate --root .` before any push or comment.
 
-- `MODE=amend` (default): `git commit --amend --no-edit` + `git push --force-with-lease`
-- `MODE=commit`: new commit + plain `git push`
+- `MODE=amend` (default): `git commit --amend --no-edit` + `git push --force-with-lease` to the current upstream branch
+- `MODE=commit`: new commit + plain `git push` to the current upstream branch
 - `MODE=comment-only`: validate and post the PR comment, no push
 
 Always run `DRY_RUN=1` first to preview. Skip the helper if unrelated local
