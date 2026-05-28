@@ -19,10 +19,10 @@ c=$(mktemp); trap 'rm -f "$c"' EXIT
   [ -n "$REVIEW" ] && { echo; echo "Review evidence:"; echo "$REVIEW"; }
   echo; echo "Update:"; echo "- mode: \`$MODE\`"
   case "$MODE" in
-    amend) echo "- push: \`git push --force-with-lease $REMOTE HEAD:$UPSTREAM_BRANCH\`" ;;
-    commit) echo "- push: \`git push $REMOTE HEAD:$UPSTREAM_BRANCH\`" ;;
-    comment-only) echo "- push: not requested" ;;
-  esac
+    amend) echo "- commit: \`git commit --amend --no-edit\`"; echo "- push: \`git push --force-with-lease $REMOTE HEAD:$UPSTREAM_BRANCH\`" ;;
+    commit) echo '- commit: `git commit -m "$TRINITY_PR_UPDATE_MESSAGE"`'; echo "- push: \`git push $REMOTE HEAD:$UPSTREAM_BRANCH\`" ;;
+    comment-only) echo "- commit: not requested"; echo "- push: not requested" ;;
+  esac; echo "- comment: \`gh pr comment $PR --body-file <generated-comment>\`"
 } > "$c"
 [ "$DRY_RUN" = "1" ] && { cat "$c"; echo "DRY RUN — no changes pushed or commented"; exit 0; }
 [ "$MODE" = "amend" ] && { git commit --amend --no-edit; git push --force-with-lease "$REMOTE" "HEAD:$UPSTREAM_BRANCH"; }
