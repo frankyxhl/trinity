@@ -86,7 +86,7 @@ Three small artifacts plus a Make target:
 ## Test / BDD / Coverage Expectations
 
 - Slice A: existing `make test` wall-clock baseline (~30 s) extends to ~35 s. The new step must produce 10 PASS markers from `test_install_sh.sh`. No new assertions in this slice.
-- Slice B: `make coverage` must exit 0 with `coverage report` showing TOTAL ≥ 80%. Per-file coverage must match the baseline ±2% (codex.py 82%, session.py 81%, install.py 75%, config.py 88%, discover.py 88%, pr_update.py 87%). New `.coveragerc`, conftest, and shim must not change pass/fail counts.
+- Slice B: `make coverage` must exit 0 with `coverage report` showing TOTAL ≥ 80%. Per-file coverage must match the baseline ±2% (codex.py 82%, session.py 81%, install.py 75%, config.py 88%, discover.py 88%, pr-update.sh external call covered by `make test`). New `.coveragerc`, conftest, and shim must not change pass/fail counts.
 - Slice C: 5 new BDD scenarios, all green. Total `make test` cases grows to 141 + 5 + (subscenario rows from outlines) ≈ 150. No regressions in existing pytest cases.
 
 ---

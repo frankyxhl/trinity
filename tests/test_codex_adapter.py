@@ -179,7 +179,10 @@ def test_claude_code_install_path_remains_unchanged():
     assert "cp SKILL.md ~/.claude/skills/trinity/SKILL.md" in makefile
     assert "--global-config ~/.claude/trinity.json" in makefile
     assert "${HOME}/.claude/trinity.json" in install_sh
-    assert ".claude/skills/trinity/SKILL.md" in (ROOT / "install-manifest.json").read_text()
+    assert (
+        ".claude/skills/trinity/SKILL.md"
+        in (ROOT / "install-manifest.json").read_text()
+    )
 
     assert "background sub-agents" in root_skill
     assert ".claude/trinity.json" in root_skill

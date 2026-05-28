@@ -5,6 +5,7 @@ Called by both `make install` and `install.sh` (via python3 inline).
 Reads install-manifest.json from the repo root, copies each source file to
 its destination under ~/.claude/, and applies executable mode when set.
 """
+
 import json
 import os
 import shutil

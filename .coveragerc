@@ -1,6 +1,6 @@
 [run]
 parallel = True
-source = scripts,dev
+source = scripts
 sigterm = True
 
 [report]

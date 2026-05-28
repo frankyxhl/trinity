@@ -54,6 +54,9 @@
   `make build` and `make verify-built`; pre-commit hook now also enforces
   byte-identity between the two copies. Both files remain on disk for
   packaging portability. Closes #76.
+### Removed
+
+- `dev/pr_update.py` and its 333-LoC test companion `tests/test_pr_update.py`. Replaced by `scripts/pr-update.sh` (~30 lines) driven from the same `make pr-update` target. Closes #74.
 - `scripts/_compat.py` — new shared module exposing the guarded `fcntl`
   import. On `ImportError` (e.g. Windows), prints the existing
   unsupported-platform message to stderr and exits 1. Duplicated inline

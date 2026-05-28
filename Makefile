@@ -33,14 +33,14 @@ test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 rel
 	bash tests/test_scan_rocket_issues.sh
 
 lint:           ## Check and format code (TRN-1002)
-	.venv/bin/ruff check dev/ scripts/ tests/
-	.venv/bin/ruff format --check dev/ scripts/ tests/
+	.venv/bin/ruff check scripts/ tests/
+	.venv/bin/ruff format --check scripts/ tests/
 
 coverage:       ## Measure line coverage with subprocess tracking (TRN-2023, fail-under 80%)
 	.venv/bin/coverage erase
 	COVERAGE_PROCESS_START=$(CURDIR)/.coveragerc .venv/bin/coverage run -m pytest tests/ -q
 	.venv/bin/coverage combine
-	.venv/bin/coverage report --include='scripts/*,dev/*' --fail-under=80
+	.venv/bin/coverage report --include='scripts/*' --fail-under=80
 
 install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	@mkdir -p ~/.claude/skills/trinity/scripts
@@ -74,21 +74,24 @@ install-codex:  ## Install Trinity Codex adapter to ~/.codex/ and ~/.local/bin
 	@echo "Installed Trinity Codex adapter $(CURRENT_VERSION)"
 
 MODE ?= amend
+
 TRINITY_PR_UPDATE_PR := $(value PR)
 TRINITY_PR_UPDATE_MODE := $(value MODE)
 TRINITY_PR_UPDATE_MESSAGE := $(value MESSAGE)
 TRINITY_PR_UPDATE_REVIEW := $(value REVIEW)
+TRINITY_PR_UPDATE_DRY_RUN := $(if $(filter 1 true yes,$(DRY_RUN)),1,0)
 export TRINITY_PR_UPDATE_PR
 export TRINITY_PR_UPDATE_MODE
 export TRINITY_PR_UPDATE_MESSAGE
 export TRINITY_PR_UPDATE_REVIEW
+export TRINITY_PR_UPDATE_DRY_RUN
+
 
 pr-update:      ## Validate, update current PR branch, push, and comment: make pr-update PR=20 MESSAGE="..."
 	@test -n "$$TRINITY_PR_UPDATE_PR" || (echo "Usage: make pr-update PR=<num> MESSAGE=\"...\" [MODE=amend|commit|comment-only] [DRY_RUN=1] [REVIEW=\"...\"]"; exit 1)
 	@test -n "$$TRINITY_PR_UPDATE_MESSAGE" || (echo "Usage: make pr-update PR=<num> MESSAGE=\"...\" [MODE=amend|commit|comment-only] [DRY_RUN=1] [REVIEW=\"...\"]"; exit 1)
-	python3 dev/pr_update.py --pr "$$TRINITY_PR_UPDATE_PR" --message "$$TRINITY_PR_UPDATE_MESSAGE" --mode "$$TRINITY_PR_UPDATE_MODE" \
-		$(if $(filter 1 true yes,$(DRY_RUN)),--dry-run,) \
-		$(if $(strip $(value REVIEW)),--review "$$TRINITY_PR_UPDATE_REVIEW",)
+	scripts/pr-update.sh
+
 
 bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z
 	@test -n "$(VERSION)" || (echo "Usage: make bump VERSION=x.y.z"; exit 1)
