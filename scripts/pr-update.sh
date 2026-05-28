@@ -11,11 +11,11 @@ REMOTE=$(git config "branch.$BRANCH.remote" || true); MERGE_REF=$(git config "br
 UPSTREAM_BRANCH="${MERGE_REF#refs/heads/}"
 [ "$MERGE_REF" != "$UPSTREAM_BRANCH" ] || { echo "pr-update: invalid upstream" >&2; exit 1; }
 [ "$MODE" = "comment-only" ] || ! git diff --cached --quiet 2>/dev/null || { echo "pr-update: no staged changes to $MODE" >&2; exit 1; }
-make test && make lint && af validate --root .
+if [ "$DRY_RUN" = "1" ]; then V=DRY-RUN; else make test && make lint && af validate --root .; V=PASS; fi
 c=$(mktemp); trap 'rm -f "$c"' EXIT
 {
   echo "$MSG"; echo; echo "Validation:"
-  echo "- \`make test\`: PASS"; echo "- \`make lint\`: PASS"; echo "- \`af validate --root .\`: PASS"
+  echo "- \`make test\`: $V"; echo "- \`make lint\`: $V"; echo "- \`af validate --root .\`: $V"
   [ -n "$REVIEW" ] && { echo; echo "Review evidence:"; echo "$REVIEW"; }
   echo; echo "Update:"; echo "- mode: \`$MODE\`"
   case "$MODE" in
