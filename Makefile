@@ -33,8 +33,8 @@ test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 rel
 	bash tests/test_scan_rocket_issues.sh
 
 lint:           ## Check and format code (TRN-1002)
-	.venv/bin/ruff check dev/ scripts/ tests/
-	.venv/bin/ruff format --check dev/ scripts/ tests/
+	.venv/bin/ruff check scripts/ tests/
+	.venv/bin/ruff format --check scripts/ tests/
 
 coverage:       ## Measure line coverage with subprocess tracking (TRN-2023, fail-under 80%)
 	.venv/bin/coverage erase
