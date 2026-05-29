@@ -53,7 +53,7 @@ A loopback MCP bridge lets provider B query "what's provider A worried about so 
 - `"data"` — the payload (string for methodology_rule, object/array for the others)
 - `"error"` — null for `"ok"`; error message string for error conditions
 
-**Protocol**: The MCP server speaks the standard MCP protocol over HTTP SSE. Each tool is exposed as an MCP tool (request/response) rather than a resource — the provider invokes it via its own MCP SDK or tool-use mechanism, not via a static URL fetch.
+**Protocol**: The MCP server speaks the standard MCP protocol over HTTP SSE. MCP over HTTP SSE uses a long-lived SSE stream for server-to-client messages and a separate POST endpoint for client-to-server requests. The server MUST be capable of holding concurrent SSE connections while accepting POST messages — a single-threaded synchronous handler cannot serve MCP/SSE. Each tool is exposed as an MCP tool (request/response) rather than a resource — the provider invokes it via its own MCP SDK or tool-use mechanism, not via a static URL fetch.
 
 **Security model**:
 - Bind address: `127.0.0.1` only (loopback; never exposes to LAN/WAN)
@@ -61,7 +61,7 @@ A loopback MCP bridge lets provider B query "what's provider A worried about so 
 - Authentication: Bearer token, generated at server start as a random 32-character hex string, passed to provider configs via environment variable `TRINITY_MCP_TOKEN`
 - Termination: MCP server process is killed on `cmd_review` exit (both normal completion and SIGTERM/SIGINT/cancel); SIGTERM handler in the parent kills the MCP server subprocess before cleaning up provider process groups
 - No TLS (loopback-only; bearer token provides auth; unencrypted localhost is acceptable per threat model)
-- Request rate-limiting: v1 has no explicit rate limit; the server is a single-threaded synchronous responder. If a provider makes concurrent tool calls, later calls queue behind the current one. This is acceptable for v1 because each provider runs a single review turn and tool calls are sequential within a turn.
+- Request rate-limiting: v1 has no explicit rate limit. The server uses an async-capable framework (e.g. `aiohttp`) to handle concurrent SSE connections and POST requests. Each provider runs a single review turn with sequential tool calls within that turn, so concurrent tool-call volume is bounded by the number of in-flight providers.
 
 **Write-tool exclusion (v1 hard boundary)**: The MCP server exposes **no write tools**. Providers cannot:
 - Write to `raw/<provider>.txt` via MCP (Trinity's parent-side file writer owns this channel)
@@ -135,7 +135,22 @@ Each provider needs MCP configuration injected into its environment before the C
 
 2. **Ephemeral port**: `socket.bind(("127.0.0.1", 0))` → `getsockname()` to read actual port. The port value is embedded in each provider's MCP config at injection time.
 
-3. **Bearer token**: Generated via `os.urandom(16).hex()` (32-character hex string) at server start. Stored in `os.environ["TRINITY_MCP_TOKEN"]` for the lifetime of `cmd_review`. Every incoming HTTP request to the MCP server checks `Authorization: Bearer <token>`. Mismatch or missing header → 401 response. The token is never written to disk (not in `metadata.json`, not in provider config files) — only passed via environment variable to provider subprocesses.
+3. **Bearer token**: Generated via `os.urandom(16).hex()` (32-character hex string) at server start. Stored in `os.environ["TRINITY_MCP_TOKEN"]` for the lifetime of `cmd_review`. Every incoming HTTP request to the MCP server checks `Authorization: Bearer <token>`. Mismatch or missing header → 401 response.
+
+   **Token exposure by provider injection mode** — the token is unavoidably present in provider subprocess environments and may appear in temp config files or process argv depending on the provider:
+
+   | Provider | Token medium | Risk |
+   |---|---|---|
+   | claude-code | Written to temp `claude-config.json` (on disk during review) | Low — private temp directory, mode 0600, cleaned up on exit |
+   | codex | Passed via `-c mcp_servers.trinity=...` inline JSON (process argv) | Low — `procfs` readable by same-UID processes; mitigated by ephemeral token, short-lived review, no logging of config contents |
+   | gemini/glm/openrouter/deepseek | Environment variable `TRINITY_MCP_TOKEN` (inherited by subprocess) | Low — env is scoped to provider subprocess tree |
+
+   **Mitigations**:
+   - Temp config files written to a private directory (`<review_dir>/mcp_config/`, mode 0700), cleaned up in `at_exit` handler.
+   - Temp config files created with mode 0600.
+   - Logging explicitly excludes config contents and bearer token values (log the config path, never the payload).
+   - Token value never written to review artifacts (`metadata.json`, `synthesis.md`, `raw/*.txt`).
+   - Process-argv exposure accepted as inherent to CLI-based invocation; the token's short lifetime (single `cmd_review` run) limits the window.
 
 4. **Cleanup on exit/cancel**: The MCP server runs as a subprocess of the `cmd_review` parent. On normal exit, the parent sends SIGTERM and waits up to 5 seconds for graceful shutdown, then SIGKILL. On SIGTERM/SIGINT to the parent (user cancel), the signal handler:
    - Sets a `cancel` flag so running providers know they were cancelled (existing TRN-2019 pattern)
