@@ -5,7 +5,7 @@
 **Last reviewed:** (plan-review pending)
 **Status:** Draft
 **Reviewed by:** (pending)
-**Related:** TRN-1000, TRN-1008, TRN-3000, TRN-3020, GitHub issues #63, #137
+**Related:** TRN-1000, TRN-1007, TRN-1008, TRN-3000, TRN-3020, GitHub issues #63, #137
 
 ---
 
@@ -44,11 +44,13 @@ A loopback MCP bridge lets provider B query "what's provider A worried about so 
 | Tool name | What it returns | Data source |
 |---|---|---|
 | `trinity__current_scope` | Structured JSON re-read of files/diff hunks under review, including `diff --git` output and changed-file list from the review input. This duplicates prompt content intentionally so a provider can re-index scope by file path after a long reasoning/tool chain without reparsing its prompt. | Review input assembled by `cmd_review` before provider dispatch |
-| `trinity__peer_findings_so_far` | Concatenation of `raw/<other-provider>.txt` output for providers that have already completed their turn. If no peer output has completed yet, returns `"status": "empty"` rather than blocking. | `review_dir/raw/` directory, read at call time |
+| `trinity__peer_findings_so_far` | Concatenation of completed `raw/<other-provider>.txt` output for providers that have already completed their turn. If no peer output has completed yet, returns `"status": "empty"` rather than blocking. | `review_dir/raw/` directory, read at call time; Slice A must read only completed provider artifacts |
 | `trinity__prior_review_summary` | Structured summary (`synthesis.md` + `metadata.json` key fields) from the immediately prior review on this exact scope, if one exists. Scope matching is exact string equality against `metadata.json.input.scope`; no prefix or fuzzy matching in v1. | `.trinity/reviews/<prior_timestamp>-<scope>/` directory, resolved by exact metadata scope |
-| `trinity__methodology_rule` | The current methodology rule text from TRN-3020 §Code-review prompt addendum, as a callable tool that providers can invoke programmatically | Read from the canonical TRN-3020 rule file at MCP server start; v1 may cache it for the review lifetime |
+| `trinity__methodology_rule` | The current methodology rule text from TRN-1007 §4 Methodology, as a callable tool that providers can invoke programmatically | Read from `rules/TRN-1007-SOP-PR-Readiness.md` at the stable `### §4. Methodology` heading at MCP server start; v1 may cache it for the review lifetime |
 
-`trinity__peer_findings_so_far` is opportunistic in v1: Trinity still dispatches providers in parallel, and no provider is delayed just to create peer findings. The tool becomes useful when provider runtimes naturally differ, when a provider calls it later in its turn, or in the Slice F regression fixture where the test may deliberately stagger provider start times to make the peer-signal path observable.
+`trinity__peer_findings_so_far` is opportunistic in v1: Trinity still dispatches providers in parallel, and no provider is delayed just to create peer findings. The tool becomes useful when provider runtimes naturally differ, when a provider calls it later in its turn, or in the Slice F regression fixture where the test may deliberately stagger provider start times to make the peer-signal path observable. Slice A must expose only completed peer output: parent-side capture writes to a temp path and atomically renames to `raw/<provider>.txt` after provider exit, or uses an equivalent `.done` sentinel; in-progress partial bytes are not returned by the MCP tool.
+
+`trinity__methodology_rule` intentionally points to TRN-1007 rather than the historical TRN-3020 origin text. TRN-3020 introduced the 5-step prompt addendum, while later PR #60 / #61 / #64 lessons promoted the current aggregate method into TRN-1007 §4. Future edits to TRN-1007 §4 must preserve the heading or update Slice A's lookup marker in the same PR.
 
 **Tool response shape** — all tools return a JSON object with at minimum:
 - `"status"` — `"ok"` or `"empty"` (no data available, not an error)
@@ -107,7 +109,7 @@ cmd_review start
       ├── 4. wait for all providers (parallel)
       │         │
       │         └── providers call trinity__peer_findings_so_far
-      │             during their turn → read raw/<other>.txt partials
+      │             during their turn → read completed raw/<other>.txt outputs
       │
       ├── 5. kill MCP server
       ├── 6. write synthesis
@@ -153,6 +155,7 @@ Each provider needs MCP configuration injected into its environment before the C
    - Logging explicitly excludes config contents and bearer token values (log the config path, never the payload).
    - MCP server code never writes the token to review artifacts (`metadata.json`, `synthesis.md`, `raw/*.txt`). Provider LLM output is not filtered for token-like strings in v1; the token's short lifetime and loopback-only scope limit residual risk if a provider echoes its config.
    - Process-argv exposure accepted as inherent to CLI-based invocation; the token's short lifetime (single `cmd_review` run) limits the window.
+   - MCP injection runs after TRN-3023 provider-environment sanitization, or `TRINITY_MCP_TOKEN` is explicitly preserved by the sanitizer. Slice A must add a regression test so future sanitizer broadening cannot strip the MCP token silently.
 
 4. **Cleanup on exit/cancel**: The MCP server runs as a subprocess of the `cmd_review` parent. On normal exit, the parent sends SIGTERM and waits up to 5 seconds for graceful shutdown, then SIGKILL. On SIGTERM/SIGINT to the parent (user cancel), the signal handler:
    - Sets a `cancel` flag so running providers know they were cancelled (existing TRN-2019 pattern)
@@ -180,7 +183,8 @@ Slice letters are mnemonic, not a contiguous taxonomy: there is no Slice D in th
   │     Delivers: temp claude-config.json synthesis, --mcp-config injection in claude-code provider spawn
   │
   ├── #140 (Slice C) — Codex injection
-  │     Depends on: #138 (MCP server exists); #142 optional for regression test
+  │     Depends on: #138 (MCP server exists)
+  │     Note: #142 integration-tests this slice; #142 is not a merge gate for #140
   │     Delivers: -c mcp_servers.trinity=... injection in codex provider spawn
   │
   ├── #141 (Spike E) — remaining provider support matrix
@@ -218,6 +222,16 @@ Slice letters are mnemonic, not a contiguous taxonomy: there is no Slice D in th
 
 **PR #60 regression fixture (Slice F)**: A test that replays the PR #60 diff under the new bridge with a 2-provider panel (claude-code + codex). Acceptance criterion: at least 1 of the 7 missed bugs from PR #60's Codex bot post-merge is caught by at least one provider that used the loopback MCP tools.
 
+The seven PR #60 target bugs are sourced from TRN-2028's change history for PR #60 Codex bot rounds 1-7:
+
+1. Interrupted review directories can have `incomplete.json` without `metadata.json`, and `trinity status` must still render them.
+2. Cleanup payloads use the writer schema field `result`, not `status`.
+3. `cmd_status` must resolve the repository root like sibling subcommands instead of reading `args.root` directly.
+4. New subcommands must be reserved in preset-alias collision checks.
+5. Failed orchestration status must render as `failed`, not `interrupted (failed)`, in the incomplete-only path.
+6. The same failed-status rendering rule must apply in the metadata-present + incomplete path.
+7. Same-second review directories must use an mtime tiebreaker rather than raw lexicographic directory-name order.
+
 The fixture:
 1. Checks out the PR #60 base commit, applies the PR #60 diff programmatically
 2. Runs `trinity review --providers claude-code,codex --scope <pr60-scope>` with the loopback bridge enabled; the fixture may stagger provider start times or use a deterministic provider delay so `trinity__peer_findings_so_far` has observable peer output
@@ -238,7 +252,7 @@ This is the primary validation gate for the entire feature — proving that the 
 
 | Slice | Test additions | Coverage impact | Verification |
 |---|---|---|---|
-| A | 3–5 unit tests on MCP server | codex.py coverage may drop ~0.5% (new untested integration points) | `pytest tests/` green |
+| A | 3–5 unit tests on MCP server + `cmd_review` lifecycle wiring | `scripts/codex.py` coverage may drop ~0.5% if startup/shutdown integration branches are not covered immediately | `pytest tests/` green |
 | B | 2–3 unit tests on config file synthesis | net-neutral | `pytest tests/` green |
 | C | 2–3 unit tests on inline override string | net-neutral | `pytest tests/` green |
 | E | 0 (spike only) | unchanged | Spike report only |
@@ -260,7 +274,7 @@ This is the primary validation gate for the entire feature — proving that the 
 
 - [ ] `rules/TRN-3024-PRP-Loopback-MCP-Bridge.md` exists and is plan-reviewed under fast-review tier (2-provider panel, both individual ≥9.5, no blocking findings).
 - [ ] PRP explicitly bounds v1 to the four listed read-only tools; no MCP write tools present.
-- [ ] PRP defines the six-slice dependency graph (#138–#142) under parent #63.
+- [ ] PRP defines the five follow-up slice dependency graph (#138–#142) under parent #63, promoted by this PRP (#137).
 - [ ] PRP documents security model (127.0.0.1, ephemeral port, bearer token, cleanup).
 - [ ] PRP includes validation strategy gated on PR #60 regression fixture (≥1 of 7 missed bugs caught).
 - [ ] PRP enumerates per-provider injection status (claude-code confirmed, codex confirmed, others TBD per spike).
