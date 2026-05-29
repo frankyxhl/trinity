@@ -39,21 +39,23 @@ A loopback MCP bridge lets provider B query "what's provider A worried about so 
 
 ### In scope (v1)
 
-**Four read-only MCP tools**, exposed as MCP resources callable by providers during their review turn:
+**Four read-only MCP tools**, exposed as MCP tools callable by providers during their review turn:
 
 | Tool name | What it returns | Data source |
 |---|---|---|
-| `trinity__current_scope` | Files/diff hunks under review, including `diff --git` output and changed-file list from the review input | Review input assembled by `cmd_review` before provider dispatch |
-| `trinity__peer_findings_so_far` | Concatenation of `raw/<other-provider>.txt` partial output for providers that have already completed their turn (stream-safe; returns whatever is on disk at call time, with a header identifying each provider's section) | `review_dir/raw/` directory, read at call time |
-| `trinity__prior_review_summary` | Structured summary (`synthesis.md` + `metadata.json` key fields) from the immediately prior review on this scope, if one exists | `.trinity/reviews/<prior_timestamp>-<scope>/` directory, resolved by matching scope prefix |
-| `trinity__methodology_rule` | The 5-step methodology rule text from TRN-3020 §Code-review prompt addendum, as a callable tool that providers can invoke programmatically | Inline constant in the MCP server (sourced from TRN-3020 at authoring time) |
+| `trinity__current_scope` | Structured JSON re-read of files/diff hunks under review, including `diff --git` output and changed-file list from the review input. This duplicates prompt content intentionally so a provider can re-index scope by file path after a long reasoning/tool chain without reparsing its prompt. | Review input assembled by `cmd_review` before provider dispatch |
+| `trinity__peer_findings_so_far` | Concatenation of `raw/<other-provider>.txt` output for providers that have already completed their turn. If no peer output has completed yet, returns `"status": "empty"` rather than blocking. | `review_dir/raw/` directory, read at call time |
+| `trinity__prior_review_summary` | Structured summary (`synthesis.md` + `metadata.json` key fields) from the immediately prior review on this exact scope, if one exists. Scope matching is exact string equality against `metadata.json.input.scope`; no prefix or fuzzy matching in v1. | `.trinity/reviews/<prior_timestamp>-<scope>/` directory, resolved by exact metadata scope |
+| `trinity__methodology_rule` | The current methodology rule text from TRN-3020 §Code-review prompt addendum, as a callable tool that providers can invoke programmatically | Read from the canonical TRN-3020 rule file at MCP server start; v1 may cache it for the review lifetime |
+
+`trinity__peer_findings_so_far` is opportunistic in v1: Trinity still dispatches providers in parallel, and no provider is delayed just to create peer findings. The tool becomes useful when provider runtimes naturally differ, when a provider calls it later in its turn, or in the Slice F regression fixture where the test may deliberately stagger provider start times to make the peer-signal path observable.
 
 **Tool response shape** — all tools return a JSON object with at minimum:
 - `"status"` — `"ok"` or `"empty"` (no data available, not an error)
 - `"data"` — the payload (string for methodology_rule, object/array for the others)
 - `"error"` — null for `"ok"`; error message string for error conditions
 
-**Protocol**: The MCP server speaks the standard MCP protocol over HTTP SSE. MCP over HTTP SSE uses a long-lived SSE stream for server-to-client messages and a separate POST endpoint for client-to-server requests. The server MUST be capable of holding concurrent SSE connections while accepting POST messages — a single-threaded synchronous handler cannot serve MCP/SSE. Each tool is exposed as an MCP tool (request/response) rather than a resource — the provider invokes it via its own MCP SDK or tool-use mechanism, not via a static URL fetch.
+**Protocol**: The MCP server targets MCP `2024-11-05` over HTTP SSE unless Slice A records a newer stable protocol version. MCP over HTTP SSE uses a long-lived SSE stream for server-to-client messages and a separate POST endpoint for client-to-server requests. The server MUST be capable of holding concurrent SSE connections while accepting POST messages — a single-threaded synchronous handler cannot serve MCP/SSE. Each tool is exposed as an MCP tool (request/response) rather than a resource — the provider invokes it via its own MCP SDK or tool-use mechanism, not via a static URL fetch.
 
 **Security model**:
 - Bind address: `127.0.0.1` only (loopback; never exposes to LAN/WAN)
@@ -131,7 +133,7 @@ Each provider needs MCP configuration injected into its environment before the C
 
 ### Security Model
 
-1. **Loopback-only bind**: `127.0.0.1` hardcoded in server start; Python's `http.server` or `aiohttp` configured with `host="127.0.0.1"`. No IPv6 wildcard (`::1`) in v1 — scoped to IPv4 loopback only.
+1. **Loopback-only bind**: `127.0.0.1` hardcoded in server start; `aiohttp` or an equivalent async HTTP/SSE framework configured with `host="127.0.0.1"`. No IPv6 loopback (`::1`) in v1 — scoped to IPv4 loopback only.
 
 2. **Ephemeral port**: `socket.bind(("127.0.0.1", 0))` → `getsockname()` to read actual port. The port value is embedded in each provider's MCP config at injection time.
 
@@ -149,7 +151,7 @@ Each provider needs MCP configuration injected into its environment before the C
    - Temp config files written to a private directory (`<review_dir>/mcp_config/`, mode 0700), cleaned up in `at_exit` handler.
    - Temp config files created with mode 0600.
    - Logging explicitly excludes config contents and bearer token values (log the config path, never the payload).
-   - Token value never written to review artifacts (`metadata.json`, `synthesis.md`, `raw/*.txt`).
+   - MCP server code never writes the token to review artifacts (`metadata.json`, `synthesis.md`, `raw/*.txt`). Provider LLM output is not filtered for token-like strings in v1; the token's short lifetime and loopback-only scope limit residual risk if a provider echoes its config.
    - Process-argv exposure accepted as inherent to CLI-based invocation; the token's short lifetime (single `cmd_review` run) limits the window.
 
 4. **Cleanup on exit/cancel**: The MCP server runs as a subprocess of the `cmd_review` parent. On normal exit, the parent sends SIGTERM and waits up to 5 seconds for graceful shutdown, then SIGKILL. On SIGTERM/SIGINT to the parent (user cancel), the signal handler:
@@ -163,6 +165,8 @@ Each provider needs MCP configuration injected into its environment before the C
 ### Slice Order and Dependency Graph
 
 Parent issue #63 tracks the umbrella feature. Six child issues (including this PRP) implement it in order:
+
+Slice letters are mnemonic, not a contiguous taxonomy: there is no Slice D in this plan. The remaining-provider investigation is named Spike E to preserve the issue split already filed under #141, and Slice F remains the final enablement/test slice under #142.
 
 ```
 #137 (PRP)  ← THIS ISSUE
@@ -216,7 +220,7 @@ Parent issue #63 tracks the umbrella feature. Six child issues (including this P
 
 The fixture:
 1. Checks out the PR #60 base commit, applies the PR #60 diff programmatically
-2. Runs `trinity review --providers claude-code,codex --scope <pr60-scope>` with the loopback bridge enabled
+2. Runs `trinity review --providers claude-code,codex --scope <pr60-scope>` with the loopback bridge enabled; the fixture may stagger provider start times or use a deterministic provider delay so `trinity__peer_findings_so_far` has observable peer output
 3. Runs the same review again with the bridge disabled (control)
 4. Asserts that the bridge-enabled run catches at least 1 finding that the bridge-disabled run misses, AND that the finding corresponds to one of the 7 documented missed bugs
 
