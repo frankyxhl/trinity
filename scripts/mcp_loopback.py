@@ -869,8 +869,17 @@ class McpLoopbackServer:
                 await self._handle_sse(reader, writer, headers)
             elif path.startswith("/messages") and method == "POST":
                 await self._handle_messages(writer, headers, body, path)
-            elif path == "/mcp" and method == "POST":
-                await self._handle_mcp_endpoint(writer, headers, body)
+            elif path == "/mcp":
+                if method == "POST":
+                    await self._handle_mcp_endpoint(writer, headers, body)
+                else:
+                    resp = _build_http_response(
+                        405,
+                        "Method Not Allowed",
+                        b'{"error":"server-side streaming not supported"}',
+                        extra_headers=[("Allow", "POST")],
+                    )
+                    await self._write_response(writer, resp)
             else:
                 resp = _build_http_response(404, "Not Found")
                 await self._write_response(writer, resp)

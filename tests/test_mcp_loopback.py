@@ -1255,8 +1255,9 @@ class TestEndpointRouting:
         finally:
             writer.close()
 
-    async def test_wrong_method_on_mcp(self):
+    async def test_get_on_mcp_returns_405(self):
         status, body = await _http_request(
             "127.0.0.1", self._port, "GET", "/mcp", self._token,
         )
-        assert status == 404
+        assert status == 405
+        assert b"server-side streaming not supported" in body

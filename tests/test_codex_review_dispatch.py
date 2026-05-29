@@ -155,7 +155,7 @@ def test_cmd_review_starts_mcp_loopback_and_cleans_token(tmp_path, monkeypatch, 
         ]
 
     monkeypatch.setattr(codex, "run_providers", fake_run_providers)
-    os.environ.pop("TRINITY_MCP_TOKEN", None)
+    os.environ["TRINITY_MCP_TOKEN"] = "ambient-stale-token"
     args = codex.build_parser().parse_args(
         [
             "review",
@@ -173,6 +173,7 @@ def test_cmd_review_starts_mcp_loopback_and_cleans_token(tmp_path, monkeypatch, 
     assert seen["review_dir"] == str(review_dir)
     assert isinstance(seen["token"], str)
     assert len(seen["token"]) == 32
+    assert seen["token"] != "ambient-stale-token"
     assert "TRINITY_MCP_TOKEN" not in os.environ
 
 

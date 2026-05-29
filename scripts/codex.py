@@ -13,6 +13,7 @@ import json
 import math
 import os
 import pty
+import secrets
 from pathlib import Path
 import re
 import shlex
@@ -2467,7 +2468,11 @@ def cmd_review(args):
             strict_review=strict_review_block,
         )
         progress("starting MCP loopback server")
-        mcp_server, mcp_port = start_server_blocking(review_dir=str(review_dir))
+        mcp_token = secrets.token_hex(16)
+        mcp_server, mcp_port = start_server_blocking(
+            review_dir=str(review_dir),
+            token=mcp_token,
+        )
         progress(f"MCP loopback server listening on 127.0.0.1:{mcp_port}")
         results = run_providers(
             max_workers,
