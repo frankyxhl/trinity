@@ -144,10 +144,10 @@ _TOOL_DEFINITIONS: list[dict] = [
                 "review_dir": {"type": "string", "description": "Path to the current review directory"},
                 "review_input_sha256": {
                     "type": "string",
-                    "description": "SHA-256 of the review input for identity matching",
+                    "description": "Optional SHA-256 override for identity matching; defaults to metadata.json input.review_input_sha256",
                 },
             },
-            "required": ["review_dir", "review_input_sha256"],
+            "required": ["review_dir"],
         },
     },
     {
@@ -412,13 +412,21 @@ def _handle_peer_findings(arguments: dict[str, Any]) -> dict:
 def _handle_prior_review(arguments: dict[str, Any]) -> dict:
     """Return prior review summary matching the input identity."""
     review_dir_str = arguments.get("review_dir", "")
-    review_input_sha256 = arguments.get("review_input_sha256", "")
-    if not review_dir_str or not review_input_sha256:
-        return _make_tool_result("error", error="review_dir and review_input_sha256 are required")
+    if not review_dir_str:
+        return _make_tool_result("error", error="review_dir is required")
 
     current_dir = Path(review_dir_str)
     if not current_dir.is_dir():
         return _make_tool_result("error", error=f"review_dir not found: {review_dir_str}")
+
+    current_input = _metadata_input(_read_review_metadata(current_dir))
+    review_input_sha256 = (
+        arguments.get("review_input_sha256")
+        or current_input.get("review_input_sha256")
+        or ""
+    )
+    if not review_input_sha256:
+        return _make_tool_result("empty", data=None)
 
     prior = _resolve_prior_review(current_dir, review_input_sha256)
     if prior is None:
@@ -662,7 +670,31 @@ async def _make_tool_call_response(request_id: Any, tool_name: str, arguments: d
     return _make_jsonrpc_response(request_id, result=tool_result)
 
 
-async def _dispatch_mcp_request(request: dict[str, Any]) -> dict | None:
+def _bind_review_dir_argument(
+    tool_name: str,
+    arguments: dict[str, Any],
+    server_review_dir: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    if tool_name not in {TOOL_CURRENT_SCOPE, TOOL_PEER_FINDINGS, TOOL_PRIOR_REVIEW}:
+        return arguments, None
+    if not server_review_dir:
+        return arguments, None
+
+    expected = Path(server_review_dir).expanduser().resolve()
+    requested = arguments.get("review_dir") or server_review_dir
+    requested_path = Path(str(requested)).expanduser().resolve()
+    if requested_path != expected:
+        return None, "review_dir must match the loopback server review_dir"
+
+    bound = dict(arguments)
+    bound["review_dir"] = str(expected)
+    return bound, None
+
+
+async def _dispatch_mcp_request(
+    request: dict[str, Any],
+    server_review_dir: str = "",
+) -> dict | None:
     """Dispatch one MCP JSON-RPC request. Returns None for notifications."""
     request_id = request.get("id")
     method_name = request.get("method", "")
@@ -681,6 +713,20 @@ async def _dispatch_mcp_request(request: dict[str, Any]) -> dict | None:
         arguments = params.get("arguments", {})
         if not isinstance(arguments, dict):
             arguments = {}
+        arguments, bind_error = _bind_review_dir_argument(
+            tool_name,
+            arguments,
+            server_review_dir,
+        )
+        if bind_error:
+            raw_result = _make_tool_result("error", error=bind_error)
+            return _make_jsonrpc_response(
+                request_id,
+                result={
+                    "content": [{"type": "text", "text": json.dumps(raw_result)}],
+                    "isError": True,
+                },
+            )
         return await _make_tool_call_response(request_id, tool_name, arguments)
     return _make_jsonrpc_error(request_id, -32601, f"Method not found: {method_name}")
 
@@ -938,7 +984,7 @@ class McpLoopbackServer:
             return
 
         # Process the request and send responses via SSE; notifications are ACK-only.
-        response = await _dispatch_mcp_request(request)
+        response = await _dispatch_mcp_request(request, self._review_dir)
         if response is not None:
             await session.send_event("message", json.dumps(response))
 
@@ -962,7 +1008,7 @@ class McpLoopbackServer:
             await self._write_response(writer, resp)
             return
 
-        response = await _dispatch_mcp_request(request)
+        response = await _dispatch_mcp_request(request, self._review_dir)
         if response is None:
             http_resp = _build_http_response(202, "Accepted", b"{}")
         else:

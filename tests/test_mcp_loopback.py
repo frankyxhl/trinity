@@ -28,6 +28,7 @@ from scripts.mcp_loopback import (
     _count_diff_lines,
     _extract_prompt_diff,
     _try_add_signal_handler,
+    _bind_review_dir_argument,
 )
 
 
@@ -581,6 +582,21 @@ class TestPriorReviewTool:
         assert result["data"]["mode"] == "plan-review"
         assert "Synthesis" in (result["data"].get("synopsis") or "")
 
+    async def test_derives_prior_review_hash_from_current_metadata(self):
+        status, resp = await _mcp_request(
+            self._port,
+            self._token,
+            "tools/call",
+            {
+                "name": TOOL_PRIOR_REVIEW,
+                "arguments": {"review_dir": str(self._current_dir)},
+            },
+        )
+        assert status == 200
+        result = json.loads(resp["result"]["content"][0]["text"])
+        assert result["status"] == "ok"
+        assert result["data"]["mode"] == "plan-review"
+
     async def test_returns_empty_when_no_match(self):
         status, resp = await _mcp_request(
             self._port,
@@ -970,6 +986,38 @@ class TestSignalHandlerRegistration:
                 raise RuntimeError("set_wakeup_fd only works in main thread")
 
         assert _try_add_signal_handler(FakeLoop(), signal.SIGTERM, lambda: None) is False
+
+
+class TestReviewDirBinding:
+    """Tool calls are bound to the server's configured review directory."""
+
+    def test_rejects_read_tool_outside_server_review_dir(self, tmp_path):
+        review_dir = tmp_path / "reviews" / "current"
+        other_dir = tmp_path / "reviews" / "other"
+        review_dir.mkdir(parents=True)
+        other_dir.mkdir()
+
+        for tool_name in (TOOL_CURRENT_SCOPE, TOOL_PEER_FINDINGS, TOOL_PRIOR_REVIEW):
+            bound, error = _bind_review_dir_argument(
+                tool_name,
+                {"review_dir": str(other_dir)},
+                str(review_dir),
+            )
+            assert bound is None
+            assert error == "review_dir must match the loopback server review_dir"
+
+    def test_fills_missing_review_dir_from_server_review_dir(self, tmp_path):
+        review_dir = tmp_path / "reviews" / "current"
+        review_dir.mkdir(parents=True)
+
+        bound, error = _bind_review_dir_argument(
+            TOOL_CURRENT_SCOPE,
+            {},
+            str(review_dir),
+        )
+
+        assert error is None
+        assert bound == {"review_dir": str(review_dir.resolve())}
 
 
 class TestMethodologyConstant:

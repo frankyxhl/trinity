@@ -7,6 +7,7 @@ import datetime as dt
 import difflib
 import errno
 import fnmatch
+import hashlib
 import json
 import math
 import os
@@ -966,6 +967,22 @@ def file_snapshots_at_ref(root, paths, ref):
     return "".join(chunks)
 
 
+def review_input_sha256(diff, files):
+    payload = json.dumps(
+        {"diff": diff, "files": files},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def make_review_input(diff, files, metadata):
+    metadata = dict(metadata)
+    metadata["review_input_sha256"] = review_input_sha256(diff, files)
+    return {"diff": diff, "files": files, "metadata": metadata}
+
+
 def working_tree_review_input(root, scope):
     pathspec = scope_pathspec(root, scope)
     tracked_diff = git_diff(root, pathspec)
@@ -980,10 +997,10 @@ def working_tree_review_input(root, scope):
     files = file_snapshots(root, paths)
     if not diff.strip():
         diff = "(no tracked or untracked git diff)"
-    return {
-        "diff": diff,
-        "files": files,
-        "metadata": {
+    return make_review_input(
+        diff,
+        files,
+        {
             "mode": "working-tree",
             "base": "HEAD",
             "head": "working-tree",
@@ -992,7 +1009,7 @@ def working_tree_review_input(root, scope):
             "changed_paths": paths,
             "snapshot_source": "working-tree",
         },
-    }
+    )
 
 
 def base_head_review_input(root, base, head, scope):
@@ -1007,10 +1024,10 @@ def base_head_review_input(root, base, head, scope):
     files = file_snapshots_at_ref(root, paths, head)
     if not diff.strip():
         diff = f"(no git diff for {base}...{head})"
-    return {
-        "diff": diff,
-        "files": files,
-        "metadata": {
+    return make_review_input(
+        diff,
+        files,
+        {
             "mode": "base-head",
             "base": base,
             "head": head,
@@ -1019,7 +1036,7 @@ def base_head_review_input(root, base, head, scope):
             "changed_paths": paths,
             "snapshot_source": f"git:{head}",
         },
-    }
+    )
 
 
 def run_gh(root, args, label):
@@ -1115,10 +1132,10 @@ def pr_review_input(root, pr_number, scope):
         snapshot_source = "unavailable"
     if not diff.strip():
         diff = f"(no GitHub PR diff for PR #{pr_number})"
-    return {
-        "diff": diff,
-        "files": files,
-        "metadata": {
+    return make_review_input(
+        diff,
+        files,
+        {
             "mode": "pr",
             "base": view.get("baseRefName"),
             "head": view.get("headRefName"),
@@ -1129,7 +1146,7 @@ def pr_review_input(root, pr_number, scope):
             "changed_paths": paths,
             "snapshot_source": snapshot_source,
         },
-    }
+    )
 
 
 def resolve_review_input(args, root):
