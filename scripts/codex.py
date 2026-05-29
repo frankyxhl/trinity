@@ -1437,6 +1437,21 @@ def raw_output(stdout, stderr):
     return (stdout or "") + _STDERR_SENTINEL + (stderr or "")
 
 
+def write_text_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        temp_path.write_text(text, encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def timeout_partial_output(exc, stdout=None, stderr=None):
     def normalize(value):
         if value is None:
@@ -1910,7 +1925,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
         stderr_text = (
             stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
         )
-        raw_path.write_text(raw_output(stdout_text, stderr_text))
+        write_text_atomic(raw_path, raw_output(stdout_text, stderr_text))
         result = {
             "provider": provider,
             "returncode": rc,
@@ -1922,7 +1937,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
         return result
     if outcome[0] == "filenotfound":
         _, msg, finished = outcome
-        raw_path.write_text(f"ERROR: command not found: {msg}\n")
+        write_text_atomic(raw_path, f"ERROR: command not found: {msg}\n")
         result = {
             "provider": provider,
             "returncode": 127,
@@ -1944,7 +1959,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     output = f"ERROR: timeout after {timeout_val}s\n{exc}\n"
     if partial:
         output += "\n[partial output]\n" + partial
-    raw_path.write_text(output)
+    write_text_atomic(raw_path, output)
     result = {
         "provider": provider,
         "returncode": 124,

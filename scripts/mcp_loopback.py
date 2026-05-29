@@ -175,31 +175,46 @@ def _make_tool_result(status: str, data: Any = None, error: str | None = None) -
 def _read_completed_peer_outputs(review_dir: Path, current_provider: str | None) -> list[tuple[str, str]]:
     """Read completed raw/<provider>.txt files, excluding current_provider.
 
-    Only reads files that appear to be complete (non-empty, not being written
-    to concurrently). Returns list of (provider_name, content).
+    Only reads raw artifacts recorded in metadata.results. The provider runner
+    appends a result only after composing the raw file, so this avoids treating
+    an in-progress raw write as authoritative peer findings.
     """
-    raw_dir = review_dir / "raw"
-    if not raw_dir.is_dir():
+    metadata = _read_review_metadata(review_dir)
+    result_entries = metadata.get("results", [])
+    if not isinstance(result_entries, list):
         return []
 
+    review_root = review_dir.resolve()
     results: list[tuple[str, str]] = []
-    try:
-        for fpath in sorted(raw_dir.iterdir()):
-            if not fpath.suffix == ".txt" or not fpath.is_file():
-                continue
-            name = fpath.stem  # e.g. "codex" from "codex.txt"
-            if current_provider and name == current_provider:
-                continue
-            try:
-                content = fpath.read_text()
-                # Only include non-empty completed outputs
-                if content.strip():
-                    results.append((name, content))
-            except (OSError, PermissionError):
-                # Skip files we can't read (may be in-progress)
-                continue
-    except (OSError, PermissionError):
-        pass
+    seen: set[str] = set()
+    for entry in result_entries:
+        if not isinstance(entry, dict):
+            continue
+        raw_rel = entry.get("raw")
+        if not isinstance(raw_rel, str) or not raw_rel:
+            continue
+        name_value = entry.get("provider")
+        name = name_value if isinstance(name_value, str) and name_value else Path(raw_rel).stem
+        if current_provider and name == current_provider:
+            continue
+        if name in seen:
+            continue
+
+        try:
+            fpath = (review_dir / raw_rel).resolve()
+            fpath.relative_to(review_root)
+        except (OSError, ValueError):
+            continue
+        if not fpath.is_file():
+            continue
+        try:
+            content = fpath.read_text()
+        except (OSError, PermissionError):
+            continue
+        if not content.strip():
+            continue
+        results.append((name, content))
+        seen.add(name)
 
     return results
 

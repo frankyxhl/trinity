@@ -40,6 +40,21 @@ def _clear_trinity_mcp_token():
     os.environ.pop("TRINITY_MCP_TOKEN", None)
 
 
+def _record_completed_raw(review_dir: Path, provider: str, content: str) -> None:
+    raw_dir = review_dir / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    raw_rel = f"raw/{provider}.txt"
+    (review_dir / raw_rel).write_text(content)
+    metadata_path = review_dir / "metadata.json"
+    metadata = {}
+    if metadata_path.exists():
+        metadata = json.loads(metadata_path.read_text())
+    metadata.setdefault("results", []).append(
+        {"provider": provider, "returncode": 0, "raw": raw_rel}
+    )
+    metadata_path.write_text(json.dumps(metadata))
+
+
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -357,9 +372,8 @@ class TestPeerFindingsTool:
         assert result["status"] == "empty"
 
     async def test_returns_peer_output(self):
-        # Write a completed peer output
-        (self._raw_dir / "codex.txt").write_text("PASS - all checks good")
-        (self._raw_dir / "gemini.txt").write_text("FIX - found an issue")
+        _record_completed_raw(self._review_dir, "codex", "PASS - all checks good")
+        _record_completed_raw(self._review_dir, "gemini", "FIX - found an issue")
 
         status, resp = await _mcp_request(
             self._port,
@@ -376,8 +390,8 @@ class TestPeerFindingsTool:
         assert len(result["data"]) == 2
 
     async def test_excludes_current_provider(self):
-        (self._raw_dir / "codex.txt").write_text("PASS")
-        (self._raw_dir / "gemini.txt").write_text("FIX")
+        _record_completed_raw(self._review_dir, "codex", "PASS")
+        _record_completed_raw(self._review_dir, "gemini", "FIX")
 
         status, resp = await _mcp_request(
             self._port,
@@ -656,35 +670,52 @@ class TestReadCompletedPeerOutputs:
         raw_dir.mkdir()
         assert _read_completed_peer_outputs(tmp_path, None) == []
 
-    def test_skips_non_txt_files(self, tmp_path):
+    def test_requires_metadata_result(self, tmp_path):
         raw_dir = tmp_path / "raw"
         raw_dir.mkdir()
         (raw_dir / "notes.txt").write_text("data")
         results = _read_completed_peer_outputs(tmp_path, None)
-        # All .txt files in raw/ are potential provider outputs
-        assert len(results) == 1
-        assert results[0][0] == "notes"
+        assert results == []
+
+    def test_reads_metadata_recorded_raw_artifact(self, tmp_path):
+        _record_completed_raw(tmp_path, "notes", "data")
+        results = _read_completed_peer_outputs(tmp_path, None)
+        assert results == [("notes", "data")]
 
     def test_excludes_current_provider(self, tmp_path):
-        raw_dir = tmp_path / "raw"
-        raw_dir.mkdir()
-        (raw_dir / "codex.txt").write_text("PASS")
-        (raw_dir / "gemini.txt").write_text("FIX")
+        _record_completed_raw(tmp_path, "codex", "PASS")
+        _record_completed_raw(tmp_path, "gemini", "FIX")
         results = _read_completed_peer_outputs(tmp_path, "codex")
         names = [n for n, _ in results]
         assert "codex" not in names
         assert "gemini" in [n for n, _ in results]
 
     def test_skips_empty_files(self, tmp_path):
-        raw_dir = tmp_path / "raw"
-        raw_dir.mkdir()
-        (raw_dir / "codex.txt").write_text("")
+        _record_completed_raw(tmp_path, "codex", "")
         results = _read_completed_peer_outputs(tmp_path, None)
         assert len(results) == 0
 
     def test_missing_raw_dir_returns_empty(self, tmp_path):
         results = _read_completed_peer_outputs(tmp_path, None)
         assert results == []
+
+    def test_skips_metadata_raw_path_outside_review_dir(self, tmp_path):
+        outside = tmp_path.parent / "outside.txt"
+        outside.write_text("secret")
+        (tmp_path / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            "provider": "codex",
+                            "returncode": 0,
+                            "raw": "../outside.txt",
+                        }
+                    ]
+                }
+            )
+        )
+        assert _read_completed_peer_outputs(tmp_path, None) == []
 
 
 class TestResolvePriorReview:
