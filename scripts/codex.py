@@ -2,6 +2,7 @@
 """Codex-native Trinity command wrapper."""
 
 import argparse
+import asyncio
 import concurrent.futures
 import datetime as dt
 import difflib
@@ -26,9 +27,11 @@ import tty
 try:
     from ._version import load_version
     from . import _review_metadata as _rm
+    from .mcp_loopback import start_server_blocking
 except ImportError:
     from _version import load_version
     import _review_metadata as _rm
+    from mcp_loopback import start_server_blocking
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -1452,6 +1455,13 @@ def write_text_atomic(path, text):
             pass
 
 
+def stop_mcp_loopback_server(server):
+    try:
+        asyncio.run(server.stop())
+    except Exception as exc:
+        progress(f"warning: failed to stop MCP loopback server: {exc}")
+
+
 def timeout_partial_output(exc, stdout=None, stderr=None):
     def normalize(value):
         if value is None:
@@ -2419,6 +2429,7 @@ def cmd_review(args):
         out_base = root / out_base
     review_dir = make_review_dir(out_base, args.scope)
 
+    mcp_server = None
     try:
         prompt = render_prompt(
             config,
@@ -2455,6 +2466,9 @@ def cmd_review(args):
             input=review_input["metadata"],
             strict_review=strict_review_block,
         )
+        progress("starting MCP loopback server")
+        mcp_server, mcp_port = start_server_blocking(review_dir=str(review_dir))
+        progress(f"MCP loopback server listening on 127.0.0.1:{mcp_port}")
         results = run_providers(
             max_workers,
             providers,
@@ -2514,6 +2528,10 @@ def cmd_review(args):
         )
         print(review_dir)
         return 1
+    finally:
+        if mcp_server is not None:
+            progress("stopping MCP loopback server")
+            stop_mcp_loopback_server(mcp_server)
 
     print(review_dir)
     return 0 if all(item["returncode"] == 0 for item in results) else 1

@@ -1163,6 +1163,7 @@ class TestLifecycle:
         await server.start()
         assert os.environ.get("TRINITY_MCP_TOKEN") == server.token
         await server.stop()
+        assert "TRINITY_MCP_TOKEN" not in os.environ
 
     async def test_does_not_overwrite_existing_trinity_mcp_token(self):
         """If TRINITY_MCP_TOKEN is already set, server uses it."""
@@ -1174,8 +1175,7 @@ class TestLifecycle:
         assert server.token == "preexisting-token"
         assert os.environ["TRINITY_MCP_TOKEN"] == "preexisting-token"
         await server.stop()
-        # Clean up
-        os.environ.pop("TRINITY_MCP_TOKEN", None)
+        assert "TRINITY_MCP_TOKEN" not in os.environ
 
     async def test_custom_token_overwrites_existing_trinity_mcp_token(self):
         from scripts.mcp_loopback import McpLoopbackServer
@@ -1186,7 +1186,7 @@ class TestLifecycle:
         assert server.token == "custom-token"
         assert os.environ["TRINITY_MCP_TOKEN"] == "custom-token"
         await server.stop()
-        os.environ.pop("TRINITY_MCP_TOKEN", None)
+        assert "TRINITY_MCP_TOKEN" not in os.environ
 
 
 class TestBlockingLifecycle:
@@ -1207,6 +1207,7 @@ class TestBlockingLifecycle:
         while loop.is_running() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert not loop.is_running()
+        assert "TRINITY_MCP_TOKEN" not in os.environ
 
 
 # ---------------------------------------------------------------------------

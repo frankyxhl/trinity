@@ -810,22 +810,29 @@ class McpLoopbackServer:
         """Gracefully stop the server and close all SSE sessions."""
         blocking_loop = self._blocking_loop
         running_loop = asyncio.get_running_loop()
-        if (
-            blocking_loop is not None
-            and blocking_loop.is_running()
-            and blocking_loop is not running_loop
-        ):
-            future = asyncio.run_coroutine_threadsafe(
-                self._stop_in_current_loop(),
-                blocking_loop,
-            )
-            await asyncio.wrap_future(future)
-            blocking_loop.call_soon_threadsafe(blocking_loop.stop)
-            return
+        try:
+            if (
+                blocking_loop is not None
+                and blocking_loop.is_running()
+                and blocking_loop is not running_loop
+            ):
+                future = asyncio.run_coroutine_threadsafe(
+                    self._stop_in_current_loop(),
+                    blocking_loop,
+                )
+                await asyncio.wrap_future(future)
+                blocking_loop.call_soon_threadsafe(blocking_loop.stop)
+                return
 
-        await self._stop_in_current_loop()
-        if blocking_loop is running_loop:
-            blocking_loop.call_soon(blocking_loop.stop)
+            await self._stop_in_current_loop()
+            if blocking_loop is running_loop:
+                blocking_loop.call_soon(blocking_loop.stop)
+        finally:
+            self._clear_token_env()
+
+    def _clear_token_env(self) -> None:
+        if os.environ.get("TRINITY_MCP_TOKEN") == self._token:
+            os.environ.pop("TRINITY_MCP_TOKEN", None)
 
     async def _stop_in_current_loop(self) -> None:
         """Stop server resources on the loop that owns them."""
@@ -1107,11 +1114,13 @@ def start_server_blocking(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if error_future[0] is not None:
+            server._clear_token_env()
             raise error_future[0]
         if port_future:
             return server, port_future[0]
         time.sleep(0.05)
 
+    server._clear_token_env()
     raise TimeoutError("MCP server did not start within timeout")
 
     return server, server.port
