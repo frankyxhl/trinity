@@ -5,8 +5,10 @@ Tests use the async MCP server directly without launching real providers.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,8 @@ from scripts.mcp_loopback import (
     _resolve_prior_review,
     _check_auth,
     _count_diff_lines,
+    _extract_prompt_diff,
+    _try_add_signal_handler,
 )
 
 
@@ -50,8 +54,6 @@ async def _http_request(
     body: bytes | None = None,
 ) -> tuple[int, bytes]:
     """Send an HTTP request to the loopback server and return (status, body)."""
-    import asyncio
-
     reader, writer = await asyncio.open_connection(host, port)
     try:
         lines = [f"{method} {path} HTTP/1.1".encode()]
@@ -237,6 +239,37 @@ class TestToolList:
         assert TOOL_PRIOR_REVIEW in names
         assert TOOL_METHODOLOGY in names
 
+    async def test_initialize_returns_protocol_capabilities(self):
+        status, resp = await _mcp_request(
+            self._port,
+            self._token,
+            "initialize",
+            {
+                "protocolVersion": "2025-03-26",
+                "clientInfo": {"name": "test-client", "version": "0.0"},
+            },
+            request_id=7,
+        )
+        assert status == 200
+        assert resp["id"] == 7
+        result = resp["result"]
+        assert result["protocolVersion"] == "2025-03-26"
+        assert result["capabilities"]["tools"]["listChanged"] is False
+        assert result["serverInfo"]["name"] == "trinity-loopback"
+
+    async def test_initialized_notification_is_ack_only(self):
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        }).encode()
+
+        status, resp_body = await _http_request(
+            "127.0.0.1", self._port, "POST", "/mcp", self._token, body
+        )
+
+        assert status == 202
+        assert json.loads(resp_body) == {}
+
     async def test_unknown_method_returns_error(self):
         status, resp = await _mcp_request(
             self._port, self._token, "resources/list",
@@ -397,12 +430,52 @@ class TestCurrentScopeTool:
         yield
         await server.stop()
 
-    async def test_returns_scope_without_diff(self):
+    async def test_returns_scope_from_cmd_review_artifacts(self):
         # Write metadata
         meta = {
             "input": {
                 "mode": "plan-review",
-                "changed_files": ["src/main.py", "tests/test_main.py"],
+                "changed_paths": ["src/main.py", "tests/test_main.py"],
+            }
+        }
+        (self._review_dir / "metadata.json").write_text(json.dumps(meta))
+        (self._review_dir / "prompt.md").write_text(
+            "Instructions\n\n"
+            "## Git Diff\n\n"
+            "```diff\n"
+            "diff --git a/src/main.py b/src/main.py\n"
+            "--- a/src/main.py\n"
+            "+++ b/src/main.py\n"
+            "@@ -1 +1 @@\n"
+            "-old line\n"
+            "+new line\n"
+            "```\n\n"
+            "## File Snapshots\n\n"
+            "### src/main.py\n"
+        )
+
+        status, resp = await _mcp_request(
+            self._port,
+            self._token,
+            "tools/call",
+            {
+                "name": TOOL_CURRENT_SCOPE,
+                "arguments": {"review_dir": str(self._review_dir)},
+            },
+        )
+        assert status == 200
+        result = json.loads(resp["result"]["content"][0]["text"])
+        assert result["status"] == "ok"
+        assert result["data"]["mode"] == "plan-review"
+        assert "src/main.py" in result["data"]["changed_files"]
+        assert "diff --git a/src/main.py b/src/main.py" in result["data"]["diff"]
+        assert result["data"]["changed_lines"] == 2
+
+    async def test_returns_legacy_scope_without_diff(self):
+        meta = {
+            "input": {
+                "mode": "plan-review",
+                "changed_files": ["legacy.py"],
             }
         }
         (self._review_dir / "metadata.json").write_text(json.dumps(meta))
@@ -419,8 +492,8 @@ class TestCurrentScopeTool:
         assert status == 200
         result = json.loads(resp["result"]["content"][0]["text"])
         assert result["status"] == "ok"
-        assert result["data"]["mode"] == "plan-review"
-        assert "src/main.py" in result["data"]["changed_files"]
+        assert result["data"]["changed_files"] == ["legacy.py"]
+        assert result["data"]["diff"] is None
 
     async def test_handles_missing_review_dir(self):
         status, resp = await _mcp_request(
@@ -620,16 +693,83 @@ class TestResolvePriorReview:
         prior.mkdir(parents=True)
         current.mkdir()
         (prior / "metadata.json").write_text(json.dumps({
-            "input": {"review_input_sha256": "abc123"},
+            "input": {
+                "mode": "pr",
+                "scope": ".",
+                "pr": 42,
+                "review_input_sha256": "abc123",
+            },
             "status": "completed",
             "created_at": "2026-01-01T00:00:00",
         }))
         (current / "metadata.json").write_text(json.dumps({
-            "input": {"review_input_sha256": "abc123"},
+            "input": {
+                "mode": "pr",
+                "scope": ".",
+                "pr": 42,
+                "review_input_sha256": "abc123",
+            },
         }))
         result = _resolve_prior_review(current, "abc123")
         assert result is not None
         assert result["status"] == "completed"
+
+    def test_requires_same_review_identity(self, tmp_path):
+        rev_dir = tmp_path / "reviews"
+        prior = rev_dir / "20260529-010000-pr"
+        current = rev_dir / "20260529-020000-pr"
+        prior.mkdir(parents=True)
+        current.mkdir()
+        same_hash = "abc123"
+        (prior / "metadata.json").write_text(json.dumps({
+            "input": {
+                "mode": "pr",
+                "scope": ".",
+                "pr": 41,
+                "review_input_sha256": same_hash,
+            },
+        }))
+        (current / "metadata.json").write_text(json.dumps({
+            "input": {
+                "mode": "pr",
+                "scope": ".",
+                "pr": 42,
+                "review_input_sha256": same_hash,
+            },
+        }))
+
+        assert _resolve_prior_review(current, same_hash) is None
+
+    def test_sorts_prior_reviews_by_directory_timestamp_before_mtime(self, tmp_path):
+        rev_dir = tmp_path / "reviews"
+        older = rev_dir / "20260529-010000-pr"
+        newer = rev_dir / "20260529-020000-pr"
+        current = rev_dir / "20260529-030000-pr"
+        older.mkdir(parents=True)
+        newer.mkdir()
+        current.mkdir()
+        review_input = {
+            "mode": "pr",
+            "scope": ".",
+            "pr": 42,
+            "review_input_sha256": "abc123",
+        }
+        (older / "metadata.json").write_text(json.dumps({
+            "input": review_input,
+            "status": "older",
+        }))
+        (newer / "metadata.json").write_text(json.dumps({
+            "input": review_input,
+            "status": "newer",
+        }))
+        (current / "metadata.json").write_text(json.dumps({"input": review_input}))
+        os.utime(older, (9999999999, 9999999999))
+        os.utime(newer, (1, 1))
+
+        result = _resolve_prior_review(current, "abc123")
+
+        assert result is not None
+        assert result["status"] == "newer"
 
     def test_no_match_for_wrong_hash(self, tmp_path):
         rev_dir = tmp_path / "reviews"
@@ -638,10 +778,20 @@ class TestResolvePriorReview:
         prior.mkdir(parents=True)
         current.mkdir()
         (prior / "metadata.json").write_text(json.dumps({
-            "input": {"review_input_sha256": "diff-hash"},
+            "input": {
+                "mode": "pr",
+                "scope": ".",
+                "pr": 42,
+                "review_input_sha256": "diff-hash",
+            },
         }))
         (current / "metadata.json").write_text(json.dumps({
-            "input": {"review_input_sha256": "target-hash"},
+            "input": {
+                "mode": "pr",
+                "scope": ".",
+                "pr": 42,
+                "review_input_sha256": "target-hash",
+            },
         }))
         result = _resolve_prior_review(current, "target-hash")
         assert result is None
@@ -663,7 +813,12 @@ class TestResolvePriorReview:
         current = rev_dir / "rev-001"
         current.mkdir(parents=True)
         (current / "metadata.json").write_text(json.dumps({
-            "input": {"review_input_sha256": "abc123"},
+            "input": {
+                "mode": "pr",
+                "scope": ".",
+                "pr": 42,
+                "review_input_sha256": "abc123",
+            },
         }))
         # The only review dir with this hash IS the current one
         result = _resolve_prior_review(current, "abc123")
@@ -758,6 +913,62 @@ class TestCountDiffLines:
 -old_b
 +new_b"""
         assert _count_diff_lines(diff) == 4
+
+
+class TestExtractPromptDiff:
+    """Diff extraction from rendered prompt.md."""
+
+    def test_extracts_fenced_git_diff(self):
+        prompt = """Intro
+
+## Git Diff
+
+```diff
+diff --git a/a.py b/a.py
+--- a/a.py
++++ b/a.py
+@@ -1 +1 @@
+-old
++new
+```
+
+### a.py
+"""
+        diff = _extract_prompt_diff(prompt)
+        assert diff is not None
+        assert diff.startswith("diff --git a/a.py b/a.py")
+        assert "### a.py" not in diff
+
+    def test_extracts_raw_git_diff_before_file_snapshots(self):
+        prompt = """Review only.
+diff --git a/a.py b/a.py
+--- a/a.py
++++ b/a.py
+@@ -1 +1 @@
+-old
++new
+
+### a.py
+
+```text
+new
+```
+"""
+        diff = _extract_prompt_diff(prompt)
+        assert diff is not None
+        assert diff.startswith("diff --git a/a.py b/a.py")
+        assert "```text" not in diff
+
+
+class TestSignalHandlerRegistration:
+    """Signal handler registration tolerates unsupported loop contexts."""
+
+    def test_runtime_error_is_nonfatal(self):
+        class FakeLoop:
+            def add_signal_handler(self, *args):
+                raise RuntimeError("set_wakeup_fd only works in main thread")
+
+        assert _try_add_signal_handler(FakeLoop(), signal.SIGTERM, lambda: None) is False
 
 
 class TestMethodologyConstant:
@@ -912,6 +1123,24 @@ class TestEndpointRouting:
             "127.0.0.1", self._port, "GET", "/unknown", self._token,
         )
         assert status == 404
+
+    async def test_sse_headers_end_before_endpoint_event(self):
+        reader, writer = await asyncio.open_connection("127.0.0.1", self._port)
+        try:
+            request = (
+                f"GET /sse HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{self._port}\r\n"
+                f"Authorization: Bearer {self._token}\r\n"
+                "\r\n"
+            ).encode()
+            writer.write(request)
+            await writer.drain()
+
+            data = await asyncio.wait_for(reader.readuntil(b"event: endpoint"), 1.0)
+
+            assert b"\r\n\r\nevent: endpoint" in data
+        finally:
+            writer.close()
 
     async def test_wrong_method_on_mcp(self):
         status, body = await _http_request(

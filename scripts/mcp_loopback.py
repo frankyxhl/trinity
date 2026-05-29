@@ -30,6 +30,7 @@ Lifecycle:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -85,7 +86,7 @@ class SseSession:
     """An active SSE connection with its pending-response queue."""
 
     session_id: str
-    messages: asyncio.Queue[dict] = field(default_factory=asyncio.Queue)
+    messages: asyncio.Queue[str] = field(default_factory=asyncio.Queue)
     _closed: bool = False
 
     async def send_event(self, event: str, data: str) -> None:
@@ -95,7 +96,10 @@ class SseSession:
         await self.messages.put(payload)
 
     def close(self) -> None:
+        if self._closed:
+            return
         self._closed = True
+        self.messages.put_nowait("")
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +204,64 @@ def _read_completed_peer_outputs(review_dir: Path, current_provider: str | None)
     return results
 
 
+def _read_review_metadata(review_dir: Path) -> dict[str, Any]:
+    """Read metadata.json from a review directory."""
+    meta_path = review_dir / "metadata.json"
+    try:
+        if meta_path.is_file():
+            meta = json.loads(meta_path.read_text())
+            if isinstance(meta, dict):
+                return meta
+    except (json.JSONDecodeError, OSError, PermissionError):
+        pass
+    return {}
+
+
+def _metadata_input(meta: dict[str, Any]) -> dict[str, Any]:
+    input_info = meta.get("input", {})
+    return input_info if isinstance(input_info, dict) else {}
+
+
+def _review_identity(
+    input_info: dict[str, Any],
+    review_input_sha256: str | None = None,
+) -> tuple[tuple[str, Any], ...] | None:
+    """Return the stable review identity used to reuse prior summaries."""
+    input_hash = input_info.get("review_input_sha256") or review_input_sha256
+    mode = input_info.get("mode")
+    if not input_hash or not mode:
+        return None
+
+    fields: list[tuple[str, Any]] = [
+        ("mode", mode),
+        ("scope", input_info.get("scope") or "."),
+        ("review_input_sha256", input_hash),
+    ]
+
+    if mode == "pr":
+        if input_info.get("pr") is None:
+            return None
+        fields.append(("pr", input_info.get("pr")))
+    elif mode == "base-head":
+        if not input_info.get("base") or not input_info.get("head"):
+            return None
+        fields.extend([
+            ("base", input_info.get("base")),
+            ("head", input_info.get("head")),
+        ])
+    elif mode == "working-tree":
+        fields.extend([
+            ("base", input_info.get("base") or "HEAD"),
+            ("head", input_info.get("head") or "working-tree"),
+        ])
+    else:
+        for key in ("pr", "base", "head"):
+            if key in input_info:
+                fields.append((key, input_info.get(key)))
+
+    return tuple(fields)
+
+
 def _resolve_prior_review(
     current_review_dir: Path,
     review_input_sha256: str,
@@ -207,11 +269,17 @@ def _resolve_prior_review(
     """Find the immediately prior review matching the same input identity.
 
     Looks in the parent reviews directory for the most recent review
-    (by mtime, tiebroken by directory name) whose metadata.json contains
-    a matching review_input_sha256 field.
+    matching the current mode/scope/review identity plus input hash.
     """
     reviews_parent = current_review_dir.parent
     if not reviews_parent.is_dir():
+        return None
+
+    current_identity = _review_identity(
+        _metadata_input(_read_review_metadata(current_review_dir)),
+        review_input_sha256,
+    )
+    if current_identity is None:
         return None
 
     candidates: list[Path] = []
@@ -222,30 +290,25 @@ def _resolve_prior_review(
             meta_path = entry / "metadata.json"
             if not meta_path.is_file():
                 continue
-            try:
-                meta = json.loads(meta_path.read_text())
-                if (
-                    isinstance(meta, dict)
-                    and "input" in meta
-                    and isinstance(meta["input"], dict)
-                    and meta["input"].get("review_input_sha256") == review_input_sha256
-                ):
-                    candidates.append(entry)
-            except (json.JSONDecodeError, OSError, PermissionError):
+            meta = _read_review_metadata(entry)
+            candidate_input = _metadata_input(meta)
+            if candidate_input.get("review_input_sha256") != review_input_sha256:
                 continue
+            if _review_identity(candidate_input) == current_identity:
+                candidates.append(entry)
     except (OSError, PermissionError):
         return None
 
     if not candidates:
         return None
 
-    # Pick the most recent by mtime, tiebroken by directory name descending
-    def _sort_key(p: Path) -> tuple[float, str]:
+    # Pick the most recent by review timestamp, tiebroken by mtime.
+    def _sort_key(p: Path) -> tuple[str, float]:
         try:
             mtime = p.stat().st_mtime
         except OSError:
             mtime = 0.0
-        return (mtime, p.name)
+        return (p.name[:15], mtime)
 
     candidates.sort(key=_sort_key, reverse=True)
     best = candidates[0]
@@ -257,7 +320,7 @@ def _resolve_prior_review(
         meta_path = best / "metadata.json"
         if meta_path.is_file():
             best_meta = json.loads(meta_path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, PermissionError):
         pass
 
     try:
@@ -374,24 +437,8 @@ def _handle_current_scope(arguments: dict[str, Any]) -> dict:
     if not review_dir.is_dir():
         return _make_tool_result("error", error=f"review_dir not found: {review_dir_str}")
 
-    # Slice A: no provider wired yet — read metadata scope if available
-    meta_path = review_dir / "metadata.json"
-    try:
-        if meta_path.is_file():
-            meta = json.loads(meta_path.read_text())
-            scope_info = meta.get("input", {})
-        else:
-            scope_info = {}
-    except (json.JSONDecodeError, OSError):
-        scope_info = {}
-
-    diff_path = review_dir / "diff.patch"
-    diff_content = None
-    try:
-        if diff_path.is_file():
-            diff_content = diff_path.read_text()
-    except (OSError, PermissionError):
-        diff_content = None
+    scope_info = _metadata_input(_read_review_metadata(review_dir))
+    diff_content = _read_review_diff(review_dir)
 
     # Cap response size to protect provider context windows
     MAX_SCOPE_BYTES = 512 * 1024  # 512 KiB
@@ -401,7 +448,7 @@ def _handle_current_scope(arguments: dict[str, Any]) -> dict:
             error=f"Scope exceeds {MAX_SCOPE_BYTES}-byte ceiling; resolve a narrower scope first",
         )
 
-    changed_files = scope_info.get("changed_files", [])
+    changed_files = scope_info.get("changed_paths") or scope_info.get("changed_files", [])
     if diff_content:
         changed_lines = _count_diff_lines(diff_content)
     else:
@@ -415,6 +462,53 @@ def _handle_current_scope(arguments: dict[str, Any]) -> dict:
         "metadata": scope_info,
     }
     return _make_tool_result("ok", data=data)
+
+
+def _read_review_diff(review_dir: Path) -> str | None:
+    """Read the diff from cmd_review artifacts, with legacy diff.patch fallback."""
+    prompt_path = review_dir / "prompt.md"
+    try:
+        if prompt_path.is_file():
+            diff_content = _extract_prompt_diff(prompt_path.read_text())
+            if diff_content:
+                return diff_content
+    except (OSError, PermissionError):
+        pass
+
+    diff_path = review_dir / "diff.patch"
+    try:
+        if diff_path.is_file():
+            return diff_path.read_text()
+    except (OSError, PermissionError):
+        pass
+    return None
+
+
+def _extract_prompt_diff(prompt_text: str) -> str | None:
+    """Extract the rendered review diff from prompt.md."""
+    search_from = prompt_text.find("## Git Diff")
+    if search_from < 0:
+        search_from = 0
+
+    fence_start = prompt_text.find("```diff", search_from)
+    if fence_start >= 0:
+        body_start = prompt_text.find("\n", fence_start)
+        if body_start >= 0:
+            body_start += 1
+            body_end = prompt_text.find("\n```", body_start)
+            if body_end < 0:
+                return prompt_text[body_start:].rstrip()
+            return prompt_text[body_start:body_end].rstrip()
+
+    raw_start = prompt_text.find("diff --git ", search_from)
+    if raw_start < 0:
+        return None
+    raw_end = len(prompt_text)
+    for marker in ("\n### ", "\n## Review Schema", "\n## Structured Output"):
+        marker_pos = prompt_text.find(marker, raw_start)
+        if marker_pos >= 0:
+            raw_end = min(raw_end, marker_pos)
+    return prompt_text[raw_start:raw_end].rstrip()
 
 
 def _count_diff_lines(diff: str) -> int:
@@ -549,10 +643,46 @@ def _make_tools_list_response(request_id: Any) -> dict:
     )
 
 
+def _make_initialize_response(request_id: Any, params: dict[str, Any]) -> dict:
+    """Build the MCP initialize response required before tool discovery."""
+    protocol_version = params.get("protocolVersion") or MCP_PROTOCOL_VERSION_STREAMABLE
+    return _make_jsonrpc_response(
+        request_id,
+        result={
+            "protocolVersion": protocol_version,
+            "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {"name": "trinity-loopback", "version": "0.1.0"},
+        },
+    )
+
+
 async def _make_tool_call_response(request_id: Any, tool_name: str, arguments: dict) -> dict:
     """Build tools/call response by dispatching to the handler."""
     tool_result = await handle_tool_call(tool_name, arguments)
     return _make_jsonrpc_response(request_id, result=tool_result)
+
+
+async def _dispatch_mcp_request(request: dict[str, Any]) -> dict | None:
+    """Dispatch one MCP JSON-RPC request. Returns None for notifications."""
+    request_id = request.get("id")
+    method_name = request.get("method", "")
+    params = request.get("params", {})
+    if not isinstance(params, dict):
+        params = {}
+
+    if method_name == "initialize":
+        return _make_initialize_response(request_id, params)
+    if method_name == "notifications/initialized":
+        return None
+    if method_name == "tools/list":
+        return _make_tools_list_response(request_id)
+    if method_name == "tools/call":
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {})
+        if not isinstance(arguments, dict):
+            arguments = {}
+        return await _make_tool_call_response(request_id, tool_name, arguments)
+    return _make_jsonrpc_error(request_id, -32601, f"Method not found: {method_name}")
 
 
 # ---------------------------------------------------------------------------
@@ -691,33 +821,55 @@ class McpLoopbackServer:
         resp_lines = [b"HTTP/1.1 200 OK"]
         for k, v in resp_headers:
             resp_lines.append(f"{k}: {v}".encode())
-        resp_lines.append(b"")
-        writer.write(b"\r\n".join(resp_lines))
+        writer.write(b"\r\n".join(resp_lines) + b"\r\n\r\n")
         await writer.drain()
 
+        disconnect_task = asyncio.create_task(reader.read())
         try:
             # Send the endpoint event with session info
             endpoint_url = f"/messages?sessionId={session_id}"
             await session.send_event("endpoint", endpoint_url)
 
             # Stream events from the queue
-            while not self._stopped:
+            while not self._stopped and not session._closed:
+                message_task = asyncio.create_task(session.messages.get())
                 try:
-                    payload = await asyncio.wait_for(
-                        session.messages.get(), timeout=30.0
+                    done, _ = await asyncio.wait(
+                        {message_task, disconnect_task},
+                        timeout=30.0,
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
+                    if disconnect_task in done:
+                        with contextlib.suppress(ConnectionError, OSError):
+                            await disconnect_task
+                        message_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await message_task
+                        break
+                    if message_task not in done:
+                        message_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await message_task
+                        try:
+                            writer.write(b": keepalive\n\n")
+                            await writer.drain()
+                        except (ConnectionError, OSError):
+                            break
+                        continue
+                    payload = message_task.result()
+                    if not payload:
+                        continue
                     writer.write(payload.encode())
                     await writer.drain()
-                except asyncio.TimeoutError:
-                    # Send keepalive comment
-                    try:
-                        writer.write(b": keepalive\n\n")
-                        await writer.drain()
-                    except (ConnectionError, OSError):
-                        break
+                except asyncio.CancelledError:
+                    message_task.cancel()
+                    raise
         except (asyncio.CancelledError, ConnectionError, OSError):
             pass
         finally:
+            disconnect_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, ConnectionError, OSError):
+                await disconnect_task
             session.close()
             async with self._sse_sessions_lock:
                 self._sse_sessions.pop(session_id, None)
@@ -762,24 +914,10 @@ class McpLoopbackServer:
             await self._write_response(writer, resp)
             return
 
-        # Process the request and send response via SSE
-        request_id = request.get("id")
-        method_name = request.get("method", "")
-        params = request.get("params", {})
-
-        if method_name == "tools/list":
-            response = _make_tools_list_response(request_id)
-        elif method_name == "tools/call":
-            tool_name = params.get("name", "")
-            arguments = params.get("arguments", {})
-            response = await _make_tool_call_response(request_id, tool_name, arguments)
-        else:
-            response = _make_jsonrpc_error(
-                request_id, -32601, f"Method not found: {method_name}"
-            )
-
-        # Send response via SSE
-        await session.send_event("message", json.dumps(response))
+        # Process the request and send responses via SSE; notifications are ACK-only.
+        response = await _dispatch_mcp_request(request)
+        if response is not None:
+            await session.send_event("message", json.dumps(response))
 
         # ACK the POST
         ack = _build_http_response(202, "Accepted", b"{}")
@@ -801,23 +939,12 @@ class McpLoopbackServer:
             await self._write_response(writer, resp)
             return
 
-        request_id = request.get("id")
-        method_name = request.get("method", "")
-        params = request.get("params", {})
-
-        if method_name == "tools/list":
-            response = _make_tools_list_response(request_id)
-        elif method_name == "tools/call":
-            tool_name = params.get("name", "")
-            arguments = params.get("arguments", {})
-            response = await _make_tool_call_response(request_id, tool_name, arguments)
+        response = await _dispatch_mcp_request(request)
+        if response is None:
+            http_resp = _build_http_response(202, "Accepted", b"{}")
         else:
-            response = _make_jsonrpc_error(
-                request_id, -32601, f"Method not found: {method_name}"
-            )
-
-        body_bytes = json.dumps(response).encode()
-        http_resp = _build_http_response(200, "OK", body_bytes)
+            body_bytes = json.dumps(response).encode()
+            http_resp = _build_http_response(200, "OK", body_bytes)
         await self._write_response(writer, http_resp)
 
 
@@ -840,6 +967,20 @@ def _handle_sigterm(server: McpLoopbackServer, loop: asyncio.AbstractEventLoop) 
     """Signal handler for SIGTERM — schedule server stop."""
     logger.info("Received SIGTERM, shutting down MCP server")
     loop.call_soon_threadsafe(asyncio.create_task, server.stop())
+
+
+def _try_add_signal_handler(
+    loop: asyncio.AbstractEventLoop,
+    sig: signal.Signals,
+    callback: Any,
+    *args: Any,
+) -> bool:
+    """Register a signal handler when the current loop/platform supports it."""
+    try:
+        loop.add_signal_handler(sig, callback, *args)
+        return True
+    except (NotImplementedError, ValueError, RuntimeError):
+        return False
 
 
 def start_server_blocking(
@@ -865,16 +1006,7 @@ def start_server_blocking(
             loop.run_until_complete(server.start())
             port_future.append(server.port)
 
-            # Register SIGTERM handler
-            try:
-                loop.add_signal_handler(
-                    signal.SIGTERM,
-                    _handle_sigterm,
-                    server,
-                    loop,
-                )
-            except (NotImplementedError, ValueError):
-                pass  # Not on all platforms
+            _try_add_signal_handler(loop, signal.SIGTERM, _handle_sigterm, server, loop)
 
             loop.run_forever()
         except Exception as exc:
@@ -916,11 +1048,8 @@ async def _async_main() -> None:
         shutdown_event.set()
 
     loop = asyncio.get_running_loop()
-    try:
-        loop.add_signal_handler(signal.SIGTERM, _signal_handler)
-        loop.add_signal_handler(signal.SIGINT, _signal_handler)
-    except (NotImplementedError, ValueError):
-        pass
+    _try_add_signal_handler(loop, signal.SIGTERM, _signal_handler)
+    _try_add_signal_handler(loop, signal.SIGINT, _signal_handler)
 
     try:
         await _run_server_and_wait(server, shutdown_event)
