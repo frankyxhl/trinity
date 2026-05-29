@@ -5,7 +5,7 @@
 **Last reviewed:** (plan-review pending)
 **Status:** Draft
 **Reviewed by:** (pending)
-**Related:** TRN-1000, TRN-1007, TRN-1008, TRN-3000, TRN-3020, GitHub issues #63, #137
+**Related:** TRN-1000, TRN-1007, TRN-1008, TRN-2019, TRN-3000, TRN-3020, TRN-3023, GitHub issues #63, #137
 
 ---
 
@@ -45,19 +45,25 @@ A loopback MCP bridge lets provider B query "what's provider A worried about so 
 |---|---|---|
 | `trinity__current_scope` | Structured JSON re-read of files/diff hunks under review, including `diff --git` output and changed-file list from the review input. This duplicates prompt content intentionally so a provider can re-index scope by file path after a long reasoning/tool chain without reparsing its prompt. | Review input assembled by `cmd_review` before provider dispatch |
 | `trinity__peer_findings_so_far` | Concatenation of completed `raw/<other-provider>.txt` output for providers that have already completed their turn. If no peer output has completed yet, returns `"status": "empty"` rather than blocking. | `review_dir/raw/` directory, read at call time; Slice A must read only completed provider artifacts |
-| `trinity__prior_review_summary` | Structured summary (`synthesis.md` + `metadata.json` key fields) from the immediately prior review on this exact scope, if one exists. Scope matching is exact string equality against `metadata.json.input.scope`; no prefix or fuzzy matching in v1. | `.trinity/reviews/<prior_timestamp>-<scope>/` directory, resolved by exact metadata scope |
-| `trinity__methodology_rule` | The current methodology rule text from TRN-1007 §4 Methodology, as a callable tool that providers can invoke programmatically | Read from `rules/TRN-1007-SOP-PR-Readiness.md` at the stable `### §4. Methodology` heading at MCP server start; v1 may cache it for the review lifetime |
+| `trinity__prior_review_summary` | Structured summary (`synthesis.md` + `metadata.json` key fields) from the immediately prior review on this exact scope, if one exists. Scope matching is exact string equality against `metadata.json.input.scope`; no prefix or fuzzy matching in v1. Review directories with missing or malformed `metadata.json` are skipped; if no valid prior match remains, return `"status": "empty"`. | `.trinity/reviews/<prior_timestamp>-<scope>/` directory, resolved by exact metadata scope |
+| `trinity__methodology_rule` | The current methodology rule text from TRN-1007 §4 Methodology (`### §4. Methodology (PR #60 / #61 / #64-derived 6-step rule)`), as a callable tool that providers can invoke programmatically | Read from `rules/TRN-1007-SOP-PR-Readiness.md` at MCP server start by matching the first heading whose line starts with `### §4. Methodology`; server startup fails with a clear error if the heading is missing; v1 may cache it for the review lifetime |
 
-`trinity__peer_findings_so_far` is opportunistic in v1: Trinity still dispatches providers in parallel, and no provider is delayed just to create peer findings. The tool becomes useful when provider runtimes naturally differ, when a provider calls it later in its turn, or in the Slice F regression fixture where the test may deliberately stagger provider start times to make the peer-signal path observable. Slice A must expose only completed peer output: parent-side capture writes to a temp path and atomically renames to `raw/<provider>.txt` after provider exit, or uses an equivalent `.done` sentinel; in-progress partial bytes are not returned by the MCP tool.
+`trinity__peer_findings_so_far` is opportunistic in v1: Trinity still dispatches providers in parallel, and no provider is delayed just to create peer findings. The tool becomes useful when provider runtimes naturally differ, when a provider calls it later in its turn, or in the Slice F regression fixture where the test may deliberately stagger provider start times to make the peer-signal path observable. Slice A must expose only completed peer output: parent-side capture writes to a temp path and atomically renames to `raw/<provider>.txt` after provider exit, or uses an equivalent `.done` sentinel; in-progress partial bytes are not returned by the MCP tool. Concurrent calls return a snapshot of the completed outputs visible at call start, which is safe because completed artifacts appear atomically.
 
-`trinity__methodology_rule` intentionally points to TRN-1007 rather than the historical TRN-3020 origin text. TRN-3020 introduced the 5-step prompt addendum, while later PR #60 / #61 / #64 lessons promoted the current aggregate method into TRN-1007 §4. Future edits to TRN-1007 §4 must preserve the heading or update Slice A's lookup marker in the same PR.
+`trinity__methodology_rule` intentionally points to TRN-1007 rather than the historical TRN-3020 origin text. TRN-3020 introduced the 5-step prompt addendum, while later PR #60 / #61 / #64 lessons promoted the current aggregate method into TRN-1007 §4. Future edits to TRN-1007 §4 must preserve the `### §4. Methodology` heading prefix or update Slice A's lookup marker in the same PR.
 
 **Tool response shape** — all tools return a JSON object with at minimum:
-- `"status"` — `"ok"` or `"empty"` (no data available, not an error)
-- `"data"` — the payload (string for methodology_rule, object/array for the others)
-- `"error"` — null for `"ok"`; error message string for error conditions
+- `"status"` — `"ok"`, `"empty"` (no data available, not an error), or `"error"` for recoverable tool-level failures
+- `"data"` — the payload (string for methodology_rule, object/array for the others), or null for `"error"`
+- `"error"` — null for `"ok"` / `"empty"`; error message string for `"error"`
 
-**Protocol**: The MCP server targets MCP `2024-11-05` over HTTP SSE unless Slice A records a newer stable protocol version. MCP over HTTP SSE uses a long-lived SSE stream for server-to-client messages and a separate POST endpoint for client-to-server requests. The server MUST be capable of holding concurrent SSE connections while accepting POST messages — a single-threaded synchronous handler cannot serve MCP/SSE. Each tool is exposed as an MCP tool (request/response) rather than a resource — the provider invokes it via its own MCP SDK or tool-use mechanism, not via a static URL fetch.
+**Protocol and transports**: The MCP server exposes one shared read-only tool registry behind provider-specific HTTP transport adapters. Slice A must implement an async server core and document the exact MCP protocol version(s) it supports. Baseline targets: MCP `2024-11-05` for the HTTP SSE adapter and MCP `2025-03-26` for the streamable HTTP adapter, unless Slice A records a newer stable protocol version supported by the confirmed-v1 providers.
+
+- **HTTP SSE adapter**: Required for providers whose current CLI supports MCP via an SSE URL. MCP over HTTP SSE uses a long-lived SSE stream for server-to-client messages and a separate POST endpoint for client-to-server requests. The server MUST be capable of holding concurrent SSE connections while accepting POST messages — a single-threaded synchronous handler cannot serve MCP/SSE.
+- **Streamable HTTP adapter**: Required for Codex. Current Codex CLI exposes `codex mcp add --url` as a streamable HTTP MCP server path, so Slice C must attach Codex to a streamable HTTP endpoint (for example `http://127.0.0.1:<port>/mcp`) rather than an SSE-only `/sse` endpoint.
+- **Endpoint requirement**: Slice A must serve both `/sse` and `/mcp` simultaneously on the same loopback port so Slice B and Slice C can run in the same review process.
+
+Each tool is exposed as an MCP tool (request/response) rather than a resource — the provider invokes it via its own MCP SDK or tool-use mechanism, not via a static URL fetch.
 
 **Security model**:
 - Bind address: `127.0.0.1` only (loopback; never exposes to LAN/WAN)
@@ -65,7 +71,7 @@ A loopback MCP bridge lets provider B query "what's provider A worried about so 
 - Authentication: Bearer token, generated at server start as a random 32-character hex string, passed to provider configs via environment variable `TRINITY_MCP_TOKEN`
 - Termination: MCP server process is killed on `cmd_review` exit (both normal completion and SIGTERM/SIGINT/cancel); SIGTERM handler in the parent kills the MCP server subprocess before cleaning up provider process groups
 - No TLS (loopback-only; bearer token provides auth; unencrypted localhost is acceptable per threat model)
-- Request rate-limiting: v1 has no explicit rate limit. The server uses an async-capable framework (e.g. `aiohttp`) to handle concurrent SSE connections and POST requests. Each provider runs a single review turn with sequential tool calls within that turn, so concurrent tool-call volume is bounded by the number of in-flight providers.
+- Request rate-limiting: v1 has no explicit rate limit. The server uses an async-capable HTTP framework or stdlib-compatible async server chosen in Slice A; a new dependency such as `aiohttp` must be justified against TRN-3000's CLI-backend minimalism. Each provider runs a single review turn with sequential tool calls within that turn, so concurrent tool-call volume is bounded by the number of in-flight providers.
 
 **Write-tool exclusion (v1 hard boundary)**: The MCP server exposes **no write tools**. Providers cannot:
 - Write to `raw/<provider>.txt` via MCP (Trinity's parent-side file writer owns this channel)
@@ -78,6 +84,7 @@ This boundary is enforced at the tool-registration level — the server construc
 
 - Write tools (MCP or otherwise) — entire surface deferred
 - Cross-review history beyond the immediate prior review summary
+- Fuzzy or prefix scope matching for prior-review lookup
 - Tool-call telemetry / logging of which provider called which tool when
 - Dynamic provider registration or capability discovery through MCP
 - Broadcast/diffusion of findings to not-yet-started providers (they discover via `trinity__peer_findings_so_far` at their start time)
@@ -112,8 +119,9 @@ cmd_review start
       │             during their turn → read completed raw/<other>.txt outputs
       │
       ├── 5. kill MCP server
-      ├── 6. write synthesis
-      └── 7. cleanup / exit
+      ├── 6. clear TRINITY_MCP_TOKEN from parent env
+      ├── 7. write synthesis
+      └── 8. cleanup / exit
 ```
 
 ### Provider Injection Matrix
@@ -123,7 +131,7 @@ Each provider needs MCP configuration injected into its environment before the C
 | Provider | MCP injection mechanism | Status | Details |
 |---|---|---|---|
 | **claude-code** | Temp config file + `--mcp-config` flag | **Confirmed** (Slice B) | Write a temp `claude-config.json` with a `mcpServers.trinity` entry pointing at `http://127.0.0.1:<port>/sse` with `Authorization: Bearer <token>` header. Pass via `--mcp-config <tempfile>`. Temp file cleaned up in `at_exit` handler. |
-| **codex** | Inline `-c mcp_servers.trinity={...}` config overrides | **Confirmed** (Slice C) | Build JSON string for `mcp_servers.trinity` key (`url` + `headers.Authorization`). Pass as `-c mcp_servers.trinity='{"url":"http://...","headers":{"Authorization":"Bearer ..."}}'`. Restriction: codex CLI accepts JSON-string values for config overrides; the JSON must be properly escaped for the shell. |
+| **codex** | Inline `-c mcp_servers.trinity.url=...` + `-c mcp_servers.trinity.bearer_token_env_var=TRINITY_MCP_TOKEN` config overrides | **Confirmed** (Slice C) | Attach to the streamable HTTP endpoint, not `/sse`. Pass the URL and bearer-token env-var name as supported Codex config keys, for example `-c mcp_servers.trinity.url="http://127.0.0.1:<port>/mcp"` and `-c mcp_servers.trinity.bearer_token_env_var="TRINITY_MCP_TOKEN"`. Do not use an unsupported `headers` object. If Slice C chooses `env_http_headers` or `http_headers` instead, it must prove the key is accepted by the installed Codex CLI and avoid leaking the raw token into logs. |
 | **gemini** | **Unconfirmed in v1** — subject to Spike (Slice E) | Needs investigation | Gemini CLI (`gemini -p`) does not natively support MCP injection. Options: (a) wrap in a temp config that gemini's MCP subsystem reads; (b) extend gemini provider doc to note that gemini receives peer findings via a static prompt appendix instead of live MCP; (c) skip gemini for v1 and document as a limitation. |
 | **glm** | **Unconfirmed in v1** — subject to Spike (Slice E) | Needs investigation | GLM via `droid exec` does not advertise MCP support. The `droid` CLI may reject unrecognized config keys. Likely outcome: GLM v1 receives peer findings as a static prompt appendix, not live MCP. |
 | **openrouter** | **Unconfirmed in v1** — subject to Spike (Slice E) | Needs investigation | OpenRouter via `claude -p` backend wrapper inherits Claude's MCP config mechanism (temp config file + `--mcp-config`). However, OpenRouter's Anthropic-compatible endpoint may not support MCP tools in the API. The wrapper's `--mcp-config` flag would pass syntactically but the remote endpoint may ignore MCP tool declarations. |
@@ -146,7 +154,7 @@ Each provider needs MCP configuration injected into its environment before the C
    | Provider | Token medium | Risk |
    |---|---|---|
    | claude-code | Written to temp `claude-config.json` (on disk during review) | Low — private temp directory, mode 0600, cleaned up on exit |
-   | codex | Passed via `-c mcp_servers.trinity=...` inline JSON (process argv) | Low — `procfs` readable by same-UID processes; mitigated by ephemeral token, short-lived review, no logging of config contents |
+   | codex | Environment variable `TRINITY_MCP_TOKEN`; Codex config argv contains only `url` and `bearer_token_env_var` key name | Low — raw token is not embedded in process argv; env is scoped to provider subprocess tree |
    | gemini/glm/openrouter/deepseek | Environment variable `TRINITY_MCP_TOKEN` (inherited by subprocess) | Low — env is scoped to provider subprocess tree |
 
    **Mitigations**:
@@ -154,8 +162,9 @@ Each provider needs MCP configuration injected into its environment before the C
    - Temp config files created with mode 0600.
    - Logging explicitly excludes config contents and bearer token values (log the config path, never the payload).
    - MCP server code never writes the token to review artifacts (`metadata.json`, `synthesis.md`, `raw/*.txt`). Provider LLM output is not filtered for token-like strings in v1; the token's short lifetime and loopback-only scope limit residual risk if a provider echoes its config.
-   - Process-argv exposure accepted as inherent to CLI-based invocation; the token's short lifetime (single `cmd_review` run) limits the window.
+   - Process-argv exposure is avoided for confirmed-v1 providers wherever the CLI supports bearer-token env indirection. Any future provider that requires raw-token argv exposure must document that exception and rely on the token's short lifetime (single `cmd_review` run).
    - MCP injection runs after TRN-3023 provider-environment sanitization, or `TRINITY_MCP_TOKEN` is explicitly preserved by the sanitizer. Slice A must add a regression test so future sanitizer broadening cannot strip the MCP token silently.
+   - Parent cleanup deletes `os.environ["TRINITY_MCP_TOKEN"]` after the MCP server is stopped, even on cancel paths.
 
 4. **Cleanup on exit/cancel**: The MCP server runs as a subprocess of the `cmd_review` parent. On normal exit, the parent sends SIGTERM and waits up to 5 seconds for graceful shutdown, then SIGKILL. On SIGTERM/SIGINT to the parent (user cancel), the signal handler:
    - Sets a `cancel` flag so running providers know they were cancelled (existing TRN-2019 pattern)
@@ -180,12 +189,12 @@ Slice letters are mnemonic, not a contiguous taxonomy: there is no Slice D in th
   │
   ├── #139 (Slice B) — claude-code injection
   │     Depends on: #138 (MCP server exists)
-  │     Delivers: temp claude-config.json synthesis, --mcp-config injection in claude-code provider spawn
+  │     Delivers: temp claude-config.json synthesis, --mcp-config injection in claude-code provider spawn code in scripts/codex.py
   │
   ├── #140 (Slice C) — Codex injection
   │     Depends on: #138 (MCP server exists)
   │     Note: #142 integration-tests this slice; #142 is not a merge gate for #140
-  │     Delivers: -c mcp_servers.trinity=... injection in codex provider spawn
+  │     Delivers: streamable HTTP MCP config injection in codex provider spawn code in scripts/codex.py
   │
   ├── #141 (Spike E) — remaining provider support matrix
   │     Depends on: #138 (server exists to test against)
@@ -215,8 +224,8 @@ Slice letters are mnemonic, not a contiguous taxonomy: there is no Slice D in th
 
 **Unit tests per slice**: Each CHG adds tests for its own deliverable:
 - Slice A: MCP server lifecycle (start, tool registration, auth rejection, shutdown)
-- Slice B: claude-config temp file generation, `--mcp-config` flag structure, cleanup
-- Slice C: codex inline config override string generation, shell-escape correctness
+- Slice B: claude-config temp file generation, `--mcp-config` flag structure, cleanup, and provider-spawn wiring in `scripts/codex.py`
+- Slice C: codex streamable HTTP config override generation, bearer-token env-var wiring, rejection of unsupported `headers` object configs, and provider-spawn wiring in `scripts/codex.py`
 - Spike E: no tests (investigation only)
 - Slice F: end-to-end regression fixture
 
@@ -254,7 +263,7 @@ This is the primary validation gate for the entire feature — proving that the 
 |---|---|---|---|
 | A | 3–5 unit tests on MCP server + `cmd_review` lifecycle wiring | `scripts/codex.py` coverage may drop ~0.5% if startup/shutdown integration branches are not covered immediately | `pytest tests/` green |
 | B | 2–3 unit tests on config file synthesis | net-neutral | `pytest tests/` green |
-| C | 2–3 unit tests on inline override string | net-neutral | `pytest tests/` green |
+| C | 2–3 unit tests on Codex streamable HTTP config overrides | net-neutral | `pytest tests/` green |
 | E | 0 (spike only) | unchanged | Spike report only |
 | F | PR #60 regression fixture (1 test, ~80 lines) | codex.py coverage recovers as integration points become covered | Fixture passes with ≥1 bug caught |
 
@@ -279,7 +288,7 @@ This is the primary validation gate for the entire feature — proving that the 
 - [ ] PRP includes validation strategy gated on PR #60 regression fixture (≥1 of 7 missed bugs caught).
 - [ ] PRP enumerates per-provider injection status (claude-code confirmed, codex confirmed, others TBD per spike).
 - [ ] `af validate --root .` is clean on the PRP commit.
-- [ ] `make verify-built` passes on the PRP commit.
+- [ ] `make verify-built` passes on the PRP commit; this is expected to be trivial for this docs-only PRP because no generated build artifacts are touched.
 
 ---
 
