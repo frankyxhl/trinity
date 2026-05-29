@@ -285,7 +285,7 @@ class TestToolList:
         )
 
         assert status == 202
-        assert json.loads(resp_body) == {}
+        assert resp_body == b""
 
     async def test_unknown_method_returns_error(self):
         status, resp = await _mcp_request(

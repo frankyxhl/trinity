@@ -1011,7 +1011,7 @@ class McpLoopbackServer:
             await session.send_event("message", json.dumps(response))
 
         # ACK the POST
-        ack = _build_http_response(202, "Accepted", b"{}")
+        ack = _build_http_response(202, "Accepted", b"")
         await self._write_response(writer, ack)
 
     # -- Streamable HTTP endpoint (/mcp) ------------------------------------
@@ -1032,7 +1032,7 @@ class McpLoopbackServer:
 
         response = await _dispatch_mcp_request(request, self._review_dir)
         if response is None:
-            http_resp = _build_http_response(202, "Accepted", b"{}")
+            http_resp = _build_http_response(202, "Accepted", b"")
         else:
             body_bytes = json.dumps(response).encode()
             http_resp = _build_http_response(200, "OK", body_bytes)
