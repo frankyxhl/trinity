@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `rules/TRN-3024-PRP-Loopback-MCP-Bridge.md` — Loopback MCP bridge PRP defining four read-only tools, provider injection matrix, slice order (#138–#142), security model, and PR #60 regression validation strategy. Closes #137, parent track #63.
 - TRN-2018 M1 — review status observability. `trinity status` now renders a
   live `Live state:` section when reading M1 metadata, showing each provider
   in `queued` / `running` / `finished` / `failed` / `timed_out` state with
