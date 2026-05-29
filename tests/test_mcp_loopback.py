@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import signal
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1091,10 +1092,42 @@ class TestLifecycle:
         os.environ["TRINITY_MCP_TOKEN"] = "preexisting-token"
         server = McpLoopbackServer()
         await server.start()
+        assert server.token == "preexisting-token"
         assert os.environ["TRINITY_MCP_TOKEN"] == "preexisting-token"
         await server.stop()
         # Clean up
         os.environ.pop("TRINITY_MCP_TOKEN", None)
+
+    async def test_custom_token_overwrites_existing_trinity_mcp_token(self):
+        from scripts.mcp_loopback import McpLoopbackServer
+
+        os.environ["TRINITY_MCP_TOKEN"] = "preexisting-token"
+        server = McpLoopbackServer(token="custom-token")
+        await server.start()
+        assert server.token == "custom-token"
+        assert os.environ["TRINITY_MCP_TOKEN"] == "custom-token"
+        await server.stop()
+        os.environ.pop("TRINITY_MCP_TOKEN", None)
+
+
+class TestBlockingLifecycle:
+    """Synchronous lifecycle helper cleanup."""
+
+    def test_stop_exits_background_loop(self):
+        from scripts.mcp_loopback import start_server_blocking
+
+        server, port = start_server_blocking(timeout=5.0)
+        loop = server._blocking_loop
+        assert port > 0
+        assert loop is not None
+        assert loop.is_running()
+
+        asyncio.run(server.stop())
+
+        deadline = time.monotonic() + 2.0
+        while loop.is_running() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not loop.is_running()
 
 
 # ---------------------------------------------------------------------------

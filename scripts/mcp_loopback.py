@@ -706,15 +706,17 @@ class McpLoopbackServer:
         token: str | None = None,
     ) -> None:
         self._review_dir = review_dir
-        self._token = token or secrets.token_hex(16)  # 32-char hex
+        env_token = os.environ.get("TRINITY_MCP_TOKEN")
+        self._token = token or env_token or secrets.token_hex(16)  # 32-char hex
         self._server: asyncio.AbstractServer | None = None
         self._port: int = 0
         self._sse_sessions: dict[str, SseSession] = {}
         self._sse_sessions_lock = asyncio.Lock()
         self._stopped = False
+        self._blocking_loop: asyncio.AbstractEventLoop | None = None
 
         # Ensure TRINITY_MCP_TOKEN is set for child processes
-        if "TRINITY_MCP_TOKEN" not in os.environ:
+        if token is not None or "TRINITY_MCP_TOKEN" not in os.environ:
             os.environ["TRINITY_MCP_TOKEN"] = self._token
 
     @property
@@ -745,6 +747,27 @@ class McpLoopbackServer:
 
     async def stop(self) -> None:
         """Gracefully stop the server and close all SSE sessions."""
+        blocking_loop = self._blocking_loop
+        running_loop = asyncio.get_running_loop()
+        if (
+            blocking_loop is not None
+            and blocking_loop.is_running()
+            and blocking_loop is not running_loop
+        ):
+            future = asyncio.run_coroutine_threadsafe(
+                self._stop_in_current_loop(),
+                blocking_loop,
+            )
+            await asyncio.wrap_future(future)
+            blocking_loop.call_soon_threadsafe(blocking_loop.stop)
+            return
+
+        await self._stop_in_current_loop()
+        if blocking_loop is running_loop:
+            blocking_loop.call_soon(blocking_loop.stop)
+
+    async def _stop_in_current_loop(self) -> None:
+        """Stop server resources on the loop that owns them."""
         self._stopped = True
         if self._server:
             self._server.close()
@@ -1000,8 +1023,9 @@ def start_server_blocking(
     error_future: list[Exception | None] = [None]
 
     def _run() -> None:
+        loop = asyncio.new_event_loop()
+        server._blocking_loop = loop
         try:
-            loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(server.start())
             port_future.append(server.port)
@@ -1011,6 +1035,8 @@ def start_server_blocking(
             loop.run_forever()
         except Exception as exc:
             error_future[0] = exc
+        finally:
+            loop.close()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
