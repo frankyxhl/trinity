@@ -7,6 +7,9 @@
 - `scripts/mcp_loopback.py` — loopback MCP server lifecycle and four read-only tools: `trinity__current_scope`, `trinity__peer_findings_so_far`, `trinity__prior_review_summary`, and `trinity__methodology_rule`. Bearer-token auth, SSE and streamable HTTP transports, ephemeral port on 127.0.0.1, and lifecycle cleanup. Tests in `tests/test_mcp_loopback.py`. Closes #138, parent track #63.
 - `scripts/codex.py` — claude-code loopback MCP injection: `_write_claude_code_mcp_config` temp config generation, `--mcp-config` flag injection in `run_provider`, and env-wiring through `run_providers`. Tests in `tests/test_codex_review_dispatch.py`. Closes #139, parent track #63.
 - `scripts/codex.py` — codex loopback MCP injection (Slice C): `_build_codex_mcp_args` and `_insert_codex_mcp_args` for `-c mcp_servers.*` config overrides on the `codex exec` command line, plus `_codex_loopback_mcp_enabled` guard. Tests in `tests/test_codex_review_dispatch.py`. Closes #140, parent track #63.
+- `tests/test_mcp_loopback_regression.py` — PR #60 regression fixture: BUG_TARGETS constant documenting all 7 missed-bug targets, deterministic peer-findings harness exercising the loopback MCP bridge, loopback-disabled control, and end-to-end cmd_review integration test. PASS criterion: ≥1 of the 7 bugs is surfaced through the loopback-enabled panel path. Closes #142, parent track #63.
+### Docs
+- Operator docs for loopback MCP enablement: supported providers (claude-code, codex), config flags (`enable_loopback_mcp`), and injection modes (claude-code: `--mcp-config` temp file; codex: `-c mcp_servers.*` overrides). See README §Configuration → Loopback MCP Bridge.
 - TRN-2018 M1 — review status observability. `trinity status` now renders a
   live `Live state:` section when reading M1 metadata, showing each provider
   in `queued` / `running` / `finished` / `failed` / `timed_out` state with
