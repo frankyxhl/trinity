@@ -1535,6 +1535,49 @@ def _insert_claude_code_mcp_args(cmd, mcp_args):
         insert_index = prompt_index - 1
     return cmd[:insert_index] + list(mcp_args) + cmd[insert_index:]
 
+_CODEX_LOOPBACK_MCP_CONFIG_KEY = "enable_loopback_mcp"
+
+
+def _codex_loopback_mcp_enabled(provider, provider_config):
+    """Check whether Codex loopback MCP injection is enabled for this provider."""
+    return (
+        provider == "codex"
+        and isinstance(provider_config, dict)
+        and provider_config.get(_CODEX_LOOPBACK_MCP_CONFIG_KEY) is True
+    )
+
+
+def _build_codex_mcp_args(port: int, token: str) -> list[str]:
+    """Build -c config override arguments for codex CLI MCP server config.
+
+    These are injected as additional ``-c key=value`` args into the
+    ``codex exec`` command so the spawned Codex process discovers the
+    Trinity loopback MCP server via its TOML configuration system. Codex
+    treats a config entry with ``url`` as a Streamable HTTP MCP server, so
+    the URL points at the loopback ``/mcp`` endpoint. The bearer token is
+    kept out of argv by telling Codex to read it from ``TRINITY_MCP_TOKEN``.
+    """
+    return [
+        "-c",
+        f"mcp_servers.trinity.url=http://127.0.0.1:{port}/mcp",
+        "-c",
+        "mcp_servers.trinity.bearer_token_env_var=TRINITY_MCP_TOKEN",
+    ]
+
+
+def _insert_codex_mcp_args(cmd, mcp_args):
+    """Insert MCP -c args before the last element (the prompt string).
+
+    The command shape is::
+
+        codex exec [...existing -c flags...] <prompt>
+
+    The prompt is always ``cmd[-1]``.  We insert the extra ``-c`` args
+    before it so they sit alongside any existing ``-c model_reasoning_effort``
+    flags.
+    """
+    return cmd[:-1] + list(mcp_args) + cmd[-1:]
+
 
 def timeout_partial_output(exc, stdout=None, stderr=None):
     def normalize(value):
@@ -1901,6 +1944,23 @@ def run_provider(
             raise RuntimeError(
                 f"failed to inject MCP config for {provider}: {exc}"
             ) from exc
+    else:
+        # TRN-3024 Slice C: Codex loopback MCP injection via -c key=value
+        # config overrides (TOML dotted-path syntax).
+        codex_mcp = (
+            _codex_loopback_mcp_enabled(provider, provider_config)
+            and mcp_port is not None
+            and mcp_token is not None
+        )
+        if codex_mcp:
+            provider_env["TRINITY_MCP_TOKEN"] = mcp_token
+            try:
+                mcp_args = _build_codex_mcp_args(mcp_port, mcp_token)
+                cmd = _insert_codex_mcp_args(cmd, mcp_args)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"failed to inject MCP config for {provider}: {exc}"
+                ) from exc
     started = timestamp()
     started_monotonic = time.monotonic()
     progress(f"starting provider {provider} timeout={timeout}s")
