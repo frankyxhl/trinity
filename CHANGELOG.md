@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Dependabot version updates for the root uv lockfile and GitHub
+  Actions workflows now run weekly from `.github/dependabot.yml`. Closes #152.
 - TRN-2018 M1 — review status observability. `trinity status` now renders a
   live `Live state:` section when reading M1 metadata, showing each provider
   in `queued` / `running` / `finished` / `failed` / `timed_out` state with
