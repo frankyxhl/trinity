@@ -55,6 +55,8 @@ jobs:
           python-version: '3.11'
       - name: Install dev dependencies
         run: make setup
+      - name: Lint
+        run: make lint
       - name: Run tests
         run: make test
       - name: Run coverage
