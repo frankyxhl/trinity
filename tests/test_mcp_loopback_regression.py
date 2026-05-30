@@ -145,43 +145,6 @@ BUG_TARGETS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _write_provider_output(
-    review_dir: Path,
-    provider: str,
-    content: str,
-    *,
-    score: float = 9.3,
-    decision: str = "PASS",
-    blocking: list | None = None,
-) -> None:
-    """Write a structured review output for a provider, including metadata."""
-    output = {
-        "provider": provider,
-        "decision": decision,
-        "weighted_score": score,
-        "findings": content,
-    }
-    if blocking is not None:
-        output["blocking"] = blocking
-
-    raw_dir = review_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    (raw_dir / f"{provider}.txt").write_text(
-        json.dumps(output, indent=2) + "\n"
-    )
-
-
-def _read_provider_output(review_dir: Path, provider: str) -> str | None:
-    """Read a provider's raw output file."""
-    path = review_dir / "raw" / f"{provider}.txt"
-    if path.exists():
-        return path.read_text()
-    return None
-
 
 # ---------------------------------------------------------------------------
 # Regression test: loopback MCP peer findings flow
