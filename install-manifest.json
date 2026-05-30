@@ -10,6 +10,7 @@
     {"src": "scripts/config.py", "dest": ".claude/skills/trinity/scripts/config.py"},
     {"src": "scripts/discover.py", "dest": ".claude/skills/trinity/scripts/discover.py"},
     {"src": "scripts/install.py", "dest": ".claude/skills/trinity/scripts/install.py"},
+    {"src": "scripts/mcp_loopback.py", "dest": ".claude/skills/trinity/scripts/mcp_loopback.py"},
     {"src": "scripts/scan_rocket_issues.sh", "dest": ".claude/skills/trinity/scripts/scan_rocket_issues.sh", "mode": "755"},
     {"src": "providers/glm.md", "dest": ".claude/agents/trinity-glm.md"},
     {"src": "providers/minimax.md", "dest": ".claude/agents/trinity-minimax.md"},

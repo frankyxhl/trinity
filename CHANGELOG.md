@@ -4,6 +4,7 @@
 
 ### Added
 - `rules/TRN-3024-PRP-Loopback-MCP-Bridge.md` — Loopback MCP bridge PRP defining four read-only tools, provider injection matrix, slice order (#138–#142), security model, and PR #60 regression validation strategy. Closes #137, parent track #63.
+- `scripts/mcp_loopback.py` — loopback MCP server lifecycle and four read-only tools: `trinity__current_scope`, `trinity__peer_findings_so_far`, `trinity__prior_review_summary`, and `trinity__methodology_rule`. Bearer-token auth, SSE and streamable HTTP transports, ephemeral port on 127.0.0.1, and lifecycle cleanup. Tests in `tests/test_mcp_loopback.py`. Closes #138, parent track #63.
 - TRN-2018 M1 — review status observability. `trinity status` now renders a
   live `Live state:` section when reading M1 metadata, showing each provider
   in `queued` / `running` / `finished` / `failed` / `timed_out` state with

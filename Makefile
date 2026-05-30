@@ -5,9 +5,9 @@ CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
 
 setup:          ## Create venv and install dev dependencies (uv → pip fallback)
 	@if command -v uv >/dev/null 2>&1; then \
-		uv venv && uv pip install pytest pytest-cov 'pytest-bdd>=7,<8' coverage[toml] ruff; \
+		uv venv && uv pip install pytest pytest-cov 'pytest-bdd>=7,<8' pytest-asyncio coverage[toml] ruff; \
 	else \
-		python3 -m venv .venv && .venv/bin/pip install pytest pytest-cov 'pytest-bdd>=7,<8' coverage[toml] ruff; \
+		python3 -m venv .venv && .venv/bin/pip install pytest pytest-cov 'pytest-bdd>=7,<8' pytest-asyncio coverage[toml] ruff; \
 	fi
 
 build:          ## Compose providers/*.md (TRN-2004) and copy Codex skill (TRN-3043)

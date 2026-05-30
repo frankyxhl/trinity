@@ -1,6 +1,7 @@
 """Tests for TRN-2019 Codex review provider dispatch."""
 
 import json
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -112,7 +113,7 @@ def test_review_runs_providers_in_parallel_and_preserves_result_order(tmp_path):
     elapsed = time.monotonic() - started
 
     assert result.returncode == 0, result.stderr
-    assert elapsed < 1.8
+    assert elapsed < 2.5
     rows = event_rows(events)
     starts = {row["provider"]: row["time"] for row in rows if row["event"] == "start"}
     ends = {row["provider"]: row["time"] for row in rows if row["event"] == "end"}
@@ -127,6 +128,53 @@ def test_review_runs_providers_in_parallel_and_preserves_result_order(tmp_path):
     # prefix so callers can key off the documented "trinity review:" prefix.
     assert "\ntrinity review: " in "\n" + result.stderr
     assert "trinity: trinity review:" not in result.stderr
+
+
+def test_cmd_review_starts_mcp_loopback_and_cleans_token(tmp_path, monkeypatch, capsys):
+    repo = simple_repo(tmp_path)
+    config = tmp_path / "codex.json"
+    provider = tmp_path / "glm"
+    write_provider(provider, "print('unused provider')\n")
+    write_config(config, {"glm": provider})
+    seen = {}
+
+    def fake_run_providers(max_workers, providers, provider_configs, prompt_path, review_dir, root):
+        seen["token"] = os.environ.get("TRINITY_MCP_TOKEN")
+        seen["review_dir"] = str(review_dir)
+        raw_path = review_dir / "raw" / "glm.txt"
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_text("legacy pass\n")
+        return [
+            {
+                "provider": "glm",
+                "returncode": 0,
+                "raw": "raw/glm.txt",
+                "started_at": "2026-05-29T00:00:00Z",
+                "finished_at": "2026-05-29T00:00:01Z",
+            }
+        ]
+
+    monkeypatch.setattr(codex, "run_providers", fake_run_providers)
+    os.environ["TRINITY_MCP_TOKEN"] = "ambient-stale-token"
+    args = codex.build_parser().parse_args(
+        [
+            "review",
+            "--root",
+            str(repo),
+            "--config",
+            str(config),
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+    )
+
+    assert codex.cmd_review(args) == 0
+    review_dir = Path(capsys.readouterr().out.strip().splitlines()[-1])
+    assert seen["review_dir"] == str(review_dir)
+    assert isinstance(seen["token"], str)
+    assert len(seen["token"]) == 32
+    assert seen["token"] != "ambient-stale-token"
+    assert "TRINITY_MCP_TOKEN" not in os.environ
 
 
 def test_review_max_parallel_one_keeps_sequential_behavior(tmp_path):

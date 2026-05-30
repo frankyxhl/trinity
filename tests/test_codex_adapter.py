@@ -1132,6 +1132,8 @@ def test_codex_review_base_head_collects_committed_diff_and_head_snapshots(tmp_p
     assert "dirty local version must not leak" not in prompt
     assert "untracked local must not leak" not in prompt
     metadata = json.loads((review_dir / "metadata.json").read_text())
+    review_input_sha256 = metadata["input"].pop("review_input_sha256")
+    assert len(review_input_sha256) == 64
     assert metadata["input"] == {
         "mode": "base-head",
         "base": "main",
@@ -1275,6 +1277,8 @@ def test_codex_review_pr_uses_gh_diff_view_and_head_snapshots(tmp_path):
     assert "from mocked gh pr diff" in prompt
     assert "pr head snapshot" in prompt
     metadata = json.loads((review_dir / "metadata.json").read_text())
+    review_input_sha256 = metadata["input"].pop("review_input_sha256")
+    assert len(review_input_sha256) == 64
     assert metadata["input"] == {
         "mode": "pr",
         "base": "main",

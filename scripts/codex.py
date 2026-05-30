@@ -2,15 +2,18 @@
 """Codex-native Trinity command wrapper."""
 
 import argparse
+import asyncio
 import concurrent.futures
 import datetime as dt
 import difflib
 import errno
 import fnmatch
+import hashlib
 import json
 import math
 import os
 import pty
+import secrets
 from pathlib import Path
 import re
 import shlex
@@ -25,9 +28,11 @@ import tty
 try:
     from ._version import load_version
     from . import _review_metadata as _rm
+    from .mcp_loopback import start_server_blocking
 except ImportError:
     from _version import load_version
     import _review_metadata as _rm
+    from mcp_loopback import start_server_blocking
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -966,6 +971,22 @@ def file_snapshots_at_ref(root, paths, ref):
     return "".join(chunks)
 
 
+def review_input_sha256(diff, files):
+    payload = json.dumps(
+        {"diff": diff, "files": files},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def make_review_input(diff, files, metadata):
+    metadata = dict(metadata)
+    metadata["review_input_sha256"] = review_input_sha256(diff, files)
+    return {"diff": diff, "files": files, "metadata": metadata}
+
+
 def working_tree_review_input(root, scope):
     pathspec = scope_pathspec(root, scope)
     tracked_diff = git_diff(root, pathspec)
@@ -980,10 +1001,10 @@ def working_tree_review_input(root, scope):
     files = file_snapshots(root, paths)
     if not diff.strip():
         diff = "(no tracked or untracked git diff)"
-    return {
-        "diff": diff,
-        "files": files,
-        "metadata": {
+    return make_review_input(
+        diff,
+        files,
+        {
             "mode": "working-tree",
             "base": "HEAD",
             "head": "working-tree",
@@ -992,7 +1013,7 @@ def working_tree_review_input(root, scope):
             "changed_paths": paths,
             "snapshot_source": "working-tree",
         },
-    }
+    )
 
 
 def base_head_review_input(root, base, head, scope):
@@ -1007,10 +1028,10 @@ def base_head_review_input(root, base, head, scope):
     files = file_snapshots_at_ref(root, paths, head)
     if not diff.strip():
         diff = f"(no git diff for {base}...{head})"
-    return {
-        "diff": diff,
-        "files": files,
-        "metadata": {
+    return make_review_input(
+        diff,
+        files,
+        {
             "mode": "base-head",
             "base": base,
             "head": head,
@@ -1019,7 +1040,7 @@ def base_head_review_input(root, base, head, scope):
             "changed_paths": paths,
             "snapshot_source": f"git:{head}",
         },
-    }
+    )
 
 
 def run_gh(root, args, label):
@@ -1115,10 +1136,10 @@ def pr_review_input(root, pr_number, scope):
         snapshot_source = "unavailable"
     if not diff.strip():
         diff = f"(no GitHub PR diff for PR #{pr_number})"
-    return {
-        "diff": diff,
-        "files": files,
-        "metadata": {
+    return make_review_input(
+        diff,
+        files,
+        {
             "mode": "pr",
             "base": view.get("baseRefName"),
             "head": view.get("headRefName"),
@@ -1129,7 +1150,7 @@ def pr_review_input(root, pr_number, scope):
             "changed_paths": paths,
             "snapshot_source": snapshot_source,
         },
-    }
+    )
 
 
 def resolve_review_input(args, root):
@@ -1418,6 +1439,28 @@ def raw_output(stdout, stderr):
     # Always append the sentinel (even with empty stderr) so the boundary
     # exists unambiguously.
     return (stdout or "") + _STDERR_SENTINEL + (stderr or "")
+
+
+def write_text_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        temp_path.write_text(text, encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def stop_mcp_loopback_server(server):
+    try:
+        asyncio.run(server.stop())
+    except Exception as exc:
+        progress(f"warning: failed to stop MCP loopback server: {exc}")
 
 
 def timeout_partial_output(exc, stdout=None, stderr=None):
@@ -1893,7 +1936,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
         stderr_text = (
             stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
         )
-        raw_path.write_text(raw_output(stdout_text, stderr_text))
+        write_text_atomic(raw_path, raw_output(stdout_text, stderr_text))
         result = {
             "provider": provider,
             "returncode": rc,
@@ -1905,7 +1948,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
         return result
     if outcome[0] == "filenotfound":
         _, msg, finished = outcome
-        raw_path.write_text(f"ERROR: command not found: {msg}\n")
+        write_text_atomic(raw_path, f"ERROR: command not found: {msg}\n")
         result = {
             "provider": provider,
             "returncode": 127,
@@ -1927,7 +1970,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     output = f"ERROR: timeout after {timeout_val}s\n{exc}\n"
     if partial:
         output += "\n[partial output]\n" + partial
-    raw_path.write_text(output)
+    write_text_atomic(raw_path, output)
     result = {
         "provider": provider,
         "returncode": 124,
@@ -2387,6 +2430,7 @@ def cmd_review(args):
         out_base = root / out_base
     review_dir = make_review_dir(out_base, args.scope)
 
+    mcp_server = None
     try:
         prompt = render_prompt(
             config,
@@ -2423,6 +2467,13 @@ def cmd_review(args):
             input=review_input["metadata"],
             strict_review=strict_review_block,
         )
+        progress("starting MCP loopback server")
+        mcp_token = secrets.token_hex(16)
+        mcp_server, mcp_port = start_server_blocking(
+            review_dir=str(review_dir),
+            token=mcp_token,
+        )
+        progress(f"MCP loopback server listening on 127.0.0.1:{mcp_port}")
         results = run_providers(
             max_workers,
             providers,
@@ -2482,6 +2533,10 @@ def cmd_review(args):
         )
         print(review_dir)
         return 1
+    finally:
+        if mcp_server is not None:
+            progress("stopping MCP loopback server")
+            stop_mcp_loopback_server(mcp_server)
 
     print(review_dir)
     return 0 if all(item["returncode"] == 0 for item in results) else 1
