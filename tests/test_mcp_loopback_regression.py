@@ -18,16 +18,14 @@ Acceptance criteria:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
 from tests.test_codex_adapter import CODEX_SCRIPT, commit_all, init_repo
-from tests.test_mcp_loopback import _http_request, _mcp_request, _record_completed_raw
+from tests.test_mcp_loopback import _mcp_request, _record_completed_raw
 
 
 # ---------------------------------------------------------------------------
@@ -332,71 +330,106 @@ def _write_provider_script(
 import json
 import os
 import sys
+import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 finder_text = ""
+provider_name = {path.stem!r}
+read_peer_findings = {read_peer_findings!r}
 
-# Try to read MCP config and query peer findings
-mcp_token = os.environ.get("TRINITY_MCP_TOKEN", "")
-if mcp_token:
-    # Check for claude-code style config file
-    review_dir = None
+prompt_file = ""
+for arg in sys.argv:
+    if "Prompt file:" in arg:
+        prompt_file = arg.split("Prompt file:", 1)[1].strip()
+        break
+review_dir = str(Path(prompt_file).parent) if prompt_file else ""
+
+def _loopback_endpoints():
+    # claude-code injection: --mcp-config <review_dir>/mcp_config/*.json
     for arg in sys.argv:
         if arg.endswith(".json") and "mcp_config" in arg:
             try:
                 config = json.loads(Path(arg).read_text())
-                for name, entry in config.get("mcpServers", {{}}).items():
-                    if "url" in entry:
-                        url = entry["url"]
-                        port = url.rsplit(":", 1)[-1].rstrip("/sse")
-                        token = entry.get("headers", {{}}).get(
-                            "Authorization", ""
-                        ).replace("Bearer ", "")
-                        if not token:
-                            token = mcp_token
-                        payload = {{
-                            "jsonrpc": "2.0",
-                            "id": 1,
-                            "method": "tools/call",
-                            "params": {{
-                                "name": "trinity__peer_findings_so_far",
-                                "arguments": {{}}
-                            }}
-                        }}
-                        import urllib.request
-                        req = urllib.request.Request(
-                            f"http://127.0.0.1:{{port}}/mcp",
-                            data=json.dumps(payload).encode(),
-                            headers={{
-                                "Authorization": f"Bearer {{token}}",
-                                "Content-Type": "application/json",
-                            }},
+            except Exception:
+                continue
+            for entry in config.get("mcpServers", {{}}).values():
+                url = entry.get("url")
+                if not url:
+                    continue
+                token = entry.get("headers", {{}}).get(
+                    "Authorization", ""
+                ).replace("Bearer ", "")
+                yield url.replace("/sse", "/mcp"), token
+
+    # codex injection: -c mcp_servers.trinity.url=http://127.0.0.1:<port>/mcp
+    for arg in sys.argv:
+        if arg.startswith("mcp_servers.trinity.url="):
+            yield arg.split("=", 1)[1], ""
+
+mcp_token = os.environ.get("TRINITY_MCP_TOKEN", "")
+if read_peer_findings and mcp_token and review_dir:
+    import urllib.request
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not finder_text:
+        for url, token in list(_loopback_endpoints()):
+            if not token:
+                token = mcp_token
+            parsed = urlparse(url)
+            if parsed.hostname not in {{"127.0.0.1", "localhost"}}:
+                continue
+            payload = {{
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {{
+                    "name": "trinity__peer_findings_so_far",
+                    "arguments": {{
+                        "review_dir": review_dir,
+                        "current_provider": provider_name,
+                    }},
+                }},
+            }}
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode(),
+                headers={{
+                    "Authorization": f"Bearer {{token}}",
+                    "Content-Type": "application/json",
+                }},
+            )
+            try:
+                resp = urllib.request.urlopen(req, timeout=3)
+                data = json.loads(resp.read())
+                result_text = data.get("result", {{}}).get("content", [])
+                for item in result_text:
+                    txt = json.loads(item.get("text", "{{}}"))
+                    if txt.get("status") != "ok":
+                        continue
+                    peers = txt.get("data", [])
+                    if peers:
+                        snippets = [
+                            str(peer.get("content", ""))[:200]
+                            for peer in peers
+                        ]
+                        finder_text = (
+                            f"PEER_FINDINGS_RECEIVED: {{len(peers)}} peer(s): "
+                            + " | ".join(snippets)
                         )
-                        try:
-                            resp = urllib.request.urlopen(req, timeout=3)
-                            data = json.loads(resp.read())
-                            result_text = data.get("result", {{}}).get(
-                                "content", []
-                            )
-                            for item in result_text:
-                                txt = json.loads(item.get("text", "{{}}"))
-                                if txt.get("status") == "ok":
-                                    peers = txt.get("data", [])
-                                    if peers:
-                                        finder_text = (
-                                            f"PEER_FINDINGS_RECEIVED: "
-                                            f"{{len(peers)}} peer(s)"
-                                        )
-                        except Exception:
-                            pass
+                        break
             except Exception:
                 pass
+            if finder_text:
+                break
+        if not finder_text:
+            time.sleep(0.2)
 
 result = {{
     "decision": "PASS",
     "weighted_score": 9.3,
     "blocking": [],
-    "advisories": [],
+    "advisories": [{{"title": {marker!r}}}],
 }}
 if finder_text:
     result["advisories"].append({{"title": finder_text}})
@@ -463,8 +496,12 @@ class TestLoopbackEndToEnd:
         provider_a_path = tmp_path / "bin" / "claude-code"
         provider_b_path = tmp_path / "bin" / "codex"
 
-        _write_provider_script(provider_a_path, marker="review-a")
-        _write_provider_script(provider_b_path, marker="review-b")
+        _write_provider_script(provider_a_path, marker=BUG_TARGETS[0]["pattern"])
+        _write_provider_script(
+            provider_b_path,
+            marker="review-b",
+            read_peer_findings=True,
+        )
 
         config_path = tmp_path / "config.json"
         out_dir = tmp_path / "reviews"
@@ -499,6 +536,13 @@ class TestLoopbackEndToEnd:
         assert "stopping MCP loopback server" in result.stderr, (
             f"Expected MCP server stop in stderr:\n{result.stderr[:500]}"
         )
+        review_dirs = [path for path in out_dir.iterdir() if path.is_dir()]
+        assert len(review_dirs) == 1
+        codex_raw = review_dirs[0] / "raw" / "codex.txt"
+        assert codex_raw.is_file(), f"Expected {codex_raw} to exist"
+        codex_text = codex_raw.read_text()
+        assert "PEER_FINDINGS_RECEIVED" in codex_text
+        assert BUG_TARGETS[0]["pattern"] in codex_text
 
     def test_loopback_disabled_review_still_works(self, tmp_path):
         """Without loopback MCP flags, standard review flow is unaffected."""
