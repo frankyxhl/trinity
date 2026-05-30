@@ -1462,9 +1462,13 @@ def stop_mcp_loopback_server(server):
     except Exception as exc:
         progress(f"warning: failed to stop MCP loopback server: {exc}")
 
+
 # ---------------------------------------------------------------------------
 # TRN-3024 Slice B: claude-code loopback MCP config generation
 # ---------------------------------------------------------------------------
+
+_CLAUDE_CODE_LOOPBACK_MCP_CONFIG_KEY = "enable_loopback_mcp"
+_CLAUDE_CODE_PROMPT_FLAGS = ("-p", "--print")
 
 
 def _write_claude_code_mcp_config(review_dir: Path, port: int, token: str) -> Path:
@@ -1486,9 +1490,50 @@ def _write_claude_code_mcp_config(review_dir: Path, port: int, token: str) -> Pa
         }
     }
     path = mcp_dir / "claude-code.json"
-    path.write_text(json.dumps(config, indent=2))
+    payload = json.dumps(config, indent=2) + "\n"
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = None
+            handle.write(payload)
+    finally:
+        if fd is not None:
+            os.close(fd)
     path.chmod(0o600)
     return path
+
+
+def _claude_code_loopback_mcp_enabled(provider, provider_config):
+    return (
+        provider == "claude-code"
+        and isinstance(provider_config, dict)
+        and provider_config.get(_CLAUDE_CODE_LOOPBACK_MCP_CONFIG_KEY) is True
+    )
+
+
+def _cleanup_mcp_config_path(path):
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        path.parent.rmdir()
+    except OSError:
+        pass
+
+
+def _insert_claude_code_mcp_args(cmd, mcp_args):
+    prompt_index = len(cmd) - 1
+    insert_index = prompt_index
+    if prompt_index > 0 and cmd[prompt_index - 1] in _CLAUDE_CODE_PROMPT_FLAGS:
+        insert_index = prompt_index - 1
+    return cmd[:insert_index] + list(mcp_args) + cmd[insert_index:]
 
 
 def timeout_partial_output(exc, stdout=None, stderr=None):
@@ -1805,7 +1850,17 @@ def _review_schema_addendum(task_type, strict_review=None):
     )
 
 
-def run_provider(provider, provider_config, prompt_path, review_dir, root, registry, *, mcp_port=None, mcp_token=None):
+def run_provider(
+    provider,
+    provider_config,
+    prompt_path,
+    review_dir,
+    root,
+    registry,
+    *,
+    mcp_port=None,
+    mcp_token=None,
+):
     # TRN-2018 M1: stdout streams through a PTY into logs/<p>.stdout.log so
     # child processes that line-buffer on isatty() emit live output instead of
     # block-buffering until exit. stderr still streams to its own log file.
@@ -1819,24 +1874,33 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     cmd = provider_command(provider, provider_config) + [
         build_prompt_handoff(prompt_path)
     ]
-    # TRN-3024 Slice B: inject MCP token into provider env after sanitization.
-    # build_provider_env() reads from os.environ; if TRINITY_MCP_TOKEN was set
-    # by cmd_review before the server started, it passes through sanitization
-    # (*_BASE_URL / OTEL_* / TRINITY_DISABLE_DISPATCH clearlist).
     provider_env = build_provider_env()
-    if mcp_token is not None:
-        provider_env["TRINITY_MCP_TOKEN"] = mcp_token
     mcp_config_path = None
-    try:
-        if provider == "claude-code" and mcp_port is not None and mcp_token is not None:
-            mcp_config_path = _write_claude_code_mcp_config(review_dir, mcp_port, mcp_token)
-            cmd = cmd[:-1] + ["--mcp-config", str(mcp_config_path)] + cmd[-1:]
-    except Exception as exc:
-        raise RuntimeError(f"failed to inject MCP config for {provider}: {exc}") from exc
     try:
         timeout = provider_timeout(provider, provider_config)
     except ValueError as exc:
         raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
+    mcp_enabled = (
+        _claude_code_loopback_mcp_enabled(provider, provider_config)
+        and mcp_port is not None
+        and mcp_token is not None
+    )
+    if mcp_enabled:
+        # TRN-3024 Slice B: overlay the MCP token after env sanitization and
+        # load only this temporary MCP config, ignoring user/project MCP state.
+        provider_env["TRINITY_MCP_TOKEN"] = mcp_token
+        try:
+            mcp_config_path = _write_claude_code_mcp_config(
+                review_dir, mcp_port, mcp_token
+            )
+            cmd = _insert_claude_code_mcp_args(
+                cmd,
+                ["--strict-mcp-config", "--mcp-config", str(mcp_config_path)],
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"failed to inject MCP config for {provider}: {exc}"
+            ) from exc
     started = timestamp()
     started_monotonic = time.monotonic()
     progress(f"starting provider {provider} timeout={timeout}s")
@@ -1959,6 +2023,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
                 stdout_thread.join()
             if popen is not None:
                 registry.remove(provider, popen)
+            _cleanup_mcp_config_path(mcp_config_path)
     if stdout_reader_errors:
         raise RuntimeError(
             f"provider {provider} stdout reader failed: {stdout_reader_errors[0]}"
