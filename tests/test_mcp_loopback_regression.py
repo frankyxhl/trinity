@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 
 from tests.test_codex_adapter import CODEX_SCRIPT, commit_all, init_repo
 from tests.test_mcp_loopback import _mcp_request, _record_completed_raw
@@ -156,7 +157,7 @@ class TestPR60RegressionPeerFindings:
 
     BUG_PATTERN = "incomplete.json before metadata.json"  # Bug target #1
 
-    @pytest.fixture(autouse=True)
+    @pytest_asyncio.fixture(autouse=True)
     async def _server_fixture(self, tmp_path):
         from scripts.mcp_loopback import McpLoopbackServer
 
