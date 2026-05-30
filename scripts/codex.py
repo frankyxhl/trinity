@@ -1463,6 +1463,79 @@ def stop_mcp_loopback_server(server):
         progress(f"warning: failed to stop MCP loopback server: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# TRN-3024 Slice B: claude-code loopback MCP config generation
+# ---------------------------------------------------------------------------
+
+_CLAUDE_CODE_LOOPBACK_MCP_CONFIG_KEY = "enable_loopback_mcp"
+_CLAUDE_CODE_PROMPT_FLAGS = ("-p", "--print")
+
+
+def _write_claude_code_mcp_config(review_dir: Path, port: int, token: str) -> Path:
+    """Write a temp claude-code MCP config file and return its path.
+
+    The config points claude-code's MCP subsystem at the Trinity loopback
+    SSE endpoint with bearer-token authentication. The file is written to
+    a private directory under review_dir with mode 0600.
+    """
+    mcp_dir = review_dir / "mcp_config"
+    mcp_dir.mkdir(mode=0o700, exist_ok=True)
+    config = {
+        "mcpServers": {
+            "trinity": {
+                "type": "sse",
+                "url": f"http://127.0.0.1:{port}/sse",
+                "headers": {"Authorization": f"Bearer {token}"},
+            }
+        }
+    }
+    path = mcp_dir / "claude-code.json"
+    payload = json.dumps(config, indent=2) + "\n"
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = None
+            handle.write(payload)
+    finally:
+        if fd is not None:
+            os.close(fd)
+    path.chmod(0o600)
+    return path
+
+
+def _claude_code_loopback_mcp_enabled(provider, provider_config):
+    return (
+        provider == "claude-code"
+        and isinstance(provider_config, dict)
+        and provider_config.get(_CLAUDE_CODE_LOOPBACK_MCP_CONFIG_KEY) is True
+    )
+
+
+def _cleanup_mcp_config_path(path):
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        path.parent.rmdir()
+    except OSError:
+        pass
+
+
+def _insert_claude_code_mcp_args(cmd, mcp_args):
+    prompt_index = len(cmd) - 1
+    insert_index = prompt_index
+    if prompt_index > 0 and cmd[prompt_index - 1] in _CLAUDE_CODE_PROMPT_FLAGS:
+        insert_index = prompt_index - 1
+    return cmd[:insert_index] + list(mcp_args) + cmd[insert_index:]
+
+
 def timeout_partial_output(exc, stdout=None, stderr=None):
     def normalize(value):
         if value is None:
@@ -1777,7 +1850,17 @@ def _review_schema_addendum(task_type, strict_review=None):
     )
 
 
-def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
+def run_provider(
+    provider,
+    provider_config,
+    prompt_path,
+    review_dir,
+    root,
+    registry,
+    *,
+    mcp_port=None,
+    mcp_token=None,
+):
     # TRN-2018 M1: stdout streams through a PTY into logs/<p>.stdout.log so
     # child processes that line-buffer on isatty() emit live output instead of
     # block-buffering until exit. stderr still streams to its own log file.
@@ -1791,10 +1874,33 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
     cmd = provider_command(provider, provider_config) + [
         build_prompt_handoff(prompt_path)
     ]
+    provider_env = build_provider_env()
+    mcp_config_path = None
     try:
         timeout = provider_timeout(provider, provider_config)
     except ValueError as exc:
         raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
+    mcp_enabled = (
+        _claude_code_loopback_mcp_enabled(provider, provider_config)
+        and mcp_port is not None
+        and mcp_token is not None
+    )
+    if mcp_enabled:
+        # TRN-3024 Slice B: overlay the MCP token after env sanitization and
+        # load only this temporary MCP config, ignoring user/project MCP state.
+        provider_env["TRINITY_MCP_TOKEN"] = mcp_token
+        try:
+            mcp_config_path = _write_claude_code_mcp_config(
+                review_dir, mcp_port, mcp_token
+            )
+            cmd = _insert_claude_code_mcp_args(
+                cmd,
+                ["--strict-mcp-config", "--mcp-config", str(mcp_config_path)],
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"failed to inject MCP config for {provider}: {exc}"
+            ) from exc
     started = timestamp()
     started_monotonic = time.monotonic()
     progress(f"starting provider {provider} timeout={timeout}s")
@@ -1819,7 +1925,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
                 stderr=ferr,
                 text=True,
                 start_new_session=True,
-                env=build_provider_env(),
+                env=provider_env,
             )
             os.close(stdout_slave_fd)
             stdout_slave_fd = None
@@ -1917,6 +2023,7 @@ def run_provider(provider, provider_config, prompt_path, review_dir, root, regis
                 stdout_thread.join()
             if popen is not None:
                 registry.remove(provider, popen)
+            _cleanup_mcp_config_path(mcp_config_path)
     if stdout_reader_errors:
         raise RuntimeError(
             f"provider {provider} stdout reader failed: {stdout_reader_errors[0]}"
@@ -2006,6 +2113,9 @@ def run_providers(
     prompt_path,
     review_dir,
     root,
+    *,
+    mcp_port=None,
+    mcp_token=None,
 ):
     registry = ActiveProcessRegistry()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
@@ -2022,6 +2132,8 @@ def run_providers(
             review_dir,
             root,
             registry,
+            mcp_port=mcp_port,
+            mcp_token=mcp_token,
         )
         futures[future] = provider
 
@@ -2481,6 +2593,8 @@ def cmd_review(args):
             prompt_path,
             review_dir,
             root,
+            mcp_port=mcp_port,
+            mcp_token=mcp_token,
         )
         # TRN-2018 R7 fix (codex R6 P2): per CHG L88-89, top-level
         # `finished_at` stays null until synthesis.md is written.

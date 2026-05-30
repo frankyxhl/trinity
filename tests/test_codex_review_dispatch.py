@@ -138,7 +138,15 @@ def test_cmd_review_starts_mcp_loopback_and_cleans_token(tmp_path, monkeypatch, 
     write_config(config, {"glm": provider})
     seen = {}
 
-    def fake_run_providers(max_workers, providers, provider_configs, prompt_path, review_dir, root):
+    def fake_run_providers(
+        max_workers,
+        providers,
+        provider_configs,
+        prompt_path,
+        review_dir,
+        root,
+        **kwargs,
+    ):
         seen["token"] = os.environ.get("TRINITY_MCP_TOKEN")
         seen["review_dir"] = str(review_dir)
         raw_path = review_dir / "raw" / "glm.txt"
@@ -621,7 +629,7 @@ def test_run_providers_does_not_start_queued_provider_after_failure(
 ):
     calls = []
 
-    def fail_first_provider(provider, *_args):
+    def fail_first_provider(provider, *args, **kwargs):
         calls.append(provider)
         if provider == "glm":
             raise RuntimeError("dispatch failed")
@@ -643,6 +651,8 @@ def test_run_providers_does_not_start_queued_provider_after_failure(
             tmp_path / "prompt.md",
             tmp_path,
             tmp_path,
+            mcp_port=None,
+            mcp_token=None,
         )
     except codex.ReviewOrchestrationError as exc:
         assert str(exc) == "dispatch failed"
@@ -650,3 +660,325 @@ def test_run_providers_does_not_start_queued_provider_after_failure(
         raise AssertionError("expected ReviewOrchestrationError")
 
     assert calls == ["glm"]
+
+
+# ---------------------------------------------------------------------------
+# TRN-3024 Slice B: claude-code loopback MCP injection tests
+# ---------------------------------------------------------------------------
+
+
+def run_provider_with_captured_popen(
+    tmp_path,
+    monkeypatch,
+    provider,
+    provider_config,
+    *,
+    mcp_port=9999,
+    mcp_token="test-token-1234567890abcdef",
+):
+    captured = {}
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("test prompt")
+    monkeypatch.delenv("TRINITY_MCP_TOKEN", raising=False)
+
+    class CapturingPopen:
+        def __init__(
+            self,
+            cmd,
+            *,
+            cwd,
+            stdout,
+            stderr,
+            text,
+            start_new_session,
+            env,
+        ):
+            _ = (stdout, stderr, text, start_new_session)
+            self.pid = 12345
+            self.returncode = 0
+            captured["cmd"] = list(cmd)
+            captured["cwd"] = cwd
+            captured["env"] = dict(env)
+            if "--mcp-config" in cmd:
+                config_path = Path(cmd[cmd.index("--mcp-config") + 1])
+                captured["mcp_config_path"] = config_path
+                captured["mcp_config_exists_at_spawn"] = config_path.exists()
+                captured["mcp_config"] = json.loads(config_path.read_text())
+
+        def wait(self, timeout=None):
+            _ = timeout
+            return self.returncode
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(codex.subprocess, "Popen", CapturingPopen)
+    monkeypatch.chdir(tmp_path)
+    result = codex.run_provider(
+        provider,
+        provider_config,
+        prompt_path,
+        tmp_path,
+        tmp_path,
+        codex.ActiveProcessRegistry(),
+        mcp_port=mcp_port,
+        mcp_token=mcp_token,
+    )
+    return result, captured
+
+
+def test_claude_code_mcp_config_generation(tmp_path):
+    """Verify claude-code MCP config file content and permissions."""
+    token = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+    port = 9876
+    config_path = codex._write_claude_code_mcp_config(tmp_path, port, token)
+
+    assert config_path == tmp_path / "mcp_config" / "claude-code.json"
+    assert config_path.exists()
+    assert oct(config_path.stat().st_mode & 0o777) == "0o600"
+    assert oct(config_path.parent.stat().st_mode & 0o777) == "0o700"
+
+    config = json.loads(config_path.read_text())
+    mcp = config["mcpServers"]["trinity"]
+    assert mcp["type"] == "sse"
+    assert mcp["url"] == f"http://127.0.0.1:{port}/sse"
+    assert mcp["headers"]["Authorization"] == f"Bearer {token}"
+    assert list(config["mcpServers"].keys()) == ["trinity"]
+    assert len(config["mcpServers"]) == 1
+
+
+def test_claude_code_mcp_config_created_restrictive_from_start(tmp_path, monkeypatch):
+    """Config creation passes mode 0600 to os.open, avoiding write-then-chmod."""
+    captured = {}
+    real_open = codex.os.open
+
+    def recording_open(path, flags, mode=0o777, *, dir_fd=None):
+        captured["flags"] = flags
+        captured["mode"] = mode
+        if dir_fd is None:
+            return real_open(path, flags, mode)
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(codex.os, "open", recording_open)
+    codex._write_claude_code_mcp_config(tmp_path, 9876, "token")
+
+    assert captured["mode"] == 0o600
+    assert captured["flags"] & codex.os.O_CREAT
+    assert captured["flags"] & codex.os.O_EXCL
+
+
+def test_claude_code_mcp_injection_requires_explicit_provider_flag(
+    tmp_path, monkeypatch
+):
+    """claude-code stays unchanged unless enable_loopback_mcp is true."""
+    result, captured = run_provider_with_captured_popen(
+        tmp_path,
+        monkeypatch,
+        "claude-code",
+        {"cli": "claude-code -p", "timeout": 5},
+    )
+    assert result["returncode"] == 0
+    assert "--mcp-config" not in captured["cmd"]
+    assert "--strict-mcp-config" not in captured["cmd"]
+    assert "TRINITY_MCP_TOKEN" not in captured["env"]
+    assert not (tmp_path / "mcp_config").exists()
+
+
+def test_claude_code_mcp_injection_in_run_provider(tmp_path, monkeypatch):
+    """Verify run_provider injects strict --mcp-config for enabled claude-code."""
+    result, captured = run_provider_with_captured_popen(
+        tmp_path,
+        monkeypatch,
+        "claude-code",
+        {"cli": "claude-code -p", "timeout": 5, "enable_loopback_mcp": True},
+    )
+    assert result["returncode"] == 0
+
+    cmd = captured["cmd"]
+    assert "--strict-mcp-config" in cmd
+    assert "--mcp-config" in cmd
+    assert cmd.index("--strict-mcp-config") < cmd.index("--mcp-config")
+    assert cmd.index("--mcp-config") < cmd.index("-p")
+    assert cmd[-2] == "-p"
+    assert cmd[-1].startswith("Read the complete Trinity review prompt")
+    assert captured["env"]["TRINITY_MCP_TOKEN"] == "test-token-1234567890abcdef"
+    assert captured["mcp_config_exists_at_spawn"] is True
+    config = captured["mcp_config"]
+    assert config["mcpServers"]["trinity"]["url"] == "http://127.0.0.1:9999/sse"
+    assert captured["mcp_config_path"].exists() is False
+
+
+def test_claude_code_mcp_injection_skips_non_claude_code(tmp_path, monkeypatch):
+    """Non-claude-code providers never get MCP injection, even if flagged."""
+    result, captured = run_provider_with_captured_popen(
+        tmp_path,
+        monkeypatch,
+        "glm",
+        {"cli": "glm", "timeout": 5, "enable_loopback_mcp": True},
+    )
+    assert result["returncode"] == 0
+    assert "--mcp-config" not in captured["cmd"]
+    assert "--strict-mcp-config" not in captured["cmd"]
+    assert "TRINITY_MCP_TOKEN" not in captured["env"]
+    assert not (tmp_path / "mcp_config").exists()
+
+
+def test_claude_code_mcp_injection_skipped_when_disabled(tmp_path, monkeypatch):
+    """Verify enabled claude-code runs without MCP when MCP params are missing."""
+    result, captured = run_provider_with_captured_popen(
+        tmp_path,
+        monkeypatch,
+        "claude-code",
+        {"cli": "claude-code -p", "timeout": 5, "enable_loopback_mcp": True},
+        mcp_port=None,
+        mcp_token=None,
+    )
+    assert result["returncode"] == 0
+    assert "--mcp-config" not in captured["cmd"]
+    assert "--strict-mcp-config" not in captured["cmd"]
+    assert "TRINITY_MCP_TOKEN" not in captured["env"]
+    assert not (tmp_path / "mcp_config").exists()
+
+
+def test_claude_code_mcp_config_exposes_current_scope_tool(tmp_path):
+    """Smoke test: start MCP server, generate config, then exercise a full
+    tools/list MCP call through the SSE transport to prove trinity__current_scope
+    is discoverable through the generated config shape."""
+    token = "smoke-test-token-00000000000000"
+    mcp_server, mcp_port = codex.start_server_blocking(
+        review_dir=str(tmp_path),
+        token=token,
+    )
+    try:
+        config_path = codex._write_claude_code_mcp_config(tmp_path, mcp_port, token)
+        config = json.loads(config_path.read_text())
+        url = config["mcpServers"]["trinity"]["url"]
+        assert f"http://127.0.0.1:{mcp_port}/sse" == url
+
+        import asyncio
+        import urllib.parse
+
+        async def _do_tools_list():
+            # 1. Open SSE connection and wait for the endpoint event.
+            reader, writer = await asyncio.open_connection("127.0.0.1", mcp_port)
+            req = (
+                f"GET /sse HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{mcp_port}\r\n"
+                f"Authorization: Bearer {token}\r\n"
+                f"\r\n"
+            )
+            writer.write(req.encode())
+            await writer.drain()
+
+            # Read SSE response header block plus first endpoint event.
+            sse_data = b""
+            while True:
+                chunk = await asyncio.wait_for(reader.read(4096), timeout=5)
+                if not chunk:
+                    break
+                sse_data += chunk
+                if b"event: endpoint" in sse_data and b"\n\n" in sse_data:
+                    break
+
+            header_text = sse_data.decode()
+            assert header_text.startswith("HTTP/1.1 200"), (
+                f"expected 200, got {header_text.split(chr(10))[0]}"
+            )
+
+            # Extract sessionId from endpoint event data.
+            session_id = ""
+            for line in header_text.splitlines():
+                if line.startswith("data: "):
+                    path_part = line[len("data: ") :].strip()
+                    parsed = urllib.parse.urlparse(f"http://dummy{path_part}")
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    session_id = qs.get("sessionId", [""])[0]
+            assert session_id, (
+                f"could not extract sessionId from SSE data:\n{header_text}"
+            )
+
+            # 2. POST tools/list to the messages endpoint on a separate connection.
+            msg_req_body = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/list",
+                    "params": {},
+                }
+            )
+            msg_req = (
+                f"POST /messages?sessionId={session_id} HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{mcp_port}\r\n"
+                f"Authorization: Bearer {token}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: {len(msg_req_body)}\r\n"
+                f"\r\n"
+                f"{msg_req_body}"
+            )
+            msg_reader, msg_writer = await asyncio.open_connection(
+                "127.0.0.1", mcp_port
+            )
+            msg_writer.write(msg_req.encode())
+            await msg_writer.drain()
+
+            msg_resp = b""
+            while True:
+                chunk = await asyncio.wait_for(msg_reader.read(4096), timeout=5)
+                if not chunk:
+                    break
+                msg_resp += chunk
+                if b"\r\n\r\n" in msg_resp:
+                    # For 202 Accepted there is no body; read the HTTP line only.
+                    status_line, _rest = msg_resp.split(b"\r\n", 1)
+                    if b"202" in status_line or b"\r\n\r\n" in msg_resp:
+                        break
+            msg_writer.close()
+            assert b"202" in msg_resp or b"Accepted" in msg_resp, (
+                f"expected 202, got {msg_resp.decode(errors='replace')[:200]}"
+            )
+
+            # 3. Read tools/list response from the SSE stream.
+            tools_response = b""
+            deadline = asyncio.get_event_loop().time() + 10
+            while asyncio.get_event_loop().time() < deadline:
+                chunk = await asyncio.wait_for(reader.read(4096), timeout=5)
+                if not chunk:
+                    break
+                tools_response += chunk
+                text = tools_response.decode(errors="replace")
+                if '"result"' in text and '"tools"' in text:
+                    break
+
+            writer.close()
+
+            # Parse the SSE event to extract the JSON-RPC response.
+            sse_text = tools_response.decode(errors="replace")
+            assert "event: message" in sse_text, (
+                f"expected 'event: message' in SSE data:\n{sse_text[:500]}"
+            )
+            data_line = ""
+            for line in sse_text.splitlines():
+                if line.startswith("data: "):
+                    data_line = line[len("data: ") :]
+                    break
+            assert data_line, f"no data line in SSE:\n{sse_text[:500]}"
+
+            rpc_response = json.loads(data_line)
+            assert rpc_response.get("id") == 1
+            assert "result" in rpc_response, (
+                f"no result key in response:\n{rpc_response}"
+            )
+            tool_names = [t["name"] for t in rpc_response["result"]["tools"]]
+            assert "trinity__current_scope" in tool_names, (
+                f"trinity__current_scope not found in tools: {tool_names}"
+            )
+            assert set(tool_names) == {
+                "trinity__current_scope",
+                "trinity__peer_findings_so_far",
+                "trinity__prior_review_summary",
+                "trinity__methodology_rule",
+            }
+
+        asyncio.run(_do_tools_list())
+    finally:
+        codex.stop_mcp_loopback_server(mcp_server)
