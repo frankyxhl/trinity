@@ -1977,6 +1977,13 @@ def run_provider(
         _set_raw_pty(stdout_slave_fd)
     except OSError as exc:
         raise RuntimeError(f"failed to create PTY for provider stdout: {exc}") from exc
+    stdout_thread = threading.Thread(
+        target=_copy_pty_to_file,
+        args=(stdout_master_fd, stdout_path, stdout_reader_errors),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stdout_master_fd = None
     with open(stderr_path, "w", buffering=1, encoding="utf-8") as ferr:
         try:
             popen = subprocess.Popen(
@@ -1990,13 +1997,6 @@ def run_provider(
             )
             os.close(stdout_slave_fd)
             stdout_slave_fd = None
-            stdout_thread = threading.Thread(
-                target=_copy_pty_to_file,
-                args=(stdout_master_fd, stdout_path, stdout_reader_errors),
-                daemon=True,
-            )
-            stdout_thread.start()
-            stdout_master_fd = None
             registry.add(provider, popen, started)
             _rm.update_provider_state(
                 review_dir,
