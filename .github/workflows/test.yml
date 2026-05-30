@@ -72,7 +72,7 @@ jobs:
       - name: No test-relevant changes
         if: steps.changes.outputs.run_tests != 'true'
         run: echo "No test-relevant changes; expensive checks skipped."
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.changes.outputs.run_tests == 'true'
         with:
           python-version: '3.11'
