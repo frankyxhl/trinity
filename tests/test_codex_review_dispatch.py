@@ -748,8 +748,9 @@ def test_claude_code_mcp_injection_skipped_when_disabled(tmp_path, monkeypatch):
 
 
 def test_claude_code_mcp_config_exposes_current_scope_tool(tmp_path):
-    """Smoke test: start MCP server, generate claude-code config, and verify
-    trinity__current_scope is discoverable through the configured endpoint."""
+    """Smoke test: start MCP server, generate config, then exercise a full
+    tools/list MCP call through the SSE transport to prove trinity__current_scope
+    is discoverable through the generated config shape."""
     token = "smoke-test-token-00000000000000"
     mcp_server, mcp_port = codex.start_server_blocking(
         review_dir=str(tmp_path),
@@ -761,12 +762,12 @@ def test_claude_code_mcp_config_exposes_current_scope_tool(tmp_path):
         url = config["mcpServers"]["trinity"]["url"]
         assert f"http://127.0.0.1:{mcp_port}/sse" == url
 
-        # Connect to the MCP server and call tools/list
         import asyncio
+        import urllib.parse
 
-        async def _check_tools():
+        async def _do_tools_list():
+            # 1. Open SSE connection and wait for the endpoint event
             reader, writer = await asyncio.open_connection("127.0.0.1", mcp_port)
-            # SSE endpoint: send GET /sse to get the endpoint URL
             req = (
                 f"GET /sse HTTP/1.1\r\n"
                 f"Host: 127.0.0.1:{mcp_port}\r\n"
@@ -775,21 +776,108 @@ def test_claude_code_mcp_config_exposes_current_scope_tool(tmp_path):
             )
             writer.write(req.encode())
             await writer.drain()
-            # Read SSE response to get the message endpoint URL
-            response = b""
+
+            # Read SSE response header block + first event
+            sse_data = b""
             while True:
                 chunk = await asyncio.wait_for(reader.read(4096), timeout=5)
                 if not chunk:
                     break
-                response += chunk
-                if b"\n\n" in response:
+                sse_data += chunk
+                if b"event: endpoint" in sse_data and b"\n\n" in sse_data:
                     break
-            writer.close()
-            return response.decode()
 
-        response_text = asyncio.run(_check_tools())
-        # The SSE connection should work and the config references the right endpoint
-        assert response_text.startswith("HTTP/1.1 200")
-        assert "event: endpoint" in response_text
+            header_text = sse_data.decode()
+            assert header_text.startswith("HTTP/1.1 200"), (
+                f"expected 200, got {header_text.split(chr(10))[0]}"
+            )
+
+            # Extract sessionId from endpoint event data
+            session_id = ""
+            for line in header_text.splitlines():
+                if line.startswith("data: "):
+                    path_part = line[len("data: "):].strip()
+                    parsed = urllib.parse.urlparse(f"http://dummy{path_part}")
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    session_id = qs.get("sessionId", [""])[0]
+            assert session_id, f"could not extract sessionId from SSE data:\n{header_text}"
+
+            # 2. POST tools/list to the messages endpoint (separate connection)
+            msg_req_body = json.dumps({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            })
+            msg_req = (
+                f"POST /messages?sessionId={session_id} HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{mcp_port}\r\n"
+                f"Authorization: Bearer {token}\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: {len(msg_req_body)}\r\n"
+                f"\r\n"
+                f"{msg_req_body}"
+            )
+            msg_reader, msg_writer = await asyncio.open_connection("127.0.0.1", mcp_port)
+            msg_writer.write(msg_req.encode())
+            await msg_writer.drain()
+
+            msg_resp = b""
+            while True:
+                chunk = await asyncio.wait_for(msg_reader.read(4096), timeout=5)
+                if not chunk:
+                    break
+                msg_resp += chunk
+                if b"\r\n\r\n" in msg_resp:
+                    # For 202 Accepted there is no body; read the HTTP line only
+                    _, rest = msg_resp.split(b"\r\n", 1)
+                    if b"202" in _ or b"\r\n\r\n" in msg_resp:
+                        break
+            msg_writer.close()
+            # Accept 202 means the request was accepted
+            assert b"202" in msg_resp or b"Accepted" in msg_resp, (
+                f"expected 202, got {msg_resp.decode(errors='replace')[:200]}"
+            )
+
+            # 3. Read tools/list response from the SSE stream
+            tools_response = b""
+            deadline = asyncio.get_event_loop().time() + 10
+            while asyncio.get_event_loop().time() < deadline:
+                chunk = await asyncio.wait_for(reader.read(4096), timeout=5)
+                if not chunk:
+                    break
+                tools_response += chunk
+                text = tools_response.decode(errors="replace")
+                if '"result"' in text and '"tools"' in text:
+                    break
+
+            writer.close()
+
+            # Parse the SSE event to extract JSON-RPC response
+            sse_text = tools_response.decode(errors="replace")
+            assert "event: message" in sse_text, (
+                f"expected 'event: message' in SSE data:\n{sse_text[:500]}"
+            )
+            # Extract the data line containing the JSON-RPC response
+            data_line = ""
+            for line in sse_text.splitlines():
+                if line.startswith("data: "):
+                    data_line = line[len("data: "):]
+                    break
+            assert data_line, f"no data line in SSE:\n{sse_text[:500]}"
+
+            rpc_response = json.loads(data_line)
+            assert rpc_response.get("id") == 1
+            assert "result" in rpc_response, f"no result key in response:\n{rpc_response}"
+            tool_names = [t["name"] for t in rpc_response["result"]["tools"]]
+            assert "trinity__current_scope" in tool_names, (
+                f"trinity__current_scope not found in tools: {tool_names}"
+            )
+            # Verify all four PRP-defined tools are present
+            assert "trinity__peer_findings_so_far" in tool_names
+            assert "trinity__prior_review_summary" in tool_names
+            assert "trinity__methodology_rule" in tool_names
+
+        asyncio.run(_do_tools_list())
     finally:
         codex.stop_mcp_loopback_server(mcp_server)
