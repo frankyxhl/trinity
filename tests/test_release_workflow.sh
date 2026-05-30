@@ -15,6 +15,7 @@
 # T10 One-click release path — tag_name optional, main-only guard, derive-from-VERSION logic
 # T11 Multi-model review fixes — concurrency key, 2-job verify/publish split, no env-injection in run
 # T13 PR CI lint gate — test.yml runs make lint on every OS matrix leg
+# T14 Required-check-safe docs skip — test.yml always reports matrix checks
 
 set -e
 
@@ -234,6 +235,20 @@ check "test workflow lint runs after setup before tests" bash -c '
 '
 check "Makefile lint runs ruff check" grep -qF '.venv/bin/ruff check scripts/ tests/' Makefile
 check "Makefile lint runs ruff format check" grep -qF '.venv/bin/ruff format --check scripts/ tests/' Makefile
+
+echo "-- T14: required-check-safe docs skip"
+check_neg "test workflow has no paths-ignore" grep -qF 'paths-ignore:' "$TEST_WORKFLOW"
+check "test workflow fetches history for diff detection" grep -qF 'fetch-depth: 0' "$TEST_WORKFLOW"
+check "test workflow detects test-relevant changes" grep -qF 'name: Detect test-relevant changes' "$TEST_WORKFLOW"
+check "test workflow has docs-only success step" grep -qF 'name: No test-relevant changes' "$TEST_WORKFLOW"
+check "test workflow docs-only step runs when expensive checks are off" grep -qF "if: steps.changes.outputs.run_tests != 'true'" "$TEST_WORKFLOW"
+check "test workflow gates every expensive step" bash -c '
+  gate_count=$(grep -cF "if: steps.changes.outputs.run_tests == '\''true'\''" .github/workflows/test.yml)
+  [ "$gate_count" -ge 5 ]
+'
+check "test workflow preserves rules docs skip" grep -qF 'rules/*) ;;' "$TEST_WORKFLOW"
+check "test workflow preserves root markdown skip" grep -qF '*.md) ;;' "$TEST_WORKFLOW"
+check "test workflow treats non-rules subdirs as test-relevant" grep -qF '*/*) run_tests=true; break ;;' "$TEST_WORKFLOW"
 
 echo "-- T11: multi-model review fixes (concurrency, 2-job split, env-mapping)"
 # Concurrency key prevents two release runs at once.

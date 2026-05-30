@@ -3,32 +3,7 @@ name: Test
 on:
   push:
     branches: [main]
-    # Skip pure-docs pushes — see paths-ignore rationale below.
-    paths-ignore:
-      - 'rules/**'
-      - '*.md'
   pull_request:
-    # Skip CI on pure-docs PRs (status flips, README edits, CHANGELOG, TRN-PRP/PLN/CHG
-    # markdown). Mixed PRs that also touch Makefile/scripts/tests/.github still trigger.
-    # Trinity panel decision matrix (2026-05-07): unanimous Option A, weighted 8.75/8.37/6.62
-    # against B/B+A/C variants. Saves ~6 min macOS wall-clock on the ~70% of PRs that
-    # are pure-docs without losing the cross-platform parity gate on code PRs.
-    #
-    # Re-evaluate the glob if `rules/` ever gains executable content (hooks, scripts,
-    # `af validate` in CI) — currently all `.md`, so safe.
-    #
-    # FOOT-GUN: if branch protection on `main` is ever configured to require the
-    # `Test (ubuntu-latest)` / `Test (macos-latest)` checks, this `paths-ignore`
-    # makes pure-docs PRs UNMERGEABLE — the skipped checks stay `Pending` forever.
-    # As of 2026-05-07 no branch protection / required checks are configured on main
-    # (only `protect-release-tags` ruleset, which targets tags), so this works today.
-    # If you add required checks later, migrate to a job-level `if:` skip pattern so
-    # the matrix always runs and reports success. See GitHub's docs on "skipping
-    # workflow runs" + the community pattern for required checks on path-filtered
-    # workflows.
-    paths-ignore:
-      - 'rules/**'
-      - '*.md'
 
 permissions:
   contents: read
@@ -50,14 +25,66 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect test-relevant changes
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          changed_files="${RUNNER_TEMP}/changed-files.txt"
+          zero_sha="0000000000000000000000000000000000000000"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if ! git rev-parse --verify HEAD^1 >/dev/null 2>&1; then
+              echo "run_tests=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git diff --name-only HEAD^1 HEAD > "$changed_files"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "$zero_sha" ]; then
+              echo "run_tests=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" > "$changed_files"
+          else
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          run_tests=false
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            case "$path" in
+              rules/*) ;;
+              */*) run_tests=true; break ;;
+              *.md) ;;
+              *) run_tests=true; break ;;
+            esac
+          done < "$changed_files"
+
+          echo "run_tests=$run_tests" >> "$GITHUB_OUTPUT"
+      - name: No test-relevant changes
+        if: steps.changes.outputs.run_tests != 'true'
+        run: echo "No test-relevant changes; expensive checks skipped."
       - uses: actions/setup-python@v5
+        if: steps.changes.outputs.run_tests == 'true'
         with:
           python-version: '3.11'
       - name: Install dev dependencies
+        if: steps.changes.outputs.run_tests == 'true'
         run: make setup
       - name: Lint
+        if: steps.changes.outputs.run_tests == 'true'
         run: make lint
       - name: Run tests
+        if: steps.changes.outputs.run_tests == 'true'
         run: make test
       - name: Run coverage
+        if: steps.changes.outputs.run_tests == 'true'
         run: make coverage
