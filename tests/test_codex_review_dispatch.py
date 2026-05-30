@@ -982,3 +982,134 @@ def test_claude_code_mcp_config_exposes_current_scope_tool(tmp_path):
         asyncio.run(_do_tools_list())
     finally:
         codex.stop_mcp_loopback_server(mcp_server)
+
+# ---------------------------------------------------------------------------
+# TRN-3024 Slice C: codex loopback MCP injection tests
+# ---------------------------------------------------------------------------
+
+
+def test_codex_mcp_injection_requires_explicit_provider_flag(
+    tmp_path, monkeypatch
+):
+    """Codex stays unchanged unless enable_loopback_mcp is true."""
+    result, captured = run_provider_with_captured_popen(
+        tmp_path,
+        monkeypatch,
+        "codex",
+        {"cli": "codex exec --skip-git-repo-check -m gpt-5.5", "timeout": 5},
+    )
+    assert result["returncode"] == 0
+    assert all("-c" not in part or not part.startswith("mcp_servers.")
+               for part in captured["cmd"])
+    assert "TRINITY_MCP_TOKEN" not in captured["env"]
+
+
+def test_codex_mcp_injection_in_run_provider(tmp_path, monkeypatch):
+    """Verify run_provider injects -c mcp_servers args for enabled codex."""
+    result, captured = run_provider_with_captured_popen(
+        tmp_path,
+        monkeypatch,
+        "codex",
+        {
+            "cli": "codex exec --skip-git-repo-check -m gpt-5.5",
+            "timeout": 5,
+            "enable_loopback_mcp": True,
+        },
+    )
+    assert result["returncode"] == 0
+
+    cmd = captured["cmd"]
+    # -c args for mcp_servers appear before the prompt (last element)
+    mcp_args = [part for part in cmd if part.startswith("mcp_servers.")]
+    assert len(mcp_args) == 3, f"expected 3 mcp_servers arg values, got {mcp_args}"
+
+    types = [a for a in mcp_args if a.startswith("mcp_servers.trinity.type=")]
+    urls = [a for a in mcp_args if a.startswith("mcp_servers.trinity.url=")]
+    auths = [a for a in mcp_args if a.startswith("mcp_servers.trinity.headers.Authorization=")]
+
+    assert len(types) == 1
+    assert types[0] == "mcp_servers.trinity.type=sse"
+
+    assert len(urls) == 1
+    assert urls[0] == "mcp_servers.trinity.url=http://127.0.0.1:9999/sse"
+
+    assert len(auths) == 1
+    assert auths[0] == "mcp_servers.trinity.headers.Authorization=Bearer test-token-1234567890abcdef"
+
+    # -c flags precede the -c values
+    assert "-c" in cmd
+    assert cmd[-1].startswith("Read the complete Trinity review prompt")
+    assert captured["env"]["TRINITY_MCP_TOKEN"] == "test-token-1234567890abcdef"
+
+
+def test_codex_mcp_injection_skipped_when_disabled(tmp_path, monkeypatch):
+    """Enabled codex runs without MCP when MCP params are missing."""
+    result, captured = run_provider_with_captured_popen(
+        tmp_path,
+        monkeypatch,
+        "codex",
+        {
+            "cli": "codex exec --skip-git-repo-check -m gpt-5.5",
+            "timeout": 5,
+            "enable_loopback_mcp": True,
+        },
+        mcp_port=None,
+        mcp_token=None,
+    )
+    assert result["returncode"] == 0
+    assert all("-c" not in part or not part.startswith("mcp_servers.")
+               for part in captured["cmd"])
+    assert "TRINITY_MCP_TOKEN" not in captured["env"]
+
+
+def test_codex_mcp_build_args_content():
+    """_build_codex_mcp_args returns correctly shaped args."""
+    args = codex._build_codex_mcp_args(7777, "secret-token-abc123")
+    # Should be a flat list: -c, val, -c, val, -c, val
+    assert args == [
+        "-c",
+        "mcp_servers.trinity.type=sse",
+        "-c",
+        "mcp_servers.trinity.url=http://127.0.0.1:7777/sse",
+        "-c",
+        "mcp_servers.trinity.headers.Authorization=Bearer secret-token-abc123",
+    ]
+
+
+def test_codex_mcp_insert_args_places_before_prompt():
+    """_insert_codex_mcp_args inserts MCP args before the prompt element."""
+    cmd = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-5.5", "the-prompt"]
+    mcp_args = ["-c", "mcp_servers.trinity.type=sse"]
+    result = codex._insert_codex_mcp_args(cmd, mcp_args)
+    assert result == [
+        "codex",
+        "exec",
+        "--skip-git-repo-check",
+        "-m",
+        "gpt-5.5",
+        "-c",
+        "mcp_servers.trinity.type=sse",
+        "the-prompt",
+    ]
+
+
+def test_codex_mcp_enabled_requires_explicit_flag():
+    """_codex_loopback_mcp_enabled returns True only for codex with flag."""
+    assert codex._codex_loopback_mcp_enabled(
+        "codex", {"enable_loopback_mcp": True}
+    ) is True
+    assert codex._codex_loopback_mcp_enabled(
+        "codex", {}
+    ) is False
+    assert codex._codex_loopback_mcp_enabled(
+        "codex", {"enable_loopback_mcp": False}
+    ) is False
+    assert codex._codex_loopback_mcp_enabled(
+        "glm", {"enable_loopback_mcp": True}
+    ) is False
+    assert codex._codex_loopback_mcp_enabled(
+        "claude-code", {"enable_loopback_mcp": True}
+    ) is False
+    assert codex._codex_loopback_mcp_enabled(
+        "not-a-provider", {}
+    ) is False
