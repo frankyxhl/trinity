@@ -31,6 +31,7 @@ test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 rel
 	$(MAKE) verify-built
 	.venv/bin/pytest tests/ -v
 	bash tests/test_build_providers.sh
+	bash tests/test_dependabot_config.sh
 	bash tests/test_release_workflow.sh
 	bash tests/test_install_sh.sh
 	bash tests/test_make_bump.sh
