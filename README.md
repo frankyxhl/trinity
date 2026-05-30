@@ -380,7 +380,7 @@ Add `"enable_loopback_mcp": true` to the provider config entry in your
       "enable_loopback_mcp": true
     },
     "codex": {
-      "cli": "codex",
+      "cli": "codex exec --skip-git-repo-check -m gpt-5.5",
       "timeout": 600,
       "enable_loopback_mcp": true
     }
