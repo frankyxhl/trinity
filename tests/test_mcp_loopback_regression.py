@@ -550,8 +550,12 @@ class TestLoopbackEndToEnd:
         provider_a_path = tmp_path / "bin" / "provider-a"
         provider_b_path = tmp_path / "bin" / "provider-b"
 
-        _write_provider_script(provider_a_path)
-        _write_provider_script(provider_b_path)
+        _write_provider_script(provider_a_path, marker=BUG_TARGETS[0]["pattern"])
+        _write_provider_script(
+            provider_b_path,
+            marker="review-b",
+            read_peer_findings=True,
+        )
 
         # No enable_loopback_mcp flag
         config_path = tmp_path / "config.json"
@@ -580,6 +584,13 @@ class TestLoopbackEndToEnd:
         # All providers completed
         assert "provider-a" in result.stderr
         assert "provider-b" in result.stderr
+        review_dirs = [path for path in out_dir.iterdir() if path.is_dir()]
+        assert len(review_dirs) == 1
+        provider_b_raw = review_dirs[0] / "raw" / "provider-b.txt"
+        assert provider_b_raw.is_file(), f"Expected {provider_b_raw} to exist"
+        provider_b_text = provider_b_raw.read_text()
+        assert "PEER_FINDINGS_RECEIVED" not in provider_b_text
+        assert BUG_TARGETS[0]["pattern"] not in provider_b_text
 
 
 # ---------------------------------------------------------------------------
