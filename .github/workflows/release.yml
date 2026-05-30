@@ -139,7 +139,9 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: 'Makefile'
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Install dev dependencies via `make setup`
         # Use `make setup` as the single source of truth for dev deps so this
