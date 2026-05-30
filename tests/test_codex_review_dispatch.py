@@ -983,14 +983,13 @@ def test_claude_code_mcp_config_exposes_current_scope_tool(tmp_path):
     finally:
         codex.stop_mcp_loopback_server(mcp_server)
 
+
 # ---------------------------------------------------------------------------
 # TRN-3024 Slice C: codex loopback MCP injection tests
 # ---------------------------------------------------------------------------
 
 
-def test_codex_mcp_injection_requires_explicit_provider_flag(
-    tmp_path, monkeypatch
-):
+def test_codex_mcp_injection_requires_explicit_provider_flag(tmp_path, monkeypatch):
     """Codex stays unchanged unless enable_loopback_mcp is true."""
     result, captured = run_provider_with_captured_popen(
         tmp_path,
@@ -999,8 +998,10 @@ def test_codex_mcp_injection_requires_explicit_provider_flag(
         {"cli": "codex exec --skip-git-repo-check -m gpt-5.5", "timeout": 5},
     )
     assert result["returncode"] == 0
-    assert all("-c" not in part or not part.startswith("mcp_servers.")
-               for part in captured["cmd"])
+    assert all(
+        "-c" not in part or not part.startswith("mcp_servers.")
+        for part in captured["cmd"]
+    )
     assert "TRINITY_MCP_TOKEN" not in captured["env"]
 
 
@@ -1025,9 +1026,7 @@ def test_codex_mcp_injection_in_run_provider(tmp_path, monkeypatch):
 
     urls = [a for a in mcp_args if a.startswith("mcp_servers.trinity.url=")]
     token_envs = [
-        a
-        for a in mcp_args
-        if a.startswith("mcp_servers.trinity.bearer_token_env_var=")
+        a for a in mcp_args if a.startswith("mcp_servers.trinity.bearer_token_env_var=")
     ]
 
     assert len(urls) == 1
@@ -1060,8 +1059,10 @@ def test_codex_mcp_injection_skipped_when_disabled(tmp_path, monkeypatch):
         mcp_token=None,
     )
     assert result["returncode"] == 0
-    assert all("-c" not in part or not part.startswith("mcp_servers.")
-               for part in captured["cmd"])
+    assert all(
+        "-c" not in part or not part.startswith("mcp_servers.")
+        for part in captured["cmd"]
+    )
     assert "TRINITY_MCP_TOKEN" not in captured["env"]
 
 
@@ -1097,21 +1098,20 @@ def test_codex_mcp_insert_args_places_before_prompt():
 
 def test_codex_mcp_enabled_requires_explicit_flag():
     """_codex_loopback_mcp_enabled returns True only for codex with flag."""
-    assert codex._codex_loopback_mcp_enabled(
-        "codex", {"enable_loopback_mcp": True}
-    ) is True
-    assert codex._codex_loopback_mcp_enabled(
-        "codex", {}
-    ) is False
-    assert codex._codex_loopback_mcp_enabled(
-        "codex", {"enable_loopback_mcp": False}
-    ) is False
-    assert codex._codex_loopback_mcp_enabled(
-        "glm", {"enable_loopback_mcp": True}
-    ) is False
-    assert codex._codex_loopback_mcp_enabled(
-        "claude-code", {"enable_loopback_mcp": True}
-    ) is False
-    assert codex._codex_loopback_mcp_enabled(
-        "not-a-provider", {}
-    ) is False
+    assert (
+        codex._codex_loopback_mcp_enabled("codex", {"enable_loopback_mcp": True})
+        is True
+    )
+    assert codex._codex_loopback_mcp_enabled("codex", {}) is False
+    assert (
+        codex._codex_loopback_mcp_enabled("codex", {"enable_loopback_mcp": False})
+        is False
+    )
+    assert (
+        codex._codex_loopback_mcp_enabled("glm", {"enable_loopback_mcp": True}) is False
+    )
+    assert (
+        codex._codex_loopback_mcp_enabled("claude-code", {"enable_loopback_mcp": True})
+        is False
+    )
+    assert codex._codex_loopback_mcp_enabled("not-a-provider", {}) is False

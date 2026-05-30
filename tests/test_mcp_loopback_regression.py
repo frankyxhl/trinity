@@ -144,10 +144,10 @@ BUG_TARGETS = [
 ]
 
 
-
 # ---------------------------------------------------------------------------
 # Regression test: loopback MCP peer findings flow
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 class TestPR60RegressionPeerFindings:
@@ -256,9 +256,7 @@ class TestPR60RegressionPeerFindings:
         """When a provider queries peer findings with current_provider set,
         its own output is excluded (avoids self-referencing)."""
         _record_completed_raw(self._review_dir, "provider-a", BUG_TARGETS[0]["pattern"])
-        _record_completed_raw(
-            self._review_dir, "provider-b", BUG_TARGETS[1]["pattern"]
-        )
+        _record_completed_raw(self._review_dir, "provider-b", BUG_TARGETS[1]["pattern"])
 
         # Provider-b queries, excluding itself
         status, resp = await _mcp_request(
@@ -310,6 +308,7 @@ class TestPR60RegressionPeerFindings:
 # ---------------------------------------------------------------------------
 # End-to-end integration: cmd_review with loopback MCP enabled
 # ---------------------------------------------------------------------------
+
 
 def _write_provider_script(
     path: Path,
@@ -468,13 +467,15 @@ def _write_config(
         provider_config[name] = cfg
 
     config_path.write_text(
-        json.dumps({
-            "providers": provider_config,
-            "review": {
-                "prompt_template": "Scope: {scope}\n\n{diff}\n\n{files}\n",
-                "default_providers": list(providers.keys()),
-            },
-        })
+        json.dumps(
+            {
+                "providers": provider_config,
+                "review": {
+                    "prompt_template": "Scope: {scope}\n\n{diff}\n\n{files}\n",
+                    "default_providers": list(providers.keys()),
+                },
+            }
+        )
     )
 
 
@@ -512,10 +513,14 @@ class TestLoopbackEndToEnd:
         result = _run_codex(
             [
                 "review",
-                "--scope", ".",
-                "--root", str(repo),
-                "--config", str(config_path),
-                "--out-dir", str(out_dir),
+                "--scope",
+                ".",
+                "--root",
+                str(repo),
+                "--config",
+                str(config_path),
+                "--out-dir",
+                str(out_dir),
             ],
             cwd=repo,
         )
@@ -567,10 +572,14 @@ class TestLoopbackEndToEnd:
         result = _run_codex(
             [
                 "review",
-                "--scope", ".",
-                "--root", str(repo),
-                "--config", str(config_path),
-                "--out-dir", str(out_dir),
+                "--scope",
+                ".",
+                "--root",
+                str(repo),
+                "--config",
+                str(config_path),
+                "--out-dir",
+                str(out_dir),
             ],
             cwd=repo,
         )
@@ -598,23 +607,33 @@ class TestLoopbackEndToEnd:
 # BUG_TARGETS schema validation
 # ---------------------------------------------------------------------------
 
+
 class TestBugTargetsSchema:
     """Validate the BUG_TARGETS constant schema."""
 
     def test_all_fields_present(self):
         for target in BUG_TARGETS:
             assert set(target.keys()) == {
-                "id", "round", "title", "file", "area",
-                "bug_class", "description", "pattern",
+                "id",
+                "round",
+                "title",
+                "file",
+                "area",
+                "bug_class",
+                "description",
+                "pattern",
             }, f"Bug #{target['id']} has unexpected fields"
 
     def test_bug_class_values(self):
-        valid_classes = {"caller-flow", "writer-schema", "sibling-code",
-                         "unverified-invariant"}
+        valid_classes = {
+            "caller-flow",
+            "writer-schema",
+            "sibling-code",
+            "unverified-invariant",
+        }
         for target in BUG_TARGETS:
             assert target["bug_class"] in valid_classes, (
-                f"Bug #{target['id']} has invalid bug_class "
-                f"'{target['bug_class']}'"
+                f"Bug #{target['id']} has invalid bug_class '{target['bug_class']}'"
             )
 
     def test_round_values(self):
