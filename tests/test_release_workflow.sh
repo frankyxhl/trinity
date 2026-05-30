@@ -14,6 +14,7 @@
 # T9 Makefile invariants — release target removed, release-prep present, no BSD-sed in CI path
 # T10 One-click release path — tag_name optional, main-only guard, derive-from-VERSION logic
 # T11 Multi-model review fixes — concurrency key, 2-job verify/publish split, no env-injection in run
+# T13 PR CI lint gate — test.yml runs make lint on every OS matrix leg
 
 set -e
 
@@ -21,6 +22,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 WORKFLOW=".github/workflows/release.yml"
+TEST_WORKFLOW=".github/workflows/test.yml"
 FIXTURES="tests/fixtures/changelogs"
 
 PASS=0
@@ -217,6 +219,21 @@ check "Makefile: release-prep stages plugin manifest" bash -c \
   "awk '/^release-prep:/{in_target=1; next} /^[[:alnum:]_-]+:/{in_target=0} in_target && /git add/ {print}' Makefile | grep -qF 'plugins/trinity/.codex-plugin/plugin.json'"
 check "Makefile: release-prep stages README" bash -c \
   "awk '/^release-prep:/{in_target=1; next} /^[[:alnum:]_-]+:/{in_target=0} in_target && /git add/ {print}' Makefile | grep -qF 'README.md'"
+
+echo "-- T13: PR CI lint gate"
+check "test workflow exists" test -f "$TEST_WORKFLOW"
+check "test workflow matrix includes ubuntu and macos" grep -qF 'os: [ubuntu-latest, macos-latest]' "$TEST_WORKFLOW"
+check "test workflow installs dev dependencies" grep -qF 'run: make setup' "$TEST_WORKFLOW"
+check "test workflow has dedicated Lint step" grep -qF 'name: Lint' "$TEST_WORKFLOW"
+check "test workflow runs make lint" grep -qF 'run: make lint' "$TEST_WORKFLOW"
+check "test workflow lint runs after setup before tests" bash -c '
+  setup_line=$(grep -nF "run: make setup" .github/workflows/test.yml | head -1 | cut -d: -f1)
+  lint_line=$(grep -nF "run: make lint" .github/workflows/test.yml | head -1 | cut -d: -f1)
+  test_line=$(grep -nF "run: make test" .github/workflows/test.yml | head -1 | cut -d: -f1)
+  [ "$setup_line" -lt "$lint_line" ] && [ "$lint_line" -lt "$test_line" ]
+'
+check "Makefile lint runs ruff check" grep -qF '.venv/bin/ruff check scripts/ tests/' Makefile
+check "Makefile lint runs ruff format check" grep -qF '.venv/bin/ruff format --check scripts/ tests/' Makefile
 
 echo "-- T11: multi-model review fixes (concurrency, 2-job split, env-mapping)"
 # Concurrency key prevents two release runs at once.
