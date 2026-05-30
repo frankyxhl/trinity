@@ -115,7 +115,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "review_dir": {"type": "string", "description": "Path to the review directory"},
+                "review_dir": {
+                    "type": "string",
+                    "description": "Path to the review directory",
+                },
             },
             "required": ["review_dir"],
         },
@@ -126,7 +129,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "review_dir": {"type": "string", "description": "Path to the review directory"},
+                "review_dir": {
+                    "type": "string",
+                    "description": "Path to the review directory",
+                },
                 "current_provider": {
                     "type": "string",
                     "description": "Name of the calling provider (excluded from peer results)",
@@ -141,7 +147,10 @@ _TOOL_DEFINITIONS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "review_dir": {"type": "string", "description": "Path to the current review directory"},
+                "review_dir": {
+                    "type": "string",
+                    "description": "Path to the current review directory",
+                },
                 "review_input_sha256": {
                     "type": "string",
                     "description": "Optional SHA-256 override for identity matching; defaults to metadata.json input.review_input_sha256",
@@ -172,7 +181,9 @@ def _make_tool_result(status: str, data: Any = None, error: str | None = None) -
     return result
 
 
-def _read_completed_peer_outputs(review_dir: Path, current_provider: str | None) -> list[tuple[str, str]]:
+def _read_completed_peer_outputs(
+    review_dir: Path, current_provider: str | None
+) -> list[tuple[str, str]]:
     """Read completed raw/<provider>.txt files, excluding current_provider.
 
     Only reads raw artifacts recorded in metadata.results. The provider runner
@@ -194,7 +205,11 @@ def _read_completed_peer_outputs(review_dir: Path, current_provider: str | None)
         if not isinstance(raw_rel, str) or not raw_rel:
             continue
         name_value = entry.get("provider")
-        name = name_value if isinstance(name_value, str) and name_value else Path(raw_rel).stem
+        name = (
+            name_value
+            if isinstance(name_value, str) and name_value
+            else Path(raw_rel).stem
+        )
         if current_provider and name == current_provider:
             continue
         if name in seen:
@@ -260,15 +275,19 @@ def _review_identity(
     elif mode == "base-head":
         if not input_info.get("base") or not input_info.get("head"):
             return None
-        fields.extend([
-            ("base", input_info.get("base")),
-            ("head", input_info.get("head")),
-        ])
+        fields.extend(
+            [
+                ("base", input_info.get("base")),
+                ("head", input_info.get("head")),
+            ]
+        )
     elif mode == "working-tree":
-        fields.extend([
-            ("base", input_info.get("base") or "HEAD"),
-            ("head", input_info.get("head") or "working-tree"),
-        ])
+        fields.extend(
+            [
+                ("base", input_info.get("base") or "HEAD"),
+                ("head", input_info.get("head") or "working-tree"),
+            ]
+        )
     else:
         for key in ("pr", "base", "head"):
             if key in input_info:
@@ -413,7 +432,9 @@ def _handle_peer_findings(arguments: dict[str, Any]) -> dict:
         return _make_tool_result("error", error="review_dir is required")
     review_dir = Path(review_dir_str)
     if not review_dir.is_dir():
-        return _make_tool_result("error", error=f"review_dir not found: {review_dir_str}")
+        return _make_tool_result(
+            "error", error=f"review_dir not found: {review_dir_str}"
+        )
 
     current_provider = arguments.get("current_provider")
     peers = _read_completed_peer_outputs(review_dir, current_provider)
@@ -432,7 +453,9 @@ def _handle_prior_review(arguments: dict[str, Any]) -> dict:
 
     current_dir = Path(review_dir_str)
     if not current_dir.is_dir():
-        return _make_tool_result("error", error=f"review_dir not found: {review_dir_str}")
+        return _make_tool_result(
+            "error", error=f"review_dir not found: {review_dir_str}"
+        )
 
     current_input = _metadata_input(_read_review_metadata(current_dir))
     review_input_sha256 = (
@@ -458,7 +481,9 @@ def _handle_current_scope(arguments: dict[str, Any]) -> dict:
 
     review_dir = Path(review_dir_str)
     if not review_dir.is_dir():
-        return _make_tool_result("error", error=f"review_dir not found: {review_dir_str}")
+        return _make_tool_result(
+            "error", error=f"review_dir not found: {review_dir_str}"
+        )
 
     scope_info = _metadata_input(_read_review_metadata(review_dir))
     diff_content = _read_review_diff(review_dir)
@@ -471,7 +496,9 @@ def _handle_current_scope(arguments: dict[str, Any]) -> dict:
             error=f"Scope exceeds {MAX_SCOPE_BYTES}-byte ceiling; resolve a narrower scope first",
         )
 
-    changed_files = scope_info.get("changed_paths") or scope_info.get("changed_files", [])
+    changed_files = scope_info.get("changed_paths") or scope_info.get(
+        "changed_files", []
+    )
     if diff_content:
         changed_lines = _count_diff_lines(diff_content)
     else:
@@ -627,7 +654,7 @@ def _check_auth(headers: dict[str, str], expected_token: str) -> bool:
     auth = headers.get("authorization", "")
     if not auth.startswith("Bearer "):
         return False
-    token = auth[len("Bearer "):]
+    token = auth[len("Bearer ") :]
     return token == expected_token
 
 
@@ -679,7 +706,9 @@ def _make_initialize_response(request_id: Any, params: dict[str, Any]) -> dict:
     )
 
 
-async def _make_tool_call_response(request_id: Any, tool_name: str, arguments: dict) -> dict:
+async def _make_tool_call_response(
+    request_id: Any, tool_name: str, arguments: dict
+) -> dict:
     """Build tools/call response by dispatching to the handler."""
     tool_result = await handle_tool_call(tool_name, arguments)
     return _make_jsonrpc_response(request_id, result=tool_result)
@@ -861,7 +890,9 @@ class McpLoopbackServer:
 
             # Auth check for all paths (including SSE endpoint)
             if not _check_auth(headers, self._token):
-                resp = _build_http_response(401, "Unauthorized", b'{"error":"unauthorized"}')
+                resp = _build_http_response(
+                    401, "Unauthorized", b'{"error":"unauthorized"}'
+                )
                 await self._write_response(writer, resp)
                 return
 
@@ -892,9 +923,7 @@ class McpLoopbackServer:
             except (ConnectionError, OSError):
                 pass
 
-    async def _write_response(
-        self, writer: asyncio.StreamWriter, data: bytes
-    ) -> None:
+    async def _write_response(self, writer: asyncio.StreamWriter, data: bytes) -> None:
         try:
             writer.write(data)
             await writer.drain()
@@ -990,11 +1019,13 @@ class McpLoopbackServer:
             query = path.split("?", 1)[1]
             for part in query.split("&"):
                 if part.startswith("sessionId="):
-                    session_id = part[len("sessionId="):]
+                    session_id = part[len("sessionId=") :]
                     break
 
         if not session_id:
-            resp = _build_http_response(400, "Bad Request", b'{"error":"sessionId required"}')
+            resp = _build_http_response(
+                400, "Bad Request", b'{"error":"sessionId required"}'
+            )
             await self._write_response(writer, resp)
             return
 
@@ -1002,7 +1033,9 @@ class McpLoopbackServer:
             session = self._sse_sessions.get(session_id)
 
         if session is None or session._closed:
-            resp = _build_http_response(404, "Not Found", b'{"error":"session not found"}')
+            resp = _build_http_response(
+                404, "Not Found", b'{"error":"session not found"}'
+            )
             await self._write_response(writer, resp)
             return
 
@@ -1120,6 +1153,7 @@ def start_server_blocking(
 
     # Wait for the port
     import time
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if error_future[0] is not None:

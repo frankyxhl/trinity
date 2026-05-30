@@ -134,12 +134,14 @@ async def _mcp_request(
     request_id: int = 1,
 ) -> tuple[int, dict]:
     """Send a JSON-RPC request via the /mcp endpoint."""
-    body = json.dumps({
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "method": method,
-        "params": params or {},
-    }).encode()
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params or {},
+        }
+    ).encode()
 
     status, resp_body = await _http_request(
         "127.0.0.1", port, "POST", "/mcp", token, body
@@ -199,25 +201,39 @@ class TestAuth:
 
     async def test_no_auth_header_returns_401(self):
         status, body = await _http_request(
-            "127.0.0.1", self._port, "POST", "/mcp", token="",
+            "127.0.0.1",
+            self._port,
+            "POST",
+            "/mcp",
+            token="",
         )
         assert status == 401
 
     async def test_wrong_token_returns_401(self):
         status, body = await _http_request(
-            "127.0.0.1", self._port, "POST", "/mcp", token="wrong-token",
+            "127.0.0.1",
+            self._port,
+            "POST",
+            "/mcp",
+            token="wrong-token",
         )
         assert status == 401
 
     async def test_valid_token_succeeds(self):
         status, body = await _mcp_request(
-            self._port, self._token, "tools/list",
+            self._port,
+            self._token,
+            "tools/list",
         )
         assert status == 200
 
     async def test_sse_endpoint_requires_auth(self):
         status, body = await _http_request(
-            "127.0.0.1", self._port, "GET", "/sse", token="",
+            "127.0.0.1",
+            self._port,
+            "GET",
+            "/sse",
+            token="",
         )
         assert status == 401
 
@@ -245,7 +261,9 @@ class TestToolList:
 
     async def test_lists_four_tools(self):
         status, resp = await _mcp_request(
-            self._port, self._token, "tools/list",
+            self._port,
+            self._token,
+            "tools/list",
         )
         assert status == 200
         tools = resp.get("result", {}).get("tools", [])
@@ -275,10 +293,12 @@ class TestToolList:
         assert result["serverInfo"]["name"] == "trinity-loopback"
 
     async def test_initialized_notification_is_ack_only(self):
-        body = json.dumps({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-        }).encode()
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            }
+        ).encode()
 
         status, resp_body = await _http_request(
             "127.0.0.1", self._port, "POST", "/mcp", self._token, body
@@ -289,7 +309,9 @@ class TestToolList:
 
     async def test_unknown_method_returns_error(self):
         status, resp = await _mcp_request(
-            self._port, self._token, "resources/list",
+            self._port,
+            self._token,
+            "resources/list",
         )
         assert status == 200
         assert "error" in resp
@@ -740,24 +762,32 @@ class TestResolvePriorReview:
         current = rev_dir / "rev-002"
         prior.mkdir(parents=True)
         current.mkdir()
-        (prior / "metadata.json").write_text(json.dumps({
-            "input": {
-                "mode": "pr",
-                "scope": ".",
-                "pr": 42,
-                "review_input_sha256": "abc123",
-            },
-            "status": "completed",
-            "created_at": "2026-01-01T00:00:00",
-        }))
-        (current / "metadata.json").write_text(json.dumps({
-            "input": {
-                "mode": "pr",
-                "scope": ".",
-                "pr": 42,
-                "review_input_sha256": "abc123",
-            },
-        }))
+        (prior / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {
+                        "mode": "pr",
+                        "scope": ".",
+                        "pr": 42,
+                        "review_input_sha256": "abc123",
+                    },
+                    "status": "completed",
+                    "created_at": "2026-01-01T00:00:00",
+                }
+            )
+        )
+        (current / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {
+                        "mode": "pr",
+                        "scope": ".",
+                        "pr": 42,
+                        "review_input_sha256": "abc123",
+                    },
+                }
+            )
+        )
         result = _resolve_prior_review(current, "abc123")
         assert result is not None
         assert result["status"] == "completed"
@@ -769,22 +799,30 @@ class TestResolvePriorReview:
         prior.mkdir(parents=True)
         current.mkdir()
         same_hash = "abc123"
-        (prior / "metadata.json").write_text(json.dumps({
-            "input": {
-                "mode": "pr",
-                "scope": ".",
-                "pr": 41,
-                "review_input_sha256": same_hash,
-            },
-        }))
-        (current / "metadata.json").write_text(json.dumps({
-            "input": {
-                "mode": "pr",
-                "scope": ".",
-                "pr": 42,
-                "review_input_sha256": same_hash,
-            },
-        }))
+        (prior / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {
+                        "mode": "pr",
+                        "scope": ".",
+                        "pr": 41,
+                        "review_input_sha256": same_hash,
+                    },
+                }
+            )
+        )
+        (current / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {
+                        "mode": "pr",
+                        "scope": ".",
+                        "pr": 42,
+                        "review_input_sha256": same_hash,
+                    },
+                }
+            )
+        )
 
         assert _resolve_prior_review(current, same_hash) is None
 
@@ -802,14 +840,22 @@ class TestResolvePriorReview:
             "pr": 42,
             "review_input_sha256": "abc123",
         }
-        (older / "metadata.json").write_text(json.dumps({
-            "input": review_input,
-            "status": "older",
-        }))
-        (newer / "metadata.json").write_text(json.dumps({
-            "input": review_input,
-            "status": "newer",
-        }))
+        (older / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": review_input,
+                    "status": "older",
+                }
+            )
+        )
+        (newer / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": review_input,
+                    "status": "newer",
+                }
+            )
+        )
         (current / "metadata.json").write_text(json.dumps({"input": review_input}))
         os.utime(older, (9999999999, 9999999999))
         os.utime(newer, (1, 1))
@@ -825,22 +871,30 @@ class TestResolvePriorReview:
         current = rev_dir / "rev-002"
         prior.mkdir(parents=True)
         current.mkdir()
-        (prior / "metadata.json").write_text(json.dumps({
-            "input": {
-                "mode": "pr",
-                "scope": ".",
-                "pr": 42,
-                "review_input_sha256": "diff-hash",
-            },
-        }))
-        (current / "metadata.json").write_text(json.dumps({
-            "input": {
-                "mode": "pr",
-                "scope": ".",
-                "pr": 42,
-                "review_input_sha256": "target-hash",
-            },
-        }))
+        (prior / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {
+                        "mode": "pr",
+                        "scope": ".",
+                        "pr": 42,
+                        "review_input_sha256": "diff-hash",
+                    },
+                }
+            )
+        )
+        (current / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {
+                        "mode": "pr",
+                        "scope": ".",
+                        "pr": 42,
+                        "review_input_sha256": "target-hash",
+                    },
+                }
+            )
+        )
         result = _resolve_prior_review(current, "target-hash")
         assert result is None
 
@@ -850,9 +904,13 @@ class TestResolvePriorReview:
         current = rev_dir / "rev-002"
         prior.mkdir(parents=True)
         current.mkdir()
-        (prior / "metadata.json").write_text(json.dumps({
-            "input": {"mode": "plan-review"},  # no review_input_sha256
-        }))
+        (prior / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {"mode": "plan-review"},  # no review_input_sha256
+                }
+            )
+        )
         result = _resolve_prior_review(current, "any-hash")
         assert result is None
 
@@ -860,14 +918,18 @@ class TestResolvePriorReview:
         rev_dir = tmp_path / "reviews"
         current = rev_dir / "rev-001"
         current.mkdir(parents=True)
-        (current / "metadata.json").write_text(json.dumps({
-            "input": {
-                "mode": "pr",
-                "scope": ".",
-                "pr": 42,
-                "review_input_sha256": "abc123",
-            },
-        }))
+        (current / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "input": {
+                        "mode": "pr",
+                        "scope": ".",
+                        "pr": 42,
+                        "review_input_sha256": "abc123",
+                    },
+                }
+            )
+        )
         # The only review dir with this hash IS the current one
         result = _resolve_prior_review(current, "abc123")
         assert result is None
@@ -919,7 +981,6 @@ class TestCountDiffLines:
 +new line"""
         assert _count_diff_lines(diff) == 2
 
-
     def test_counts_deletions(self):
         diff = """--- a/file.py
 +++ b/file.py
@@ -927,7 +988,6 @@ class TestCountDiffLines:
 -old line
 +new line"""
         assert _count_diff_lines(diff) == 2
-
 
     def test_ignores_hunk_headers(self):
         diff = """--- a/file.py
@@ -939,7 +999,6 @@ class TestCountDiffLines:
 -yet_another"""
         assert _count_diff_lines(diff) == 4
 
-
     def test_ignores_diff_git_headers(self):
         diff = """diff --git a/x.py b/x.py
 --- a/x.py
@@ -949,7 +1008,6 @@ class TestCountDiffLines:
 +new"""
         # The +++ and --- lines should NOT be counted
         assert _count_diff_lines(diff) == 2
-
 
     def test_multiple_hunks(self):
         diff = """--- a/a.py
@@ -1016,7 +1074,9 @@ class TestSignalHandlerRegistration:
             def add_signal_handler(self, *args):
                 raise RuntimeError("set_wakeup_fd only works in main thread")
 
-        assert _try_add_signal_handler(FakeLoop(), signal.SIGTERM, lambda: None) is False
+        assert (
+            _try_add_signal_handler(FakeLoop(), signal.SIGTERM, lambda: None) is False
+        )
 
 
 class TestReviewDirBinding:
@@ -1066,7 +1126,7 @@ class TestMethodologyConstant:
 
     def test_matches_source_file_structure(self):
         """Verify the bundled constant reflects the methodology from the source.
-        
+
         This test reads the source rule file and confirms that the heading
         `### §4. Methodology` exists, ensuring edits to the source preserve
         the heading prefix (as required by the PRP).
@@ -1233,7 +1293,11 @@ class TestEndpointRouting:
 
     async def test_unknown_path_returns_404(self):
         status, body = await _http_request(
-            "127.0.0.1", self._port, "GET", "/unknown", self._token,
+            "127.0.0.1",
+            self._port,
+            "GET",
+            "/unknown",
+            self._token,
         )
         assert status == 404
 
@@ -1257,7 +1321,11 @@ class TestEndpointRouting:
 
     async def test_get_on_mcp_returns_405(self):
         status, body = await _http_request(
-            "127.0.0.1", self._port, "GET", "/mcp", self._token,
+            "127.0.0.1",
+            self._port,
+            "GET",
+            "/mcp",
+            self._token,
         )
         assert status == 405
         assert b"server-side streaming not supported" in body

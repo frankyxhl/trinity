@@ -1535,6 +1535,7 @@ def _insert_claude_code_mcp_args(cmd, mcp_args):
         insert_index = prompt_index - 1
     return cmd[:insert_index] + list(mcp_args) + cmd[insert_index:]
 
+
 _CODEX_LOOPBACK_MCP_CONFIG_KEY = "enable_loopback_mcp"
 
 
