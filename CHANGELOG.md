@@ -31,6 +31,11 @@
   rationale and surfaces.
 
 ### Changed
+- Dev dependency setup now resolves from committed lock artifacts:
+  `uv.lock` is the canonical lock, `requirements-dev.txt` is the pinned pip
+  fallback, and `make setup` installs via `uv sync --locked --dev` when uv is
+  available. Release CI now keys the uv cache from `pyproject.toml` and
+  `uv.lock`. Closes #151.
 - TRN-3044 — TRN-1008 now requires an explicit Review Completion Gate before
   a PR can be called done or mergeable. The gate records `CLEAN` / `WAIT` /
   `BLOCKED` for the current head SHA, requires paginated GitHub reviews and

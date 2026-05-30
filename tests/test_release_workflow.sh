@@ -16,6 +16,7 @@
 # T11 Multi-model review fixes — concurrency key, 2-job verify/publish split, no env-injection in run
 # T13 PR CI lint gate — test.yml runs make lint on every OS matrix leg
 # T14 Required-check-safe docs skip — test.yml always reports matrix checks
+# T15 Dev dependency lock — make setup installs reproducible dev dependencies
 
 set -e
 
@@ -249,6 +250,23 @@ check "test workflow gates every expensive step" bash -c '
 check "test workflow preserves rules docs skip" grep -qF 'rules/*) ;;' "$TEST_WORKFLOW"
 check "test workflow preserves root markdown skip" grep -qF '*.md) ;;' "$TEST_WORKFLOW"
 check "test workflow treats non-rules subdirs as test-relevant" grep -qF '*/*) run_tests=true; break ;;' "$TEST_WORKFLOW"
+
+echo "-- T15: dev dependency lock"
+check "pyproject exists" test -f pyproject.toml
+check "uv lock exists" test -f uv.lock
+check "pip fallback requirements exists" test -f requirements-dev.txt
+check "pyproject marks virtual project" grep -qF 'package = false' pyproject.toml
+check "pyproject has dev dependency group" grep -qF '[dependency-groups]' pyproject.toml
+check "pyproject keeps pytest-bdd range" grep -qF '"pytest-bdd>=7,<8"' pyproject.toml
+check "Makefile: setup uses uv sync locked" grep -qF 'uv sync --locked --dev' Makefile
+check "Makefile: setup pip fallback uses locked requirements" grep -qF '.venv/bin/pip install -r requirements-dev.txt' Makefile
+check "Makefile: lock target present" grep -qE '^lock:' Makefile
+check "Makefile: lock target exports stable pip fallback" grep -qF 'uv export --locked --format requirements.txt --only-dev --no-header --output-file requirements-dev.txt >/dev/null' Makefile
+check "release workflow caches pyproject" grep -qF 'pyproject.toml' "$WORKFLOW"
+check "release workflow caches uv.lock" grep -qF 'uv.lock' "$WORKFLOW"
+check "requirements pins pytest" grep -qE '^pytest==' requirements-dev.txt
+check "requirements pins ruff" grep -qE '^ruff==' requirements-dev.txt
+check "requirements includes hashes" grep -qF -- '--hash=sha256:' requirements-dev.txt
 
 echo "-- T11: multi-model review fixes (concurrency, 2-job split, env-mapping)"
 # Concurrency key prevents two release runs at once.

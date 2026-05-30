@@ -1,14 +1,18 @@
-.PHONY: setup build verify-built install-hooks test lint coverage install install-codex pr-update bump release-prep
+.PHONY: setup lock build verify-built install-hooks test lint coverage install install-codex pr-update bump release-prep
 
 # Read VERSION at make invocation time
 CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
 
 setup:          ## Create venv and install dev dependencies (uv → pip fallback)
 	@if command -v uv >/dev/null 2>&1; then \
-		uv venv && uv pip install pytest pytest-cov 'pytest-bdd>=7,<8' pytest-asyncio coverage[toml] ruff; \
+		uv sync --locked --dev; \
 	else \
-		python3 -m venv .venv && .venv/bin/pip install pytest pytest-cov 'pytest-bdd>=7,<8' pytest-asyncio coverage[toml] ruff; \
+		python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt; \
 	fi
+
+lock:           ## Refresh uv.lock and pip fallback requirements after deliberate dep upgrades
+	uv lock
+	uv export --locked --format requirements.txt --only-dev --no-header --output-file requirements-dev.txt >/dev/null
 
 build:          ## Compose providers/*.md (TRN-2004) and copy Codex skill (TRN-3043)
 	@bash scripts/build_providers.sh
