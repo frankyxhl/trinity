@@ -241,7 +241,7 @@ gh issue create --repo "$REPO" \
 | TRN-3026 (env-var pins → registry) | ❌ none filed | n/a | — | NOT eligible |
 | TRN-3025 (gemini canonical) | ❌ none filed | n/a | — | NOT eligible |
 | #40 (audit codebase) | ✅ #40 | ❌ no rocket | — | NOT eligible |
-| #63 (TRN-3024 MCP bridge) | ✅ #63 | ❌ no rocket | — | NOT eligible |
+| #63 (TRN-3024 MCP bridge, later withdrawn) | ✅ #63 | ❌ no rocket | — | NOT eligible |
 
 Result under R4: **all candidates ineligible → idle silently**. The pre-R4 heuristic-only auto-pick that selected TRN-3027 in this session is grandfathered in the historical record but would not fire under the rocket-gate. To re-enable any of the above: user files a tracking issue (or rockets the existing one) and reacts 🚀.
 

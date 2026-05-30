@@ -3,11 +3,6 @@
 ## [Unreleased]
 
 ### Added
-- `rules/TRN-3024-PRP-Loopback-MCP-Bridge.md` — Loopback MCP bridge PRP defining four read-only tools, provider injection matrix, slice order (#138–#142), security model, and PR #60 regression validation strategy. Closes #137, parent track #63.
-- `scripts/mcp_loopback.py` — loopback MCP server lifecycle and four read-only tools: `trinity__current_scope`, `trinity__peer_findings_so_far`, `trinity__prior_review_summary`, and `trinity__methodology_rule`. Bearer-token auth, SSE and streamable HTTP transports, ephemeral port on 127.0.0.1, and lifecycle cleanup. Tests in `tests/test_mcp_loopback.py`. Closes #138, parent track #63.
-- `scripts/codex.py` — claude-code loopback MCP injection: `_write_claude_code_mcp_config` temp config generation, `--mcp-config` flag injection in `run_provider`, and env-wiring through `run_providers`. Tests in `tests/test_codex_review_dispatch.py`. Closes #139, parent track #63.
-- `scripts/codex.py` — codex loopback MCP injection (Slice C): `_build_codex_mcp_args` and `_insert_codex_mcp_args` for `-c mcp_servers.*` config overrides on the `codex exec` command line, plus `_codex_loopback_mcp_enabled` guard. Tests in `tests/test_codex_review_dispatch.py`. Closes #140, parent track #63.
-- `tests/test_mcp_loopback_regression.py` — PR #60 regression fixture: BUG_TARGETS constant documenting all 7 missed-bug targets, deterministic peer-findings harness exercising the loopback MCP bridge, loopback-disabled control, and end-to-end cmd_review integration test. PASS criterion: ≥1 of the 7 bugs is surfaced through the loopback-enabled panel path. Closes #142, parent track #63.
 - TRN-2018 M1 — review status observability. `trinity status` now renders a
   live `Live state:` section when reading M1 metadata, showing each provider
   in `queued` / `running` / `finished` / `failed` / `timed_out` state with
@@ -35,9 +30,6 @@
 - `rules/TRN-3039-CHG-Align-With-Promoted-PKG.md` — records the alignment
   rationale and surfaces.
 
-### Docs
-- Operator docs for loopback MCP enablement: supported providers (claude-code, codex), config flags (`enable_loopback_mcp`), and injection modes (claude-code: `--mcp-config` temp file; codex: `-c mcp_servers.*` overrides). See README §Configuration → Loopback MCP Bridge.
-
 ### Changed
 - TRN-3044 — TRN-1008 now requires an explicit Review Completion Gate before
   a PR can be called done or mergeable. The gate records `CLEAN` / `WAIT` /
@@ -64,6 +56,10 @@
   packaging portability. Closes #76.
 ### Removed
 
+- Withdrawn the unreleased TRN-3024 loopback MCP bridge: deleted the runtime
+  server, provider injection paths, MCP regression tests, install-manifest
+  entry, and operator docs. Trinity review dispatch is again independent
+  parallel provider execution followed by synthesis. Closes #168.
 - `dev/pr_update.py` and its 333-LoC test companion `tests/test_pr_update.py`. Replaced by `scripts/pr-update.sh` (~30 lines) driven from the same `make pr-update` target. Closes #74.
 - `scripts/_compat.py` — new shared module exposing the guarded `fcntl`
   import. On `ImportError` (e.g. Windows), prints the existing
