@@ -9,7 +9,7 @@ dev = [
     "coverage[toml]",
     "pytest",
     "pytest-asyncio",
-    "pytest-bdd>=7,<8",
+    "pytest-bdd>=8.1.0,<9",
     "pytest-cov",
     "ruff",
 ]
