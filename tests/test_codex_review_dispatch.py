@@ -1021,20 +1021,23 @@ def test_codex_mcp_injection_in_run_provider(tmp_path, monkeypatch):
     cmd = captured["cmd"]
     # -c args for mcp_servers appear before the prompt (last element)
     mcp_args = [part for part in cmd if part.startswith("mcp_servers.")]
-    assert len(mcp_args) == 3, f"expected 3 mcp_servers arg values, got {mcp_args}"
+    assert len(mcp_args) == 2, f"expected 2 mcp_servers arg values, got {mcp_args}"
 
-    types = [a for a in mcp_args if a.startswith("mcp_servers.trinity.type=")]
     urls = [a for a in mcp_args if a.startswith("mcp_servers.trinity.url=")]
-    auths = [a for a in mcp_args if a.startswith("mcp_servers.trinity.headers.Authorization=")]
-
-    assert len(types) == 1
-    assert types[0] == "mcp_servers.trinity.type=sse"
+    token_envs = [
+        a
+        for a in mcp_args
+        if a.startswith("mcp_servers.trinity.bearer_token_env_var=")
+    ]
 
     assert len(urls) == 1
-    assert urls[0] == "mcp_servers.trinity.url=http://127.0.0.1:9999/sse"
+    assert urls[0] == "mcp_servers.trinity.url=http://127.0.0.1:9999/mcp"
 
-    assert len(auths) == 1
-    assert auths[0] == "mcp_servers.trinity.headers.Authorization=Bearer test-token-1234567890abcdef"
+    assert len(token_envs) == 1
+    assert token_envs[0] == (
+        "mcp_servers.trinity.bearer_token_env_var=TRINITY_MCP_TOKEN"
+    )
+    assert all("test-token-1234567890abcdef" not in arg for arg in cmd)
 
     # -c flags precede the -c values
     assert "-c" in cmd
@@ -1065,21 +1068,20 @@ def test_codex_mcp_injection_skipped_when_disabled(tmp_path, monkeypatch):
 def test_codex_mcp_build_args_content():
     """_build_codex_mcp_args returns correctly shaped args."""
     args = codex._build_codex_mcp_args(7777, "secret-token-abc123")
-    # Should be a flat list: -c, val, -c, val, -c, val
+    # Should be a flat list: -c, val, -c, val
     assert args == [
         "-c",
-        "mcp_servers.trinity.type=sse",
+        "mcp_servers.trinity.url=http://127.0.0.1:7777/mcp",
         "-c",
-        "mcp_servers.trinity.url=http://127.0.0.1:7777/sse",
-        "-c",
-        "mcp_servers.trinity.headers.Authorization=Bearer secret-token-abc123",
+        "mcp_servers.trinity.bearer_token_env_var=TRINITY_MCP_TOKEN",
     ]
+    assert all("secret-token-abc123" not in arg for arg in args)
 
 
 def test_codex_mcp_insert_args_places_before_prompt():
     """_insert_codex_mcp_args inserts MCP args before the prompt element."""
     cmd = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-5.5", "the-prompt"]
-    mcp_args = ["-c", "mcp_servers.trinity.type=sse"]
+    mcp_args = ["-c", "mcp_servers.trinity.url=http://127.0.0.1:7777/mcp"]
     result = codex._insert_codex_mcp_args(cmd, mcp_args)
     assert result == [
         "codex",
@@ -1088,7 +1090,7 @@ def test_codex_mcp_insert_args_places_before_prompt():
         "-m",
         "gpt-5.5",
         "-c",
-        "mcp_servers.trinity.type=sse",
+        "mcp_servers.trinity.url=http://127.0.0.1:7777/mcp",
         "the-prompt",
     ]
 

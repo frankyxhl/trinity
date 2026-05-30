@@ -1552,19 +1552,16 @@ def _build_codex_mcp_args(port: int, token: str) -> list[str]:
 
     These are injected as additional ``-c key=value`` args into the
     ``codex exec`` command so the spawned Codex process discovers the
-    Trinity loopback MCP server via its TOML configuration system.
-    The Authorization header value contains a space (``Bearer <token>``)
-    but the entire ``key=value`` string is a single argv element, so
-    subprocess.Popen passes it to the kernel verbatim without shell
-    word-splitting — no quoting needed.
+    Trinity loopback MCP server via its TOML configuration system. Codex
+    treats a config entry with ``url`` as a Streamable HTTP MCP server, so
+    the URL points at the loopback ``/mcp`` endpoint. The bearer token is
+    kept out of argv by telling Codex to read it from ``TRINITY_MCP_TOKEN``.
     """
     return [
         "-c",
-        "mcp_servers.trinity.type=sse",
+        f"mcp_servers.trinity.url=http://127.0.0.1:{port}/mcp",
         "-c",
-        f"mcp_servers.trinity.url=http://127.0.0.1:{port}/sse",
-        "-c",
-        f"mcp_servers.trinity.headers.Authorization=Bearer {token}",
+        "mcp_servers.trinity.bearer_token_env_var=TRINITY_MCP_TOKEN",
     ]
 
 
