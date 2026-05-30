@@ -1,11 +1,23 @@
 # PRP-3024: Loopback MCP Bridge for Peer-Finding Exchange
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-30
 **Last reviewed:** (plan-review pending)
-**Status:** Draft
+**Status:** Rejected
 **Reviewed by:** (pending)
-**Related:** TRN-1000, TRN-1007, TRN-1008, TRN-2019, TRN-3000, TRN-3020, TRN-3023, GitHub issues #63, #137
+**Related:** TRN-1000, TRN-1007, TRN-1008, TRN-2019, TRN-3000, TRN-3020, TRN-3023, GitHub issues #63, #137, #168
+
+---
+
+## Withdrawal Notice
+
+This PRP is withdrawn. The maintainer decision on 2026-05-30 was to remove
+the TRN-3024 loopback MCP bridge because MCP is over-engineered for Trinity's
+review workflow. Trinity keeps independent parallel provider review followed
+by synthesis. Any future cross-provider visibility work must be proposed as a
+new, lighter, non-MCP design.
+
+The body below remains as historical context only and is not an active plan.
 
 ---
 

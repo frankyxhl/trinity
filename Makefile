@@ -47,6 +47,7 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	@mkdir -p ~/.claude/skills/trinity/bin
 	@mkdir -p ~/.claude/skills/trinity/providers
 	@mkdir -p ~/.claude/agents
+	rm -f ~/.claude/skills/trinity/scripts/mcp_loopback.py
 	cp SKILL.md ~/.claude/skills/trinity/SKILL.md
 	cp -r scripts/. ~/.claude/skills/trinity/scripts/
 	cp providers/registry.json ~/.claude/skills/trinity/providers/registry.json
@@ -63,6 +64,7 @@ install-codex:  ## Install Trinity Codex adapter to ~/.codex/ and ~/.local/bin
 	@mkdir -p ~/.codex/skills/trinity/scripts
 	@mkdir -p ~/.codex/skills/trinity/bin
 	@mkdir -p ~/.local/bin
+	rm -f ~/.codex/skills/trinity/scripts/mcp_loopback.py
 	cp .agents/skills/trinity/SKILL.md ~/.codex/skills/trinity/SKILL.md
 	cp .agents/trinity.codex.json ~/.codex/skills/trinity/trinity.codex.json
 	cp -r scripts/. ~/.codex/skills/trinity/scripts/

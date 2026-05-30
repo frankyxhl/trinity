@@ -2,7 +2,6 @@
 """Codex-native Trinity command wrapper."""
 
 import argparse
-import asyncio
 import concurrent.futures
 import datetime as dt
 import difflib
@@ -13,7 +12,6 @@ import json
 import math
 import os
 import pty
-import secrets
 from pathlib import Path
 import re
 import shlex
@@ -28,11 +26,9 @@ import tty
 try:
     from ._version import load_version
     from . import _review_metadata as _rm
-    from .mcp_loopback import start_server_blocking
 except ImportError:
     from _version import load_version
     import _review_metadata as _rm
-    from mcp_loopback import start_server_blocking
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -1456,130 +1452,6 @@ def write_text_atomic(path, text):
             pass
 
 
-def stop_mcp_loopback_server(server):
-    try:
-        asyncio.run(server.stop())
-    except Exception as exc:
-        progress(f"warning: failed to stop MCP loopback server: {exc}")
-
-
-# ---------------------------------------------------------------------------
-# TRN-3024 Slice B: claude-code loopback MCP config generation
-# ---------------------------------------------------------------------------
-
-_CLAUDE_CODE_LOOPBACK_MCP_CONFIG_KEY = "enable_loopback_mcp"
-_CLAUDE_CODE_PROMPT_FLAGS = ("-p", "--print")
-
-
-def _write_claude_code_mcp_config(review_dir: Path, port: int, token: str) -> Path:
-    """Write a temp claude-code MCP config file and return its path.
-
-    The config points claude-code's MCP subsystem at the Trinity loopback
-    SSE endpoint with bearer-token authentication. The file is written to
-    a private directory under review_dir with mode 0600.
-    """
-    mcp_dir = review_dir / "mcp_config"
-    mcp_dir.mkdir(mode=0o700, exist_ok=True)
-    config = {
-        "mcpServers": {
-            "trinity": {
-                "type": "sse",
-                "url": f"http://127.0.0.1:{port}/sse",
-                "headers": {"Authorization": f"Bearer {token}"},
-            }
-        }
-    }
-    path = mcp_dir / "claude-code.json"
-    payload = json.dumps(config, indent=2) + "\n"
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            fd = None
-            handle.write(payload)
-    finally:
-        if fd is not None:
-            os.close(fd)
-    path.chmod(0o600)
-    return path
-
-
-def _claude_code_loopback_mcp_enabled(provider, provider_config):
-    return (
-        provider == "claude-code"
-        and isinstance(provider_config, dict)
-        and provider_config.get(_CLAUDE_CODE_LOOPBACK_MCP_CONFIG_KEY) is True
-    )
-
-
-def _cleanup_mcp_config_path(path):
-    if path is None:
-        return
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-    try:
-        path.parent.rmdir()
-    except OSError:
-        pass
-
-
-def _insert_claude_code_mcp_args(cmd, mcp_args):
-    prompt_index = len(cmd) - 1
-    insert_index = prompt_index
-    if prompt_index > 0 and cmd[prompt_index - 1] in _CLAUDE_CODE_PROMPT_FLAGS:
-        insert_index = prompt_index - 1
-    return cmd[:insert_index] + list(mcp_args) + cmd[insert_index:]
-
-
-_CODEX_LOOPBACK_MCP_CONFIG_KEY = "enable_loopback_mcp"
-
-
-def _codex_loopback_mcp_enabled(provider, provider_config):
-    """Check whether Codex loopback MCP injection is enabled for this provider."""
-    return (
-        provider == "codex"
-        and isinstance(provider_config, dict)
-        and provider_config.get(_CODEX_LOOPBACK_MCP_CONFIG_KEY) is True
-    )
-
-
-def _build_codex_mcp_args(port: int, token: str) -> list[str]:
-    """Build -c config override arguments for codex CLI MCP server config.
-
-    These are injected as additional ``-c key=value`` args into the
-    ``codex exec`` command so the spawned Codex process discovers the
-    Trinity loopback MCP server via its TOML configuration system. Codex
-    treats a config entry with ``url`` as a Streamable HTTP MCP server, so
-    the URL points at the loopback ``/mcp`` endpoint. The bearer token is
-    kept out of argv by telling Codex to read it from ``TRINITY_MCP_TOKEN``.
-    """
-    return [
-        "-c",
-        f"mcp_servers.trinity.url=http://127.0.0.1:{port}/mcp",
-        "-c",
-        "mcp_servers.trinity.bearer_token_env_var=TRINITY_MCP_TOKEN",
-    ]
-
-
-def _insert_codex_mcp_args(cmd, mcp_args):
-    """Insert MCP -c args before the last element (the prompt string).
-
-    The command shape is::
-
-        codex exec [...existing -c flags...] <prompt>
-
-    The prompt is always ``cmd[-1]``.  We insert the extra ``-c`` args
-    before it so they sit alongside any existing ``-c model_reasoning_effort``
-    flags.
-    """
-    return cmd[:-1] + list(mcp_args) + cmd[-1:]
-
-
 def timeout_partial_output(exc, stdout=None, stderr=None):
     def normalize(value):
         if value is None:
@@ -1653,6 +1525,7 @@ _DEFAULT_ENV_CLEAR_PATTERNS = (
     "*_API_HOST",
     "OTEL_*",
     "TRINITY_DISABLE_DISPATCH",
+    "TRINITY_MCP_TOKEN",
 )
 
 
@@ -1670,7 +1543,7 @@ def build_provider_env(base_env=None):
     """Build a sanitized env dict for spawning provider CLIs (TRN-3023).
 
     Strips known-problematic patterns (vendor *_BASE_URL overrides, OTEL_*
-    telemetry leakage, TRINITY_DISABLE_DISPATCH from caller's shell).
+    telemetry leakage, Trinity control vars from caller's shell).
     Preserves universal essentials regardless of clear patterns. Returns
     a fresh dict suitable for `subprocess.Popen(env=...)`.
 
@@ -1901,9 +1774,6 @@ def run_provider(
     review_dir,
     root,
     registry,
-    *,
-    mcp_port=None,
-    mcp_token=None,
 ):
     # TRN-2018 M1: stdout streams through a PTY into logs/<p>.stdout.log so
     # child processes that line-buffer on isatty() emit live output instead of
@@ -1919,49 +1789,10 @@ def run_provider(
         build_prompt_handoff(prompt_path)
     ]
     provider_env = build_provider_env()
-    mcp_config_path = None
     try:
         timeout = provider_timeout(provider, provider_config)
     except ValueError as exc:
         raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
-    mcp_enabled = (
-        _claude_code_loopback_mcp_enabled(provider, provider_config)
-        and mcp_port is not None
-        and mcp_token is not None
-    )
-    if mcp_enabled:
-        # TRN-3024 Slice B: overlay the MCP token after env sanitization and
-        # load only this temporary MCP config, ignoring user/project MCP state.
-        provider_env["TRINITY_MCP_TOKEN"] = mcp_token
-        try:
-            mcp_config_path = _write_claude_code_mcp_config(
-                review_dir, mcp_port, mcp_token
-            )
-            cmd = _insert_claude_code_mcp_args(
-                cmd,
-                ["--strict-mcp-config", "--mcp-config", str(mcp_config_path)],
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"failed to inject MCP config for {provider}: {exc}"
-            ) from exc
-    else:
-        # TRN-3024 Slice C: Codex loopback MCP injection via -c key=value
-        # config overrides (TOML dotted-path syntax).
-        codex_mcp = (
-            _codex_loopback_mcp_enabled(provider, provider_config)
-            and mcp_port is not None
-            and mcp_token is not None
-        )
-        if codex_mcp:
-            provider_env["TRINITY_MCP_TOKEN"] = mcp_token
-            try:
-                mcp_args = _build_codex_mcp_args(mcp_port, mcp_token)
-                cmd = _insert_codex_mcp_args(cmd, mcp_args)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"failed to inject MCP config for {provider}: {exc}"
-                ) from exc
     started = timestamp()
     started_monotonic = time.monotonic()
     progress(f"starting provider {provider} timeout={timeout}s")
@@ -2084,7 +1915,6 @@ def run_provider(
                 stdout_thread.join()
             if popen is not None:
                 registry.remove(provider, popen)
-            _cleanup_mcp_config_path(mcp_config_path)
     if stdout_reader_errors:
         raise RuntimeError(
             f"provider {provider} stdout reader failed: {stdout_reader_errors[0]}"
@@ -2174,9 +2004,6 @@ def run_providers(
     prompt_path,
     review_dir,
     root,
-    *,
-    mcp_port=None,
-    mcp_token=None,
 ):
     registry = ActiveProcessRegistry()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
@@ -2193,8 +2020,6 @@ def run_providers(
             review_dir,
             root,
             registry,
-            mcp_port=mcp_port,
-            mcp_token=mcp_token,
         )
         futures[future] = provider
 
@@ -2603,7 +2428,6 @@ def cmd_review(args):
         out_base = root / out_base
     review_dir = make_review_dir(out_base, args.scope)
 
-    mcp_server = None
     try:
         prompt = render_prompt(
             config,
@@ -2640,13 +2464,6 @@ def cmd_review(args):
             input=review_input["metadata"],
             strict_review=strict_review_block,
         )
-        progress("starting MCP loopback server")
-        mcp_token = secrets.token_hex(16)
-        mcp_server, mcp_port = start_server_blocking(
-            review_dir=str(review_dir),
-            token=mcp_token,
-        )
-        progress(f"MCP loopback server listening on 127.0.0.1:{mcp_port}")
         results = run_providers(
             max_workers,
             providers,
@@ -2654,8 +2471,6 @@ def cmd_review(args):
             prompt_path,
             review_dir,
             root,
-            mcp_port=mcp_port,
-            mcp_token=mcp_token,
         )
         # TRN-2018 R7 fix (codex R6 P2): per CHG L88-89, top-level
         # `finished_at` stays null until synthesis.md is written.
@@ -2708,10 +2523,6 @@ def cmd_review(args):
         )
         print(review_dir)
         return 1
-    finally:
-        if mcp_server is not None:
-            progress("stopping MCP loopback server")
-            stop_mcp_loopback_server(mcp_server)
 
     print(review_dir)
     return 0 if all(item["returncode"] == 0 for item in results) else 1

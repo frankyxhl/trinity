@@ -181,7 +181,7 @@ Note: the addendum's example uses `"PASS" | "FIX"` placeholder syntax — provid
 
 ## Why
 
-Issue #39 documents the gap: providers emit varied free-form output, synthesis can't compare PASS/FIX decisions structurally, and downstream consumers (the panel-review orchestrator, future panel-debate via TRN-3024 #63 MCP bridge) have nothing to programmatically read. A simple JSON contract — opt-in, additive, fall-back-friendly — closes the gap without breaking anything.
+Issue #39 documents the gap: providers emit varied free-form output, synthesis can't compare PASS/FIX decisions structurally, and downstream consumers have nothing to programmatically read. A simple JSON contract — opt-in, additive, fall-back-friendly — closes the gap without breaking anything.
 
 This is also a foundation move for issue #55 (richer summary): without normalized findings, #55 can only render free-form prose verbatim. With this CHG, #55 gets per-provider structured comparison rendering for free.
 

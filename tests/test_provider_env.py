@@ -64,9 +64,9 @@ def test_a4_trinity_disable_dispatch_stripped():
     assert "TRINITY_DISABLE_DISPATCH" not in env
 
 
-def test_a4b_trinity_mcp_token_preserved():
+def test_a4b_legacy_trinity_mcp_token_stripped():
     env = build_provider_env({"TRINITY_MCP_TOKEN": "token-for-current-review"})
-    assert env.get("TRINITY_MCP_TOKEN") == "token-for-current-review"
+    assert "TRINITY_MCP_TOKEN" not in env
 
 
 # ---------------------------------------------------------------------------

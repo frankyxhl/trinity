@@ -49,6 +49,9 @@ mkdir -p "${HOME}/.claude/skills/trinity/bin"
 mkdir -p "${HOME}/.claude/skills/trinity/providers"
 mkdir -p "${HOME}/.claude/agents"
 
+# Remove files from withdrawn features that older installs may have left behind.
+rm -f "${HOME}/.claude/skills/trinity/scripts/mcp_loopback.py"
+
 # Download the install manifest
 CURRENT_FILE="install-manifest.json"
 MANIFEST_PATH=$(mktemp)

@@ -347,67 +347,6 @@ post-completion `raw/<provider>.txt` is composed from the same logs and remains
 backward-compatible. If no reviews exist, `trinity status` exits 0 with `no
 reviews found`.
 
-### Loopback MCP bridge (TRN-3024)
-
-When enabled, Trinity starts a local MCP server before dispatching providers in a
-`trinity review` run. Each loopback-capable provider can call into this server
-mid-review to read other providers' already-emitted findings via the
-`trinity__peer_findings_so_far` tool — turning parallel independent monologues
-into a collaborative peer-review panel.
-
-**Supported providers and injection modes:**
-
-| Provider | Status | Injection mechanism | Config flag |
-|----------|--------|---------------------|-------------|
-| claude-code | ✅ v1 | `--strict-mcp-config --mcp-config <tempfile>` | `enable_loopback_mcp: true` in provider config |
-| codex | ✅ v1 | `-c mcp_servers.trinity.url=...` + `TRINITY_MCP_TOKEN` env var | `enable_loopback_mcp: true` in provider config |
-| gemini | 🔄 spike | TBD per provider MCP support | — |
-| glm | 🔄 spike | TBD | — |
-| openrouter | 🔄 spike | TBD | — |
-| deepseek | 🔄 spike | TBD | — |
-
-**Enable for a review:**
-
-Add `"enable_loopback_mcp": true` to the provider config entry in your
-`trinity.json`. Example with both v1 providers enabled:
-
-```json
-{
-  "providers": {
-    "claude-code": {
-      "cli": "claude",
-      "timeout": 600,
-      "enable_loopback_mcp": true
-    },
-    "codex": {
-      "cli": "codex exec --skip-git-repo-check -m gpt-5.5",
-      "timeout": 600,
-      "enable_loopback_mcp": true
-    }
-  }
-}
-```
-
-Then run `trinity review --providers claude-code,codex --scope .` as usual.
-The server binds to `127.0.0.1:<ephemeral-port>`, authenticates with a
-bearer token in `TRINITY_MCP_TOKEN`, and stops automatically after the
-review completes (or on interrupt/error). The server and token are never
-exposed to the network.
-
-**Tools exposed:**
-
-- `trinity__peer_findings_so_far` — concatenated completed `raw/<provider>.txt`
-  outputs, excluding the calling provider. The primary cross-provider signal.
-- `trinity__methodology_rule` — the current TRN-1007 §4 methodology rule text.
-- `trinity__prior_review_summary` — structured summary of the immediately prior
-  review on the same scope, if one exists.
-- `trinity__current_scope` — files and diff hunks under review.
-
-**Regression fixture:** the PR #60 7 missed-bug scenario is captured in
-`tests/test_mcp_loopback_regression.py`. The deterministic fixture replays
-the peer-findings flow without requiring live model CLIs, and asserts that
-at least one of the documented bug patterns is surfaced through the
-loopback bridge.
 ### Update a PR after review fixes
 
 ```bash
