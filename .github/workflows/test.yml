@@ -17,11 +17,12 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }}
+    name: test / ${{ matrix.os }} / Python ${{ matrix.python-version }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11', '3.12', '3.13']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -75,7 +76,7 @@ jobs:
       - uses: actions/setup-python@v6
         if: steps.changes.outputs.run_tests == 'true'
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - name: Install dev dependencies
         if: steps.changes.outputs.run_tests == 'true'
         run: make setup
@@ -88,3 +89,29 @@ jobs:
       - name: Run coverage
         if: steps.changes.outputs.run_tests == 'true'
         run: make coverage
+
+  ubuntu-latest:
+    name: ubuntu-latest
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check matrix result
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "test matrix result: ${{ needs.test.result }}"
+            exit 1
+          fi
+
+  macos-latest:
+    name: macos-latest
+    needs: test
+    runs-on: macos-latest
+    if: always()
+    steps:
+      - name: Check matrix result
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "test matrix result: ${{ needs.test.result }}"
+            exit 1
+          fi
