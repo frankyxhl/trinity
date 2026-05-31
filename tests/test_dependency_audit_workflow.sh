@@ -36,6 +36,8 @@ check "workflow name is Dependency Audit" grep -qE '^name: Dependency Audit$' "$
 check "push trigger present" grep -qE '^  push:$' "$WORKFLOW"
 check "push targets main" grep -qF 'branches: [main]' "$WORKFLOW"
 check "pull_request trigger present" grep -qE '^  pull_request:$' "$WORKFLOW"
+check "weekly schedule present" grep -qE '^  schedule:$' "$WORKFLOW"
+check "schedule uses weekly cron" grep -qF "cron: '23 5 * * 2'" "$WORKFLOW"
 check "manual dispatch present" grep -qE '^  workflow_dispatch:$' "$WORKFLOW"
 check "global contents read permission" grep -qE '^  contents: read$' "$WORKFLOW"
 check "concurrency group set" grep -qF 'group: dependency-audit-${{ github.event_name }}-${{ github.ref }}' "$WORKFLOW"
