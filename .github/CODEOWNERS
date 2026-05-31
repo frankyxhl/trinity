@@ -1,0 +1,30 @@
+# Repository default
+* @frankyxhl
+
+# GitHub configuration and automation
+/.github/ @frankyxhl
+/.github/workflows/ @frankyxhl
+
+# Runtime, installer, and provider surfaces
+/scripts/ @frankyxhl
+/providers/ @frankyxhl
+/bin/ @frankyxhl
+/install.sh @frankyxhl
+/install-manifest.json @frankyxhl
+/Makefile @frankyxhl
+
+# Policy, process, and regression coverage
+/rules/ @frankyxhl
+/tests/ @frankyxhl
+/CONTRIBUTING.md @frankyxhl
+/SECURITY.md @frankyxhl
+/LICENSE @frankyxhl
+
+# Packaging and dependency metadata
+/pyproject.toml @frankyxhl
+/uv.lock @frankyxhl
+/requirements-dev.txt @frankyxhl
+/VERSION @frankyxhl
+/CHANGELOG.md @frankyxhl
+/README.md @frankyxhl
+/SKILL.md @frankyxhl
