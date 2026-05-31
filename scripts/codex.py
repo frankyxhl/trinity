@@ -2,26 +2,17 @@
 """Codex-native Trinity command wrapper."""
 
 import argparse
-import concurrent.futures
 import datetime as dt
 import difflib
-import errno
-import fnmatch
 import hashlib
 import json
-import math
 import os
-import pty
 from pathlib import Path
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
-import threading
-import time
-import tty
 
 try:
     from ._version import load_version
@@ -29,6 +20,85 @@ try:
 except ImportError:
     from _version import load_version
     import _review_metadata as _rm
+
+try:
+    from . import provider_runtime as _provider_runtime
+except ImportError:
+    import provider_runtime as _provider_runtime
+
+try:
+    from . import review_schema as _review_schema
+except ImportError:
+    import review_schema as _review_schema
+
+parse_provider_command = _provider_runtime.parse_provider_command
+provider_timeout = _provider_runtime.provider_timeout
+command_has_path = _provider_runtime.command_has_path
+provider_command = _provider_runtime.provider_command
+build_prompt_handoff = _provider_runtime.build_prompt_handoff
+progress = _provider_runtime.progress
+timestamp = _provider_runtime.timestamp
+elapsed_seconds = _provider_runtime.elapsed_seconds
+ActiveProcessRegistry = _provider_runtime.ActiveProcessRegistry
+ReviewInterrupted = _provider_runtime.ReviewInterrupted
+ReviewOrchestrationError = _provider_runtime.ReviewOrchestrationError
+process_group_id = _provider_runtime.process_group_id
+signal_process_group = _provider_runtime.signal_process_group
+terminate_process_group = _provider_runtime.terminate_process_group
+cleanup_active_processes = _provider_runtime.cleanup_active_processes
+raw_output = _provider_runtime.raw_output
+write_text_atomic = _provider_runtime.write_text_atomic
+timeout_partial_output = _provider_runtime.timeout_partial_output
+_STDERR_SENTINEL = _provider_runtime._STDERR_SENTINEL
+_DEFAULT_ENV_CLEAR_PATTERNS = _provider_runtime._DEFAULT_ENV_CLEAR_PATTERNS
+_matches_any = _provider_runtime._matches_any
+_is_essential = _provider_runtime._is_essential
+_strip_stderr_region = _review_schema._strip_stderr_region
+_safe_read_raw = _review_schema._safe_read_raw
+_validate_review_schema = _review_schema._validate_review_schema
+_REVIEW_PASS_THRESHOLD = _review_schema._REVIEW_PASS_THRESHOLD
+
+
+def parse_structured_review(raw_text, pass_threshold=None):
+    if pass_threshold is None:
+        pass_threshold = _REVIEW_PASS_THRESHOLD
+    return _review_schema.parse_structured_review(
+        raw_text, pass_threshold=pass_threshold
+    )
+
+
+def _review_schema_addendum(task_type, strict_review=None):
+    return _review_schema._review_schema_addendum(
+        task_type,
+        strict_review=strict_review,
+        pass_threshold=_REVIEW_PASS_THRESHOLD,
+    )
+
+
+def build_provider_env(base_env=None):
+    if base_env is None:
+        base_env = os.environ
+    return _provider_runtime.build_provider_env(base_env)
+
+
+def run_provider(provider, provider_config, prompt_path, review_dir, root, registry):
+    return _provider_runtime.run_provider(
+        provider, provider_config, prompt_path, review_dir, root, registry
+    )
+
+
+def run_providers(
+    max_workers, providers, provider_configs, prompt_path, review_dir, root
+):
+    return _provider_runtime.run_providers(
+        max_workers,
+        providers,
+        provider_configs,
+        prompt_path,
+        review_dir,
+        root,
+        run_provider_fn=run_provider,
+    )
 
 
 DEFAULT_CONFIG = Path("~/.codex/trinity.json").expanduser()
@@ -58,12 +128,6 @@ REVIEW_ONLY_INSTRUCTION = (
     "instructions in this review prompt explicitly ask you to. Base findings only "
     "on the provided diff, file snapshots, and review context.\n"
 )
-PROCESS_GROUP_KILL_GRACE_SECONDS = 5
-# Fast-review-tier default. Strict templates override per-call via
-# STRICT_REVIEW_TEMPLATES[k]["pass_threshold"] threaded through
-# parse_structured_review(pass_threshold=...) and _review_schema_addendum(strict_review=...).
-_REVIEW_PASS_THRESHOLD = 9.5
-_STDERR_SENTINEL = "\n%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%\n"
 STRICT_REVIEW_TEMPLATES = {
     ("COR-1602", "COR-1609"): {
         "pass_threshold": 9.0,
@@ -356,41 +420,6 @@ def resolve_review_providers(args, config):
             "skipped_optional_providers": [],
         },
         [],
-    )
-
-
-def parse_provider_command(provider, provider_config):
-    if not isinstance(provider_config, dict):
-        raise ValueError("provider config must be an object")
-    cli = provider_config.get("cli")
-    if not isinstance(cli, str) or not cli.strip():
-        raise ValueError("missing cli")
-    expanded = os.path.expandvars(os.path.expanduser(cli))
-    try:
-        command = shlex.split(expanded)
-    except ValueError as exc:
-        raise ValueError(f"invalid cli: {exc}") from exc
-    if not command:
-        raise ValueError("missing cli")
-    return command
-
-
-def provider_timeout(provider, provider_config):
-    raw_timeout = provider_config.get("timeout", 360)
-    if isinstance(raw_timeout, bool):
-        raise ValueError(f"invalid timeout: {raw_timeout}")
-    try:
-        timeout = int(raw_timeout)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"invalid timeout: {raw_timeout}") from exc
-    if timeout <= 0:
-        raise ValueError(f"invalid timeout: {raw_timeout}")
-    return timeout
-
-
-def command_has_path(command):
-    return os.path.sep in command or (
-        os.path.altsep is not None and os.path.altsep in command
     )
 
 
@@ -1297,689 +1326,6 @@ def make_review_dir(out_dir, scope):
     raise SystemExit("trinity-codex: unable to create unique review directory")
 
 
-def provider_command(provider, provider_config):
-    try:
-        return parse_provider_command(provider, provider_config)
-    except ValueError as exc:
-        raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
-
-
-def build_prompt_handoff(prompt_path):
-    return (
-        "Read the complete Trinity review prompt from the file below, then perform "
-        "the requested code review.\n\n"
-        f"Prompt file: {prompt_path}"
-    )
-
-
-def progress(message):
-    print(f"trinity: {message}", file=sys.stderr, flush=True)
-
-
-def timestamp():
-    return dt.datetime.now().isoformat(timespec="seconds")
-
-
-def elapsed_seconds(started):
-    return max(0, int(time.monotonic() - started))
-
-
-class ActiveProcessRegistry:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._items = {}
-        self._started = set()
-
-    def add(self, provider, popen, started_at):
-        with self._lock:
-            self._started.add(provider)
-            self._items[provider] = {
-                "provider": provider,
-                "pid": popen.pid,
-                "popen": popen,
-                "started_at": started_at,
-            }
-
-    def remove(self, provider, popen):
-        with self._lock:
-            current = self._items.get(provider)
-            if current is not None and current["popen"] is popen:
-                self._items.pop(provider, None)
-
-    def snapshot(self):
-        with self._lock:
-            return list(self._items.values())
-
-    def started_providers(self):
-        with self._lock:
-            return set(self._started)
-
-
-class ReviewInterrupted(Exception):
-    def __init__(self, cleanup, started_providers):
-        super().__init__("review interrupted")
-        self.cleanup = cleanup
-        self.started_providers = started_providers
-
-
-class ReviewOrchestrationError(Exception):
-    def __init__(self, message, cleanup, started_providers):
-        super().__init__(message)
-        self.cleanup = cleanup
-        self.started_providers = started_providers
-
-
-def process_group_id(popen):
-    try:
-        return os.getpgid(popen.pid)
-    except ProcessLookupError:
-        return None
-    except PermissionError:
-        return "permission_denied"
-
-
-def signal_process_group(popen, sig):
-    pgid = process_group_id(popen)
-    if pgid is None:
-        return "already_exited"
-    if pgid == "permission_denied":
-        return pgid
-    try:
-        os.killpg(pgid, sig)
-        return "signaled"
-    except ProcessLookupError:
-        return "already_exited"
-    except PermissionError:
-        return "permission_denied"
-
-
-def terminate_process_group(popen, grace_seconds=PROCESS_GROUP_KILL_GRACE_SECONDS):
-    if popen.poll() is not None:
-        return "already_exited"
-    term_status = signal_process_group(popen, signal.SIGTERM)
-    if term_status == "already_exited":
-        return term_status
-    if term_status != "signaled":
-        return term_status
-    try:
-        popen.wait(timeout=grace_seconds)
-        return "terminated"
-    except subprocess.TimeoutExpired:
-        kill_status = signal_process_group(popen, signal.SIGKILL)
-        if kill_status == "already_exited":
-            return kill_status
-        if kill_status != "signaled":
-            return kill_status
-        try:
-            popen.wait(timeout=grace_seconds)
-        except subprocess.TimeoutExpired:
-            return "kill_timeout"
-        return "killed"
-
-
-def cleanup_active_processes(registry):
-    cleanup = {}
-    for item in registry.snapshot():
-        cleanup[item["provider"]] = {
-            "pid": item["pid"],
-            "result": terminate_process_group(item["popen"]),
-        }
-    return cleanup
-
-
-def raw_output(stdout, stderr):
-    # TRN-3022 coupling: the _STDERR_SENTINEL written here is consumed by
-    # _strip_stderr_region — do NOT change the sentinel format without
-    # updating both. The sentinel is a unique marker (random hex tag) so
-    # neither stdout nor stderr can plausibly contain a colliding string.
-    # Always append the sentinel (even with empty stderr) so the boundary
-    # exists unambiguously.
-    return (stdout or "") + _STDERR_SENTINEL + (stderr or "")
-
-
-def write_text_atomic(path, text):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(
-        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
-    )
-    try:
-        temp_path.write_text(text, encoding="utf-8")
-        os.replace(temp_path, path)
-    finally:
-        try:
-            temp_path.unlink()
-        except FileNotFoundError:
-            pass
-
-
-def timeout_partial_output(exc, stdout=None, stderr=None):
-    def normalize(value):
-        if value is None:
-            return ""
-        if isinstance(value, bytes):
-            return value.decode("utf-8", errors="replace")
-        return value
-
-    return raw_output(
-        normalize(stdout) or normalize(exc.stdout),
-        normalize(stderr) or normalize(exc.stderr),
-    )
-
-
-def _set_raw_pty(fd):
-    """Disable PTY newline translation while keeping child stdout as a TTY."""
-    try:
-        tty.setraw(fd)
-    except OSError:
-        pass
-
-
-def _copy_pty_to_file(master_fd, output_path, errors):
-    try:
-        with open(output_path, "ab", buffering=0) as out:
-            while True:
-                try:
-                    chunk = os.read(master_fd, 4096)
-                except OSError as exc:
-                    if exc.errno == errno.EIO:
-                        break
-                    raise
-                if not chunk:
-                    break
-                out.write(chunk)
-    except Exception as exc:
-        errors.append(exc)
-    finally:
-        try:
-            os.close(master_fd)
-        except OSError:
-            pass
-
-
-_UNIVERSAL_ENV_KEEP_LITERAL = frozenset(
-    {
-        "PATH",
-        "HOME",
-        "USER",
-        "LOGNAME",
-        "LANG",
-        "TERM",
-        "SHELL",
-        "TZ",
-        "TMPDIR",
-        "XDG_RUNTIME_DIR",
-        "XDG_CONFIG_HOME",
-        "XDG_CACHE_HOME",
-        "XDG_DATA_HOME",
-        "SSH_AUTH_SOCK",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "PWD",
-    }
-)
-_UNIVERSAL_ENV_KEEP_GLOB = ("LC_*", "GIT_*")
-_DEFAULT_ENV_CLEAR_PATTERNS = (
-    "*_BASE_URL",
-    "*_API_BASE",
-    "*_API_HOST",
-    "OTEL_*",
-    "TRINITY_DISABLE_DISPATCH",
-    "TRINITY_MCP_TOKEN",
-)
-
-
-def _matches_any(key, patterns):
-    return any(fnmatch.fnmatchcase(key, pat) for pat in patterns)
-
-
-def _is_essential(key):
-    if key in _UNIVERSAL_ENV_KEEP_LITERAL:
-        return True
-    return _matches_any(key, _UNIVERSAL_ENV_KEEP_GLOB)
-
-
-def build_provider_env(base_env=None):
-    """Build a sanitized env dict for spawning provider CLIs (TRN-3023).
-
-    Strips known-problematic patterns (vendor *_BASE_URL overrides, OTEL_*
-    telemetry leakage, Trinity control vars from caller's shell).
-    Preserves universal essentials regardless of clear patterns. Returns
-    a fresh dict suitable for `subprocess.Popen(env=...)`.
-
-    Universal essentials are checked BEFORE the clearlist, so a future
-    clearlist pattern that happened to match an essential (e.g., a
-    pattern accidentally globbing PATH) would still preserve the
-    essential.
-
-    `base_env=None` resolves to `os.environ` at call time (avoids the
-    mutable-default antipattern if `os.environ` mutates between calls).
-
-    Patterns use `fnmatch.fnmatchcase` (case-sensitive — POSIX env
-    names ARE case-sensitive even on macOS/Windows).
-    """
-    if base_env is None:
-        base_env = os.environ
-    sanitized = {}
-    for key, value in base_env.items():
-        if _is_essential(key):
-            sanitized[key] = value
-            continue
-        if _matches_any(key, _DEFAULT_ENV_CLEAR_PATTERNS):
-            continue
-        sanitized[key] = value
-    return sanitized
-
-
-# ---------------------------------------------------------------------------
-# TRN-3022: structured review result schema — parser + helpers
-# ---------------------------------------------------------------------------
-
-_SCHEMA_BLOCK_RE = re.compile(
-    r"(?ims)^```json\s*$\n(.*?)\n^```\s*$",
-)
-
-
-def _strip_stderr_region(text):
-    """Strip the stderr tail appended by raw_output().
-
-    TRN-3022 coupling: the sentinel _STDERR_SENTINEL is a unique marker
-    written by raw_output() at this module. It contains a random hex tag,
-    so a colliding string in either stdout or stderr is astronomically
-    unlikely. The pre-sentinel region (stdout) is scanned for structured
-    blocks. If absent (custom raw-output writers), the full text is returned.
-    """
-    idx = text.rfind(_STDERR_SENTINEL)
-    if idx == -1:
-        return text
-    return text[:idx]
-
-
-def _safe_read_raw(path):
-    """Read a raw provider file, returning text or None on failure.
-
-    Catches OSError (file deleted/moved between run and synthesis) and
-    UnicodeDecodeError (corrupt bytes). Returns None on failure — caller
-    falls through to legacy rendering.
-    """
-    try:
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-
-
-def _validate_review_schema(data):
-    """Validate a parsed JSON dict against the TRN-3022 review schema.
-
-    Returns True if valid, False otherwise. Never raises.
-    Checks: top-level dict, required fields, types, ranges, finding shapes.
-    Unknown top-level and finding-level keys are ignored (forward-compat).
-    Rejects numeric bools (isinstance(True, int) is True in Python).
-    """
-    if not isinstance(data, dict):
-        return False
-
-    # decision
-    decision = data.get("decision")
-    if not isinstance(decision, str) or decision.upper() not in ("PASS", "FIX"):
-        return False
-
-    # weighted_score — reject bools (True/False are int subclasses) and NaN/Inf.
-    # math.isfinite() on huge ints raises OverflowError, so guard with isinstance(float).
-    # Ints are always finite by definition; oversized ints fall through to range check.
-    ws = data.get("weighted_score")
-    if isinstance(ws, bool) or not isinstance(ws, (int, float)):
-        return False
-    if isinstance(ws, float) and not math.isfinite(ws):
-        return False
-    if ws < 0.0 or ws > 10.0:
-        return False
-
-    # blocking and advisories
-    for key in ("blocking", "advisories"):
-        val = data.get(key)
-        if not isinstance(val, list):
-            return False
-        for item in val:
-            if not isinstance(item, dict):
-                return False
-            if not isinstance(item.get("title"), str):
-                return False
-            if not isinstance(item.get("evidence"), str):
-                return False
-            # fix is optional; if present must be str
-            fix = item.get("fix")
-            if fix is not None and not isinstance(fix, str):
-                return False
-
-    # confidence (optional) — reject bools and NaN/Inf (same overflow guard as weighted_score).
-    conf = data.get("confidence")
-    if conf is not None:
-        if isinstance(conf, bool) or not isinstance(conf, (int, float)):
-            return False
-        if isinstance(conf, float) and not math.isfinite(conf):
-            return False
-        if conf < 0.0 or conf > 1.0:
-            return False
-
-    return True
-
-
-def parse_structured_review(raw_text, pass_threshold=None):
-    """Parse a structured review schema block from raw provider output.
-
-    Returns a dict with schema fields + effective_decision, or None on any
-    failure. Never raises — synthesis must work on malformed provider output.
-
-    Steps:
-      1. Strip stderr region via _strip_stderr_region.
-      2. Find last fenced ```json block via regex (DOTALL).
-      3. json.loads contents.
-      4. Validate via _validate_review_schema.
-      5. Coerce effective_decision if needed.
-    """
-    try:
-        effective_threshold = (
-            pass_threshold if pass_threshold is not None else _REVIEW_PASS_THRESHOLD
-        )
-        stdout_region = _strip_stderr_region(raw_text)
-
-        matches = _SCHEMA_BLOCK_RE.findall(stdout_region)
-        if not matches:
-            return None
-
-        last_block = matches[-1]
-        data = json.loads(last_block)
-
-        if not _validate_review_schema(data):
-            return None
-
-        # Normalize decision to uppercase.
-        data["decision"] = data["decision"].upper()
-
-        # Effective-decision coercion.
-        if data["decision"] == "PASS" and (
-            data["blocking"] or data["weighted_score"] < effective_threshold
-        ):
-            data["effective_decision"] = "FIX"
-        else:
-            data["effective_decision"] = data["decision"]
-
-        return data
-    except (json.JSONDecodeError, TypeError, ValueError, AttributeError, OverflowError):
-        return None
-
-
-def _review_schema_addendum(task_type, strict_review=None):
-    """Return the structured-output prompt addendum for review task types.
-
-    Returns empty string for non-review task types (tdd, prp, general, None).
-    Addendum is appended at the end of the rendered prompt so providers emit
-    the JSON block as the LAST thing in their output.
-    """
-    task_type = (task_type or "").lower()
-    if task_type != "review":
-        return ""
-
-    threshold = (
-        strict_review["pass_threshold"]
-        if strict_review is not None
-        else _REVIEW_PASS_THRESHOLD
-    )
-    return (
-        "\n## Required: Structured Output\n"
-        "\n"
-        "After your free-form review, emit EXACTLY ONE fenced JSON block at the END\n"
-        'of your output. Required fields: `decision` ("PASS" or "FIX"),\n'
-        "`weighted_score` (number 0.0-10.0), `blocking` (list, may be `[]`),\n"
-        "`advisories` (list, may be `[]`). Optional: `confidence` (number 0.0-1.0).\n"
-        "Each finding in blocking/advisories is an object with `title` (str),\n"
-        '`evidence` (str, file:line, may be `""`), and optional `fix` (str).\n'
-        "\n"
-        "Concrete example — REPLACE values with your actual verdict; do NOT copy\n"
-        "this block verbatim:\n"
-        "\n"
-        "```json\n"
-        "{\n"
-        '  "decision": "FIX",\n'
-        '  "weighted_score": 7.5,\n'
-        '  "blocking": [\n'
-        "    {\n"
-        '      "title": "Race condition in worker shutdown",\n'
-        '      "evidence": "scripts/foo.py:142",\n'
-        '      "fix": "Acquire lock before signaling done"\n'
-        "    }\n"
-        "  ],\n"
-        '  "advisories": [],\n'
-        '  "confidence": 0.85\n'
-        "}\n"
-        "```\n"
-        "\n"
-        "Rules:\n"
-        f'- "decision" MUST be "PASS" only when "blocking" is empty AND "weighted_score" >= {threshold}.\n'
-        '  (If you write PASS while "blocking" is non-empty or score < '
-        f"{threshold}, Trinity will\n"
-        "  display your provider as FIX — the consistency is enforced.)\n"
-        '- "blocking" and "advisories" are required lists (use [] if empty, not null).\n'
-        '- "evidence" is required per finding; use "" for cross-cutting issues.\n'
-        "- This block must be the LAST fenced ```json block in your output. Trinity scans\n"
-        "  for the last match. Earlier illustrative JSON in your prose is fine.\n"
-    )
-
-
-def run_provider(
-    provider,
-    provider_config,
-    prompt_path,
-    review_dir,
-    root,
-    registry,
-):
-    # TRN-2018 M1: stdout streams through a PTY into logs/<p>.stdout.log so
-    # child processes that line-buffer on isatty() emit live output instead of
-    # block-buffering until exit. stderr still streams to its own log file.
-    # raw/<p>.txt is composed from closed logs for backward compatibility.
-    raw_path = review_dir / "raw" / f"{provider}.txt"
-    # Defensive: production cmd_review path creates logs/ via make_review_dir,
-    # but unit tests that build review_dir manually may skip it.
-    (review_dir / "logs").mkdir(exist_ok=True)
-    stdout_path = review_dir / "logs" / f"{provider}.stdout.log"
-    stderr_path = review_dir / "logs" / f"{provider}.stderr.log"
-    cmd = provider_command(provider, provider_config) + [
-        build_prompt_handoff(prompt_path)
-    ]
-    provider_env = build_provider_env()
-    try:
-        timeout = provider_timeout(provider, provider_config)
-    except ValueError as exc:
-        raise SystemExit(f"trinity-codex: provider {provider} {exc}") from exc
-    started = timestamp()
-    started_monotonic = time.monotonic()
-    progress(f"starting provider {provider} timeout={timeout}s")
-    popen = None
-    outcome = None  # tuple describing terminal state; consumed below for raw compose
-    stdout_path.write_bytes(b"")
-    stdout_master_fd = None
-    stdout_slave_fd = None
-    stdout_thread = None
-    stdout_reader_errors = []
-    try:
-        stdout_master_fd, stdout_slave_fd = pty.openpty()
-        _set_raw_pty(stdout_slave_fd)
-    except OSError as exc:
-        raise RuntimeError(f"failed to create PTY for provider stdout: {exc}") from exc
-    stdout_thread = threading.Thread(
-        target=_copy_pty_to_file,
-        args=(stdout_master_fd, stdout_path, stdout_reader_errors),
-        daemon=True,
-    )
-    stdout_thread.start()
-    stdout_master_fd = None
-    with open(stderr_path, "w", buffering=1, encoding="utf-8") as ferr:
-        try:
-            popen = subprocess.Popen(
-                cmd,
-                cwd=str(root),
-                stdout=stdout_slave_fd,
-                stderr=ferr,
-                text=True,
-                start_new_session=True,
-                env=provider_env,
-            )
-            os.close(stdout_slave_fd)
-            stdout_slave_fd = None
-            registry.add(provider, popen, started)
-            _rm.update_provider_state(
-                review_dir,
-                provider,
-                status="running",
-                pid=getattr(popen, "pid", None),
-                started_at=started,
-                stdout_path=str(stdout_path.relative_to(review_dir)),
-                stderr_path=str(stderr_path.relative_to(review_dir)),
-            )
-            popen.wait(timeout=timeout)
-            finished = timestamp()
-            # TRN-2018 M1: derive terminal state from returncode. A clean
-            # exit with rc != 0 is `failed`, not `finished`. finalize_metadata's
-            # top-level status precedence (failed > timed_out > finished)
-            # then correctly surfaces `failed` for any provider with non-zero rc.
-            terminal_state = "finished" if popen.returncode == 0 else "failed"
-            progress(
-                f"provider {provider} {terminal_state} returncode={popen.returncode} "
-                f"elapsed={elapsed_seconds(started_monotonic)}s"
-            )
-            _rm.update_provider_state(
-                review_dir,
-                provider,
-                status=terminal_state,
-                returncode=popen.returncode,
-                finished_at=finished,
-            )
-            outcome = ("finished", popen.returncode, finished)
-        except FileNotFoundError as exc:
-            finished = timestamp()
-            progress(
-                f"provider {provider} failed returncode=127 "
-                f"elapsed={elapsed_seconds(started_monotonic)}s"
-            )
-            _rm.update_provider_state(
-                review_dir,
-                provider,
-                status="failed",
-                returncode=127,
-                finished_at=finished,
-            )
-            outcome = ("filenotfound", str(exc), finished)
-        except subprocess.TimeoutExpired as exc:
-            cleanup_result = terminate_process_group(popen)
-            # Best effort: wait briefly so the child fully exits before we
-            # close its stdout/stderr file handles.
-            try:
-                popen.wait(timeout=1)
-            except (subprocess.TimeoutExpired, ValueError):
-                pass
-            finished = timestamp()
-            progress(
-                f"provider {provider} timed out returncode=124 "
-                f"cleanup={cleanup_result} elapsed={elapsed_seconds(started_monotonic)}s"
-            )
-            _rm.update_provider_state(
-                review_dir,
-                provider,
-                status="timed_out",
-                returncode=124,
-                finished_at=finished,
-            )
-            outcome = ("timeout", exc, timeout, finished)
-        except Exception:
-            if popen is not None and popen.poll() is None:
-                terminate_process_group(popen)
-            raise
-        finally:
-            try:
-                ferr.flush()
-            except Exception:
-                pass
-            if stdout_slave_fd is not None:
-                try:
-                    os.close(stdout_slave_fd)
-                except OSError:
-                    pass
-            if stdout_master_fd is not None:
-                try:
-                    os.close(stdout_master_fd)
-                except OSError:
-                    pass
-            if stdout_thread is not None:
-                stdout_thread.join()
-            if popen is not None:
-                registry.remove(provider, popen)
-    if stdout_reader_errors:
-        raise RuntimeError(
-            f"provider {provider} stdout reader failed: {stdout_reader_errors[0]}"
-        )
-
-    # Log file handles are now closed; compose raw_path from disk content.
-    # TRN-2018 R3 fix (codex R2 P2): append the result entry to metadata
-    # immediately so status readers can discover completed providers'
-    # artifacts before the full review finishes (parallel-provider case).
-    # finalize_metadata later overwrites results with the canonical
-    # ordered list from run_providers, so duplicate appends are harmless.
-    if outcome[0] == "finished":
-        _, rc, finished = outcome
-        stdout_text = (
-            stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
-        )
-        stderr_text = (
-            stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
-        )
-        write_text_atomic(raw_path, raw_output(stdout_text, stderr_text))
-        result = {
-            "provider": provider,
-            "returncode": rc,
-            "raw": str(raw_path.relative_to(review_dir)),
-            "started_at": started,
-            "finished_at": finished,
-        }
-        _rm.append_result(review_dir, result)
-        return result
-    if outcome[0] == "filenotfound":
-        _, msg, finished = outcome
-        write_text_atomic(raw_path, f"ERROR: command not found: {msg}\n")
-        result = {
-            "provider": provider,
-            "returncode": 127,
-            "raw": str(raw_path.relative_to(review_dir)),
-            "started_at": started,
-            "finished_at": finished,
-        }
-        _rm.append_result(review_dir, result)
-        return result
-    # timeout
-    _, exc, timeout_val, finished = outcome
-    stdout_text = (
-        stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
-    )
-    stderr_text = (
-        stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
-    )
-    partial = timeout_partial_output(exc, stdout_text, stderr_text)
-    output = f"ERROR: timeout after {timeout_val}s\n{exc}\n"
-    if partial:
-        output += "\n[partial output]\n" + partial
-    write_text_atomic(raw_path, output)
-    result = {
-        "provider": provider,
-        "returncode": 124,
-        "raw": str(raw_path.relative_to(review_dir)),
-        "started_at": started,
-        "finished_at": finished,
-    }
-    _rm.append_result(review_dir, result)
-    return result
-
-
 def review_parallelism(config, providers):
     review_config = review_section(config)
     raw_value = review_config.get("max_parallel_providers")
@@ -1995,67 +1341,6 @@ def review_parallelism(config, providers):
             f"trinity: review.max_parallel_providers must be between 1 and {len(providers)}"
         )
     return raw_value
-
-
-def run_providers(
-    max_workers,
-    providers,
-    provider_configs,
-    prompt_path,
-    review_dir,
-    root,
-):
-    registry = ActiveProcessRegistry()
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
-    provider_iter = iter(providers)
-    futures = {}
-    results = {}
-
-    def submit_provider(provider):
-        future = executor.submit(
-            run_provider,
-            provider,
-            provider_configs[provider],
-            prompt_path,
-            review_dir,
-            root,
-            registry,
-        )
-        futures[future] = provider
-
-    try:
-        for provider in provider_iter:
-            submit_provider(provider)
-            if len(futures) >= max_workers:
-                break
-        while futures:
-            done, _ = concurrent.futures.wait(
-                futures, return_when=concurrent.futures.FIRST_COMPLETED
-            )
-            for future in done:
-                provider = futures.pop(future)
-                results[provider] = future.result()
-                try:
-                    submit_provider(next(provider_iter))
-                except StopIteration:
-                    pass
-    except KeyboardInterrupt as exc:
-        for future in futures:
-            future.cancel()
-        started_providers = registry.started_providers()
-        cleanup = cleanup_active_processes(registry)
-        executor.shutdown(wait=False)
-        raise ReviewInterrupted(cleanup, started_providers) from exc
-    except Exception as exc:
-        for future in futures:
-            future.cancel()
-        started_providers = registry.started_providers()
-        cleanup = cleanup_active_processes(registry)
-        executor.shutdown(wait=False)
-        raise ReviewOrchestrationError(str(exc), cleanup, started_providers) from exc
-    else:
-        executor.shutdown(wait=True)
-    return [results[provider] for provider in providers]
 
 
 def ordered_subset(providers, selected):

@@ -30,6 +30,7 @@ install-hooks:  ## Install git pre-commit hook to run generated-artifact checks 
 test:           ## Run pytest and shell regression tests
 	$(MAKE) verify-built
 	.venv/bin/pytest tests/ -v
+	bash tests/test_codex_module_split.sh
 	bash tests/test_build_providers.sh
 	bash tests/test_dependabot_config.sh
 	bash tests/test_codeql_workflow.sh
