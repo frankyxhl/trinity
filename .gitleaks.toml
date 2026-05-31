@@ -1,0 +1,27 @@
+title = "Trinity Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "trinity-provider-api-key-assignment"
+description = "Provider API key or token assignment in Trinity source"
+regex = '''(?i)\b(?:DEEPSEEK|OPENROUTER|OPENAI|ANTHROPIC|GOOGLE|GEMINI|GLM|MINIMAX|TRINITY|VOYAGER|MCP)[A-Z0-9_]*(?:API_KEY|AUTH_TOKEN|TOKEN|SECRET|BEARER)[A-Z0-9_]*\b\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9._~+/\-=]{23,})["']?'''
+secretGroup = 1
+keywords = [
+  "API_KEY",
+  "AUTH_TOKEN",
+  "TOKEN",
+  "SECRET",
+  "BEARER",
+]
+
+[[rules]]
+id = "trinity-bearer-header"
+description = "Bearer token embedded in source"
+regex = '''(?i)\bAuthorization\s*:\s*Bearer\s+([A-Za-z0-9][A-Za-z0-9._~+/\-=]{23,})'''
+secretGroup = 1
+keywords = [
+  "Authorization",
+  "Bearer",
+]
