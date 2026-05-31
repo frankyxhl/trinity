@@ -6,6 +6,9 @@
 - GitHub Actions workflow steps are now pinned to full commit SHAs with trailing
   version comments, while Dependabot remains configured to update actions.
   Closes #163.
+- The Codex adapter internals are split into focused provider runtime,
+  provider-state metadata, and review-schema modules, while keeping
+  `scripts/codex.py` as the stable CLI entry point. Closes #164.
 - PR CI now uploads per-matrix-leg coverage artifacts containing `coverage.xml`
   and the `htmlcov/` HTML report, while keeping the existing 80% coverage gate.
   Closes #161.
