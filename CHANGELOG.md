@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- PR CI now restores the uv dependency cache in each test matrix leg before
+  `make setup`, keyed by `pyproject.toml` and `uv.lock`. Closes #162.
 - GitHub Actions workflow steps are now pinned to full commit SHAs with trailing
   version comments, while Dependabot remains configured to update actions.
   Closes #163.

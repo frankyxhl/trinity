@@ -40,6 +40,11 @@ require_file_contains "${WORKFLOW}" "python-version: \\['3\\.11', '3\\.12', '3\\
 require_file_contains "${WORKFLOW}" 'runs-on: \$\{\{ matrix\.os \}\}' "runner uses OS matrix"
 require_file_contains "${WORKFLOW}" 'uses: actions/setup-python@[0-9a-f]{40} # v6' "setup-python action is pinned to SHA"
 require_file_contains "${WORKFLOW}" 'python-version: \$\{\{ matrix\.python-version \}\}' "setup-python uses Python matrix"
+require_file_contains "${WORKFLOW}" 'uses: astral-sh/setup-uv@[0-9a-f]{40} # v7' "setup-uv action is pinned to SHA"
+require_file_contains "${WORKFLOW}" 'enable-cache: true' "setup-uv cache is enabled"
+require_file_contains "${WORKFLOW}" 'cache-dependency-glob:' "setup-uv cache dependency glob configured"
+require_file_contains "${WORKFLOW}" 'pyproject\.toml' "setup-uv cache keys pyproject"
+require_file_contains "${WORKFLOW}" 'uv\.lock' "setup-uv cache keys lockfile"
 require_file_contains "${WORKFLOW}" '^  ubuntu-latest:$' "legacy ubuntu required-check gate present"
 require_file_contains "${WORKFLOW}" '^    name: ubuntu-latest$' "legacy ubuntu required-check name preserved"
 require_file_contains "${WORKFLOW}" '^  macos-latest:$' "legacy macos required-check gate present"
@@ -48,15 +53,16 @@ require_file_contains "${WORKFLOW}" 'needs: test' "required-check gates depend o
 require_file_contains "${WORKFLOW}" '\$\{\{ needs\.test\.result \}\}' "required-check gates inspect matrix result"
 
 setup_line=$(grep -nE 'uses: actions/setup-python@[0-9a-f]{40} # v6' "${WORKFLOW}" | head -1 | cut -d: -f1)
+uv_line=$(grep -nE 'uses: astral-sh/setup-uv@[0-9a-f]{40} # v7' "${WORKFLOW}" | head -1 | cut -d: -f1)
 install_line=$(grep -nF 'run: make setup' "${WORKFLOW}" | head -1 | cut -d: -f1)
 lint_line=$(grep -nF 'run: make lint' "${WORKFLOW}" | head -1 | cut -d: -f1)
 test_line=$(grep -nF 'run: make test' "${WORKFLOW}" | head -1 | cut -d: -f1)
 coverage_line=$(grep -nF 'run: make coverage' "${WORKFLOW}" | head -1 | cut -d: -f1)
 
-if [[ "${setup_line}" -lt "${install_line}" && "${install_line}" -lt "${lint_line}" && "${lint_line}" -lt "${test_line}" && "${test_line}" -lt "${coverage_line}" ]]; then
-    pass "matrix leg order remains setup, install, lint, test, coverage"
+if [[ "${setup_line}" -lt "${uv_line}" && "${uv_line}" -lt "${install_line}" && "${install_line}" -lt "${lint_line}" && "${lint_line}" -lt "${test_line}" && "${test_line}" -lt "${coverage_line}" ]]; then
+    pass "matrix leg order remains setup-python, setup-uv, install, lint, test, coverage"
 else
-    fail "matrix leg order remains setup, install, lint, test, coverage"
+    fail "matrix leg order remains setup-python, setup-uv, install, lint, test, coverage"
 fi
 
 if [[ "${failures}" -ne 0 ]]; then
