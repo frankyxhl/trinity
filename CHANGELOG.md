@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- MIT license metadata is now explicit through a root `LICENSE` file and
+  `pyproject.toml` declaration. Closes #156.
 - `SECURITY.md` now documents supported security scope, response expectations,
   and private vulnerability reporting channels. Closes #157.
 - Dependabot version updates for the root uv lockfile and GitHub

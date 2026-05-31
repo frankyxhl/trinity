@@ -35,6 +35,7 @@ test:           ## Run pytest and shell regression tests
 	bash tests/test_codeql_workflow.sh
 	bash tests/test_gitleaks_config.sh
 	bash tests/test_dependency_audit_workflow.sh
+	bash tests/test_license_metadata.sh
 	bash tests/test_security_policy.sh
 	bash tests/test_release_workflow.sh
 	bash tests/test_install_sh.sh
