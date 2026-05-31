@@ -179,7 +179,7 @@ jobs:
           echo "Extracted $(wc -l < release-notes.md) lines from CHANGELOG"
 
       - name: Upload release notes artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-notes-${{ steps.tag.outputs.tag }}
           path: release-notes.md
@@ -221,7 +221,7 @@ jobs:
           token: ${{ secrets.RELEASE_TAG_PAT }}
 
       - name: Download release notes artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: release-notes-${{ needs.verify.outputs.tag }}
 

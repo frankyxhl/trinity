@@ -33,6 +33,13 @@
   rationale and surfaces.
 
 ### Changed
+- Release workflow artifact actions bumped as a matched pair:
+  `upload-artifact@v7` + `download-artifact@v8` (kept on the same v4+ backend
+  so the verify→publish release-notes handoff stays compatible). The
+  `test_release_workflow.sh` action-version assertions are now ref-agnostic
+  (present + pinned, any `@vN` or `@<sha>`) instead of hard-coding exact
+  versions, so Dependabot action bumps and #163 SHA-pinning no longer fail CI.
+  Supersedes #176 and #177.
 - Dev dependency setup now resolves from committed lock artifacts:
   `uv.lock` is the canonical lock, `requirements-dev.txt` is the pinned pip
   fallback, and `make setup` installs via `uv sync --locked --dev` when uv is
