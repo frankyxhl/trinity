@@ -1,4 +1,4 @@
-.PHONY: setup lock build verify-built install-hooks test lint coverage install install-codex pr-update bump release-prep
+.PHONY: setup lock build verify-built install-hooks test lint coverage audit install install-codex pr-update bump release-prep
 
 # Read VERSION at make invocation time
 CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
@@ -34,6 +34,7 @@ test:           ## Run pytest and shell regression tests
 	bash tests/test_dependabot_config.sh
 	bash tests/test_codeql_workflow.sh
 	bash tests/test_gitleaks_config.sh
+	bash tests/test_dependency_audit_workflow.sh
 	bash tests/test_release_workflow.sh
 	bash tests/test_install_sh.sh
 	bash tests/test_make_bump.sh
@@ -48,6 +49,9 @@ coverage:       ## Measure line coverage with subprocess tracking (TRN-2023, fai
 	COVERAGE_PROCESS_START=$(CURDIR)/.coveragerc .venv/bin/coverage run -m pytest tests/ -q
 	.venv/bin/coverage combine
 	.venv/bin/coverage report --include='scripts/*' --fail-under=80
+
+audit:          ## Check locked dev dependencies with pip-audit
+	.venv/bin/pip-audit --disable-pip --require-hashes -r requirements-dev.txt
 
 install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	@mkdir -p ~/.claude/skills/trinity/scripts
