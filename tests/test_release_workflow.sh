@@ -149,9 +149,13 @@ done
 echo "-- T5: no third-party publish actions"
 check_neg "no softprops/action-gh-release" grep -q 'softprops/action-gh-release' "$WORKFLOW"
 check     "uses gh release create"         grep -q 'gh release create' "$WORKFLOW"
-check     "checkout pinned to v6"          grep -q 'actions/checkout@v6' "$WORKFLOW"
-check     "upload-artifact pinned to v5"   grep -q 'actions/upload-artifact@v5' "$WORKFLOW"
-check     "setup-uv pinned to v6"          grep -q 'astral-sh/setup-uv@v6' "$WORKFLOW"
+# Assert each action is present and pinned to a ref (a version tag OR a commit
+# SHA), not a specific version string. Hard-pinning the exact @vN here made
+# every Dependabot action bump fail CI and would also break #163 (pin to SHA).
+check     "checkout present + pinned"          grep -qE 'actions/checkout@[^ ]+' "$WORKFLOW"
+check     "upload-artifact present + pinned"   grep -qE 'actions/upload-artifact@[^ ]+' "$WORKFLOW"
+check     "download-artifact present + pinned" grep -qE 'actions/download-artifact@[^ ]+' "$WORKFLOW"
+check     "setup-uv present + pinned"          grep -qE 'astral-sh/setup-uv@[^ ]+' "$WORKFLOW"
 
 echo "-- T6: semver regex acceptance"
 check "accepts v1.2.3"        valid_semver_tag "v1.2.3"
