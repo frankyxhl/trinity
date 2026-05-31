@@ -25,7 +25,7 @@ jobs:
         python-version: ['3.11', '3.12', '3.13']
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
       - name: Detect test-relevant changes
@@ -73,7 +73,7 @@ jobs:
       - name: No test-relevant changes
         if: steps.changes.outputs.run_tests != 'true'
         run: echo "No test-relevant changes; expensive checks skipped."
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         if: steps.changes.outputs.run_tests == 'true'
         with:
           python-version: ${{ matrix.python-version }}
@@ -91,7 +91,7 @@ jobs:
         run: make coverage
       - name: Upload coverage report
         if: always() && steps.changes.outputs.run_tests == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-${{ matrix.os }}-py${{ matrix.python-version }}
           path: |
