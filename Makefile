@@ -27,11 +27,12 @@ install-hooks:  ## Install git pre-commit hook to run generated-artifact checks 
 	@chmod +x .git/hooks/pre-commit
 	@echo "Installed pre-commit hook → .git/hooks/pre-commit"
 
-test:           ## Run all tests (TRN-1001 + TRN-2004 build tests + TRN-2006 release workflow tests)
+test:           ## Run pytest and shell regression tests
 	$(MAKE) verify-built
 	.venv/bin/pytest tests/ -v
 	bash tests/test_build_providers.sh
 	bash tests/test_dependabot_config.sh
+	bash tests/test_codeql_workflow.sh
 	bash tests/test_release_workflow.sh
 	bash tests/test_install_sh.sh
 	bash tests/test_make_bump.sh
