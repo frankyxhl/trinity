@@ -7,6 +7,9 @@
   Actions workflows now run weekly from `.github/dependabot.yml`. Closes #152.
 - CodeQL code scanning now runs for Python on pull requests and pushes
   targeting `main`, on a weekly schedule, and by manual dispatch. Closes #153.
+- Secret scanning now runs Gitleaks on pull requests, pushes to `main`, and
+  manual dispatch, with Trinity-specific rules for provider API keys and bearer
+  tokens. Closes #154.
 - TRN-2018 M1 — review status observability. `trinity status` now renders a
   live `Live state:` section when reading M1 metadata, showing each provider
   in `queued` / `running` / `finished` / `failed` / `timed_out` state with
