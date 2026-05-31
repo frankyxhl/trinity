@@ -89,6 +89,16 @@ jobs:
       - name: Run coverage
         if: steps.changes.outputs.run_tests == 'true'
         run: make coverage
+      - name: Upload coverage report
+        if: always() && steps.changes.outputs.run_tests == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            htmlcov/
+          if-no-files-found: warn
+          retention-days: 14
 
   ubuntu-latest:
     name: ubuntu-latest

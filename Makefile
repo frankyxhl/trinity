@@ -34,6 +34,7 @@ test:           ## Run pytest and shell regression tests
 	bash tests/test_dependabot_config.sh
 	bash tests/test_codeql_workflow.sh
 	bash tests/test_test_workflow_matrix.sh
+	bash tests/test_coverage_visibility.sh
 	bash tests/test_gitleaks_config.sh
 	bash tests/test_dependency_audit_workflow.sh
 	bash tests/test_codeowners.sh
@@ -53,6 +54,8 @@ coverage:       ## Measure line coverage with subprocess tracking (TRN-2023, fai
 	.venv/bin/coverage erase
 	COVERAGE_PROCESS_START=$(CURDIR)/.coveragerc .venv/bin/coverage run -m pytest tests/ -q
 	.venv/bin/coverage combine
+	.venv/bin/coverage xml -o coverage.xml
+	.venv/bin/coverage html -d htmlcov
 	.venv/bin/coverage report --include='scripts/*' --fail-under=80
 
 audit:          ## Check locked dev dependencies with pip-audit
