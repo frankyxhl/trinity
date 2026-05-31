@@ -5,6 +5,8 @@
 ### Added
 - MIT license metadata is now explicit through a root `LICENSE` file and
   `pyproject.toml` declaration. Closes #156.
+- `SECURITY.md` now documents supported security scope, response expectations,
+  and private vulnerability reporting channels. Closes #157.
 - Dependabot version updates for the root uv lockfile and GitHub
   Actions workflows now run weekly from `.github/dependabot.yml`. Closes #152.
 - CodeQL code scanning now runs for Python on pull requests and pushes
