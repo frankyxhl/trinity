@@ -15,6 +15,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
   - [Step 2: Install providers](#step-2-install-providers)
   - [Step 3: Configure global defaults (optional)](#step-3-configure-global-defaults-optional)
 - [Codex Compatibility](#codex-compatibility)
+- [Contributing](#contributing)
 - [Command Reference](#command-reference)
 - [Usage Guide](#usage-guide)
   - [Single dispatch](#single-dispatch)
@@ -95,6 +96,11 @@ Expected output: glm, minimax, codex, gemini, openrouter, deepseek, and claude-c
 - **Install command** — `/trinity install codex` sets up the CLI, agent file, config, and smoke test in one step
 - **Plan mode** — draw a sequence diagram, confirm, then auto-dispatch in dependency order
 - **Codex adapter** — a terminal `trinity review` that runs the same multi-provider review without Claude Code
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, test and lint commands,
+branch naming, PR expectations, and the release preparation flow.
 
 ---
 
