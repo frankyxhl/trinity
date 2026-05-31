@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- GitHub Actions workflow steps are now pinned to full commit SHAs with trailing
+  version comments, while Dependabot remains configured to update actions.
+  Closes #163.
 - PR CI now uploads per-matrix-leg coverage artifacts containing `coverage.xml`
   and the `htmlcov/` HTML report, while keeping the existing 80% coverage gate.
   Closes #161.

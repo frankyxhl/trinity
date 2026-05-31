@@ -38,7 +38,7 @@ require_file_contains "${WORKFLOW}" 'name: test / \$\{\{ matrix\.os \}\} / Pytho
 require_file_contains "${WORKFLOW}" 'os: \[ubuntu-latest, macos-latest\]' "OS matrix keeps ubuntu and macos"
 require_file_contains "${WORKFLOW}" "python-version: \\['3\\.11', '3\\.12', '3\\.13'\\]" "Python matrix covers 3.11, 3.12, and 3.13"
 require_file_contains "${WORKFLOW}" 'runs-on: \$\{\{ matrix\.os \}\}' "runner uses OS matrix"
-require_file_contains "${WORKFLOW}" 'uses: actions/setup-python@v6' "setup-python action is pinned to major"
+require_file_contains "${WORKFLOW}" 'uses: actions/setup-python@[0-9a-f]{40} # v6' "setup-python action is pinned to SHA"
 require_file_contains "${WORKFLOW}" 'python-version: \$\{\{ matrix\.python-version \}\}' "setup-python uses Python matrix"
 require_file_contains "${WORKFLOW}" '^  ubuntu-latest:$' "legacy ubuntu required-check gate present"
 require_file_contains "${WORKFLOW}" '^    name: ubuntu-latest$' "legacy ubuntu required-check name preserved"
@@ -47,7 +47,7 @@ require_file_contains "${WORKFLOW}" '^    name: macos-latest$' "legacy macos req
 require_file_contains "${WORKFLOW}" 'needs: test' "required-check gates depend on matrix job"
 require_file_contains "${WORKFLOW}" '\$\{\{ needs\.test\.result \}\}' "required-check gates inspect matrix result"
 
-setup_line=$(grep -nF 'uses: actions/setup-python@v6' "${WORKFLOW}" | head -1 | cut -d: -f1)
+setup_line=$(grep -nE 'uses: actions/setup-python@[0-9a-f]{40} # v6' "${WORKFLOW}" | head -1 | cut -d: -f1)
 install_line=$(grep -nF 'run: make setup' "${WORKFLOW}" | head -1 | cut -d: -f1)
 lint_line=$(grep -nF 'run: make lint' "${WORKFLOW}" | head -1 | cut -d: -f1)
 test_line=$(grep -nF 'run: make test' "${WORKFLOW}" | head -1 | cut -d: -f1)
