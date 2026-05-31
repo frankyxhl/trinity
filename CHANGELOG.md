@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- PR CI now uploads per-matrix-leg coverage artifacts containing `coverage.xml`
+  and the `htmlcov/` HTML report, while keeping the existing 80% coverage gate.
+  Closes #161.
 - PR CI now runs the test workflow across a Python version matrix covering
   3.11, 3.12, and 3.13 on both Ubuntu and macOS, while preserving the existing
   `ubuntu-latest` and `macos-latest` required-check names as aggregate gates.
