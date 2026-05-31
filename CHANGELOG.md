@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `CONTRIBUTING.md` now documents setup, tests, lint, coverage, branch naming,
+  PR expectations, and release preparation, with a README entry point. Closes
+  #158.
 - MIT license metadata is now explicit through a root `LICENSE` file and
   `pyproject.toml` declaration. Closes #156.
 - `SECURITY.md` now documents supported security scope, response expectations,
