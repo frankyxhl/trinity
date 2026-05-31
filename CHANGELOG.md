@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `.github/CODEOWNERS` now maps the repository default, GitHub automation,
+  runtime/provider surfaces, rules, tests, and release metadata to @frankyxhl.
+  Closes #159.
 - `CONTRIBUTING.md` now documents setup, tests, lint, coverage, branch naming,
   PR expectations, and release preparation, with a README entry point. Closes
   #158.
