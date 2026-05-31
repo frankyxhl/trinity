@@ -10,6 +10,9 @@
 - Secret scanning now runs Gitleaks on pull requests, pushes to `main`, and
   manual dispatch, with Trinity-specific rules for provider API keys and bearer
   tokens. Closes #154.
+- Dependency vulnerability auditing now runs `pip-audit` against the locked dev
+  requirements on pull requests, pushes to `main`, and manual dispatch. Closes
+  #155.
 - TRN-2018 M1 — review status observability. `trinity status` now renders a
   live `Live state:` section when reading M1 metadata, showing each provider
   in `queued` / `running` / `finished` / `failed` / `timed_out` state with
