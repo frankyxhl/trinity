@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+- `minimax` provider upgraded from MiniMax 2.7 to MiniMax M3 (released
+  2026-06-01). M3 is not yet in droid's built-in catalog, so the CLI now uses
+  the BYOK reference `droid exec --auto medium --model custom:MiniMax-M3`
+  (requires a `~/.factory/settings.json` `customModels` entry with an
+  **explicit** `"id": "custom:MiniMax-M3"` — without it droid auto-generates
+  an indexed id like `custom:MiniMax-M3-<n>` and the registry CLI string will
+  not resolve; `--reasoning-effort` dropped — unsupported for `custom:`
+  models). Reverses
+  the TRN-3035 built-in-id decision out of necessity until droid ships M3
+  natively.
+
 ### Added
 - PR CI now restores the uv dependency cache in each test matrix leg before
   `make setup`, keyed by `pyproject.toml` and `uv.lock`. Closes #162.

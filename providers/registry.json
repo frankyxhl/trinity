@@ -8,7 +8,7 @@
       "timeout": 360
     },
     "minimax": {
-      "cli": "droid exec --auto medium --model minimax-m2.7 --reasoning-effort high",
+      "cli": "droid exec --auto medium --model custom:MiniMax-M3",
       "supports_resume": true,
       "resume_arg": "-s",
       "timeout": 360

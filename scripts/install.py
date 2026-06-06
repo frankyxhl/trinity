@@ -11,6 +11,7 @@ Usage:
 
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -172,6 +173,54 @@ def _validate_registry(data):
                 )
 
 
+# droid BYOK model references embedded in a provider cli string, e.g.
+# "droid exec --auto medium --model custom:MiniMax-M3".
+_CUSTOM_MODEL_RE = re.compile(r"(custom:[^\s\"']+)")
+
+
+def _declared_custom_model_ids(factory_settings_path):
+    """Return the set of explicit custom-model ids declared in
+    ~/.factory/settings.json customModels. Missing/unreadable file -> empty set."""
+    try:
+        with open(factory_settings_path, encoding="utf-8") as f:
+            settings = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return set()
+    ids = set()
+    models = settings.get("customModels")
+    if isinstance(models, list):
+        for m in models:
+            if isinstance(m, dict) and isinstance(m.get("id"), str):
+                ids.add(m["id"])
+    return ids
+
+
+def warn_missing_custom_models(provider_name, cli, factory_settings_path=None):
+    """Warn (stderr) when a cli references a droid `custom:` model id that has
+    no matching explicit `\"id\"` in ~/.factory/settings.json customModels.
+
+    Warning-only by design: install.sh has never smoke-tested provider CLIs,
+    and droid may be configured after install. This surfaces the BYOK
+    prerequisite at install time instead of first dispatch (PR #196 review).
+    """
+    refs = _CUSTOM_MODEL_RE.findall(cli)
+    if not refs:
+        return
+    path = factory_settings_path or os.path.join(
+        os.path.expanduser("~"), ".factory", "settings.json"
+    )
+    declared = _declared_custom_model_ids(path)
+    for ref in refs:
+        if ref not in declared:
+            print(
+                f"trinity-install: warning: provider '{provider_name}' references "
+                f"droid custom model '{ref}', but {path} has no customModels entry "
+                f'with an explicit "id": "{ref}" — dispatch will fail until that '
+                f"entry is added.",
+                file=sys.stderr,
+            )
+
+
 def cmd_register_from_registry(registry_path, global_config):
     """Read providers/registry.json and call cmd_register() per provider.
 
@@ -194,6 +243,7 @@ def cmd_register_from_registry(registry_path, global_config):
     for provider_name, entry in data["providers"].items():
         cli = entry["cli"].replace("{HOME}", home)
         cmd_register(provider_name, cli, global_config)
+        warn_missing_custom_models(provider_name, cli)
 
 
 def cmd_unregister(provider, global_config):
