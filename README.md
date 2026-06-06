@@ -73,7 +73,7 @@ Expected output: glm, minimax, codex, gemini, openrouter, deepseek, and claude-c
 | `~/.claude/skills/trinity/SKILL.md` | Trinity skill — loaded by Claude Code |
 | `~/.claude/skills/trinity/scripts/` | Python session/config/discover/install scripts |
 | `~/.claude/agents/trinity-glm.md` | GLM worker agent |
-| `~/.claude/agents/trinity-minimax.md` | MiniMax 2.7 worker agent |
+| `~/.claude/agents/trinity-minimax.md` | MiniMax M3 worker agent |
 | `~/.claude/agents/trinity-codex.md` | Codex worker agent |
 | `~/.claude/agents/trinity-gemini.md` | Gemini worker agent |
 | `~/.claude/agents/trinity-openrouter.md` | OpenRouter worker agent |
@@ -168,7 +168,7 @@ cp trinity/providers/gemini.md ~/.claude/agents/trinity-gemini.md
 # GLM
 cp trinity/providers/glm.md ~/.claude/agents/trinity-glm.md
 
-# MiniMax 2.7
+# MiniMax M3
 cp trinity/providers/minimax.md ~/.claude/agents/trinity-minimax.md
 
 # OpenRouter
@@ -195,7 +195,7 @@ Then create `~/.claude/trinity.json`:
     "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
     "glm":        { "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high", "installed": true },
-    "minimax":    { "cli": "droid exec --auto medium --model minimax-m2.7 --reasoning-effort high", "installed": true },
+    "minimax":    { "cli": "droid exec --auto medium --model custom:MiniMax-M3", "installed": true },
     "openrouter":  { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p",  "installed": true },
     "deepseek":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",    "installed": true },
     "claude-code": { "cli": "/Users/<you>/.claude/skills/trinity/bin/claude-code -p", "installed": true }
@@ -612,7 +612,7 @@ Sessions persist in `.claude/trinity.json` (project-scoped). Clearing removes th
 
 ~/.claude/agents/
   trinity-glm.md                ← GLM worker agent
-  trinity-minimax.md            ← MiniMax 2.7 worker agent
+  trinity-minimax.md            ← MiniMax M3 worker agent
   trinity-codex.md              ← Codex worker agent
   trinity-gemini.md             ← Gemini worker agent
   trinity-deepseek.md           ← DeepSeek (Anthropic-compat wrapper)
