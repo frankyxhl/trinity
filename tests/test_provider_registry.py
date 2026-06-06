@@ -346,6 +346,55 @@ def test_register_from_registry_populates_global_config(tmp_path):
         }, f"register-from-registry failed for {provider}"
 
 
+def test_register_from_registry_warns_on_undeclared_custom_model(tmp_path, capsys):
+    """A provider cli referencing a droid `custom:` model id must emit an
+    install-time stderr warning when ~/.factory/settings.json lacks a
+    customModels entry with that explicit id (PR #196 review gate)."""
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"customModels": []}))
+    install_py.warn_missing_custom_models(
+        "minimax",
+        "droid exec --auto medium --model custom:MiniMax-M3",
+        str(settings),
+    )
+    err = capsys.readouterr().err
+    assert "custom:MiniMax-M3" in err
+    assert "minimax" in err
+
+
+def test_register_from_registry_no_warning_when_custom_model_declared(tmp_path, capsys):
+    """No warning when the explicit id is declared in customModels."""
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"customModels": [{"id": "custom:MiniMax-M3"}]}))
+    install_py.warn_missing_custom_models(
+        "minimax",
+        "droid exec --auto medium --model custom:MiniMax-M3",
+        str(settings),
+    )
+    assert capsys.readouterr().err == ""
+
+
+def test_register_from_registry_no_warning_for_builtin_models(tmp_path, capsys):
+    """CLI strings without a `custom:` reference never warn — even when the
+    factory settings file is absent."""
+    install_py.warn_missing_custom_models(
+        "glm",
+        "droid exec --auto medium --model glm-5.1 --reasoning-effort high",
+        str(tmp_path / "missing.json"),
+    )
+    assert capsys.readouterr().err == ""
+
+
+def test_register_from_registry_warns_when_settings_file_missing(tmp_path, capsys):
+    """Missing ~/.factory/settings.json counts as undeclared (fresh machine)."""
+    install_py.warn_missing_custom_models(
+        "minimax",
+        "droid exec --auto medium --model custom:MiniMax-M3",
+        str(tmp_path / "missing.json"),
+    )
+    assert "custom:MiniMax-M3" in capsys.readouterr().err
+
+
 def test_register_from_registry_drops_metadata_fields(tmp_path):
     """Verify that supports_resume/resume_arg/timeout do NOT propagate to
     ~/.claude/trinity.json (they are codex-side metadata only — TRN-3020
