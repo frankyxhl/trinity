@@ -26,7 +26,10 @@ for in the response. A prompt "passes" when the observed output matches the
 pass criteria for every item listed.
 
 Before the first run, ensure:
-- `make install` has been run from a clean `main` checkout so scripts are current
+- `make install` has been run **from the branch/commit under review** so the
+  candidate `SKILL.md` and scripts are what gets exercised — installing from a
+  clean `main` checkout would smoke-test the baseline skill instead of the
+  PR's changed dispatcher
 - At least one provider is installed (`/trinity install glm` or equivalent)
 - The project directory has a `.claude/trinity.json` with at least one session
   entry for resume tests (run a dispatch first, e.g. `/trinity glm "hello"`)
@@ -128,8 +131,11 @@ skipped.
 
 - [ ] Launch summary shows dispatch to every **required** provider that is usable,
       e.g. `GLM → review auth 代码 (background)`, `DeepSeek → review auth 代码 (background)`
-- [ ] If `gemini` has no agent file → output shows `⚠️ gemini (optional): missing agent file`
-      and continues (does not abort)
+- [ ] If `gemini` (a **required** provider) has no agent file → the preset
+      expansion reports it as a required-provider failure (not an optional
+      warning); the run must not silently continue as if the set were complete
+- [ ] If `codex`/`claude-code` (optional) are missing → output shows an
+      `⚠️ (optional)` warning and dispatch continues with the required set
 - [ ] If `codex`/`claude-code` are present → they appear in the dispatch list
 - [ ] Each dispatched entry gets the **same task text**
 - [ ] `.claude/trinity.json` records a `task_type: "review"` for each dispatched agent
