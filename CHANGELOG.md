@@ -15,6 +15,9 @@
   natively.
 
 ### Added
+- PR CI test matrix now also covers Python 3.14 on both Ubuntu and macOS,
+  matching the local development venv, while preserving the existing
+  `ubuntu-latest` / `macos-latest` aggregate required-check names. Closes #208.
 - PR CI now restores the uv dependency cache in each test matrix leg before
   `make setup`, keyed by `pyproject.toml` and `uv.lock`. Closes #162.
 - GitHub Actions workflow steps are now pinned to full commit SHAs with trailing
