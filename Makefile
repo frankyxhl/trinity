@@ -30,23 +30,11 @@ install-hooks:  ## Install git pre-commit hook to run generated-artifact checks 
 test:           ## Run pytest and shell regression tests
 	$(MAKE) verify-built
 	.venv/bin/pytest tests/ -v
-	bash tests/test_codex_module_split.sh
-	bash tests/test_build_providers.sh
-	bash tests/test_dependabot_config.sh
-	bash tests/test_codeql_workflow.sh
-	bash tests/test_test_workflow_matrix.sh
-	bash tests/test_coverage_visibility.sh
-	bash tests/test_github_action_pins.sh
-	bash tests/test_gitleaks_config.sh
-	bash tests/test_dependency_audit_workflow.sh
-	bash tests/test_codeowners.sh
-	bash tests/test_license_metadata.sh
-	bash tests/test_security_policy.sh
-	bash tests/test_contributing_doc.sh
-	bash tests/test_release_workflow.sh
-	bash tests/test_install_sh.sh
-	bash tests/test_make_bump.sh
-	bash tests/test_scan_rocket_issues.sh
+	set -e; \
+	for f in tests/test_*.sh; do \
+		[ "$$f" = "tests/test_*.sh" ] && continue; \
+		bash "$$f"; \
+	done
 
 lint:           ## Check and format code (TRN-1002)
 	.venv/bin/ruff check scripts/ tests/
