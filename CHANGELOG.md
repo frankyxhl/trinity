@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Changed
+- `scripts/codex.py` (2295+ lines, ~86 functions) split into three focused
+  per-subcommand modules — `scripts/_doctor.py` (health checks, preflight,
+  `cmd_doctor`), `scripts/_review.py` (review orchestration, prompt building,
+  `cmd_review`), and `scripts/_status.py` (status rendering, `cmd_status`) —
+  while keeping `scripts/codex.py` as the stable CLI entry point and
+  re-exporting all previously public names so existing importers are
+  unaffected. Closes #206.
 - `minimax` provider upgraded from MiniMax 2.7 to MiniMax M3 (released
   2026-06-01). M3 is not yet in droid's built-in catalog, so the CLI now uses
   the BYOK reference `droid exec --auto medium --model custom:MiniMax-M3`
