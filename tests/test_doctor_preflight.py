@@ -52,6 +52,7 @@ def test_a1_result_dict_has_all_new_keys():
         "cli",
         "auth",
         "timeout_warning",
+        "live_probe",
     ):
         assert key in result, f"missing key {key}"
 
@@ -516,3 +517,100 @@ def test_canonical_wrapper_resolves_symlinks(tmp_path, monkeypatch):
     _os.symlink(real, canonical)
 
     assert _is_canonical_wrapper(str(canonical), "deepseek") is True
+
+# ---------------------------------------------------------------------------
+# Live probe tests (TRN-3042_209)
+# ---------------------------------------------------------------------------
+
+
+def test_live_probe_success(tmp_path):
+    """Probe passes when the provider exits 0."""
+    from codex import _probe_provider, _LIVE_PROBE_TIMEOUT
+
+    fake = tmp_path / "ok_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "pass"
+
+
+def test_live_probe_auth_failure(tmp_path):
+    """Probe classifies 401/unauthorized output as auth failure."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "auth_fail"
+    fake.write_text("#!/bin/sh\necho '401 Unauthorized: invalid API key'\nexit 1\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "auth"
+
+
+def test_live_probe_quota_failure(tmp_path):
+    """Probe classifies 429/quota output as quota failure."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "quota_fail"
+    fake.write_text("#!/bin/sh\necho '429 Too Many Requests: quota exceeded'\nexit 1\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "quota"
+
+
+def test_live_probe_timeout(tmp_path):
+    """Probe reports timeout when the provider does not respond in time."""
+    from codex import _probe_provider, _LIVE_PROBE_TIMEOUT
+
+    fake = tmp_path / "slow_provider"
+    # Sleep a long time
+    fake.write_text(f"#!/bin/sh\nsleep {_LIVE_PROBE_TIMEOUT + 5}\necho 'too late'\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 120}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "timeout"
+
+
+def test_live_probe_skips_bad_config(tmp_path):
+    """Probe returns None when the provider config is unparseable."""
+    from codex import _probe_provider
+
+    config = {"cli": ""}  # missing cli — parse error
+    result = _probe_provider("test", config, tmp_path)
+    assert result is None
+
+
+def test_live_probe_renders_in_verbose_output(tmp_path):
+    """A passed live probe adds 'live: pass' in verbose format."""
+    from codex import _probe_provider, _format_provider_block
+
+    fake = tmp_path / "ok_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+
+    result = _make_health_result(
+        "test", ok=True, executable=str(fake), timeout=30
+    )
+    result["live_probe"] = {"status": "pass"}
+    lines = _format_provider_block(result)
+    assert any("live: pass" in line for line in lines)
+
+
+def test_live_probe_fail_renders_in_verbose_output(tmp_path):
+    """A failed live probe adds 'live: FAIL - cause: detail' in verbose."""
+    from codex import _format_provider_block
+
+    result = _make_health_result(
+        "test", ok=False, executable="/bin/fake", timeout=30
+    )
+    result["live_probe"] = {"status": "fail", "cause": "auth", "detail": "exit 1: 401 Unauthorized"}
+    lines = _format_provider_block(result)
+    assert any("live: FAIL - auth" in line for line in lines)
