@@ -1901,8 +1901,17 @@ def _probe_provider(provider, provider_config, root):
             "cause": "timeout",
             "detail": f"no response within {_LIVE_PROBE_TIMEOUT}s",
         }
-    except FileNotFoundError:
-        return None
+    except OSError as exc:
+        # executable_health already vouched for the file, so a launch-time
+        # OSError (FileNotFoundError from a missing shebang interpreter,
+        # ENOEXEC, etc.) means reviews cannot launch this provider —
+        # surface it as a live failure rather than silently omitting the
+        # probe result for a statically healthy provider.
+        return {
+            "status": "fail",
+            "cause": "error",
+            "detail": f"failed to launch: {exc}",
+        }
 
 
 def cmd_doctor(args):

@@ -697,3 +697,21 @@ def test_live_probe_runs_from_resolved_root(tmp_path, monkeypatch):
     result = _probe_provider("test", config, tmp_path)
     assert result is not None, "probe must not be silently skipped"
     assert result["status"] == "pass"
+
+
+def test_live_probe_reports_launch_failure(tmp_path):
+    """Regression (PR #215 codex P2 #3): a file that passes the static
+    executable check but cannot launch (missing shebang interpreter)
+    must surface as a live 'error' failure, not be silently skipped —
+    otherwise doctor --live exits 0 for a provider reviews cannot run."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "broken_shebang"
+    fake.write_text("#!/no/such/interpreter\necho OK\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None, "launch failure must not be silently skipped"
+    assert result["status"] == "fail"
+    assert result["cause"] == "error"
+    assert "failed to launch" in result["detail"]
