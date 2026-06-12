@@ -739,3 +739,39 @@ def test_live_probe_timeout_kills_process_group(tmp_path, monkeypatch):
     assert result["status"] == "fail"
     assert result["cause"] == "timeout"
     assert elapsed < 10, f"probe blocked {elapsed:.1f}s past its 1s timeout"
+
+
+def test_live_probe_timeout_kills_orphaned_children(tmp_path, monkeypatch):
+    """Regression (PR #215 codex P2 #5): when the provider leader exits
+    before the deadline but leaves a pipe-holding child behind,
+    terminate_process_group() short-circuits on poll() and the child
+    survived. The probe must signal the process group id directly
+    (== proc.pid under start_new_session) so the orphan dies too."""
+    import os as _os
+    import time as _time
+
+    monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", 1)
+
+    pid_file = tmp_path / "child.pid"
+    fake = tmp_path / "exiting_leader"
+    fake.write_text(f'#!/bin/sh\nsleep 30 &\necho $! > "{pid_file}"\nexit 0\n')
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 120}
+
+    result = codex_mod._probe_provider("test", config, tmp_path)
+
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "timeout"
+
+    child_pid = int(pid_file.read_text().strip())
+    deadline = _time.monotonic() + 5
+    while _time.monotonic() < deadline:
+        try:
+            _os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        _time.sleep(0.1)
+    else:
+        _os.kill(child_pid, 9)  # cleanup before failing
+        raise AssertionError("orphaned child survived the probe timeout")

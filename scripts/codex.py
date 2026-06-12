@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -1860,7 +1861,21 @@ def _probe_provider(provider, provider_config, root):
         try:
             probe_stdout, probe_stderr = proc.communicate(timeout=_LIVE_PROBE_TIMEOUT)
         except subprocess.TimeoutExpired:
-            terminate_process_group(proc)
+            # terminate_process_group no-ops once the leader has exited,
+            # but children that inherited the pipes can keep the group
+            # alive (and communicate() blocked). start_new_session=True
+            # makes the group id equal to proc.pid, so signal the group
+            # directly — covering both the live-leader and exited-leader
+            # cases. The probe is a throwaway call; no graceful TERM
+            # needed.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                proc.communicate(timeout=1)
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                pass
             return {
                 "status": "fail",
                 "cause": "timeout",
