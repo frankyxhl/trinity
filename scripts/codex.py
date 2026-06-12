@@ -1820,6 +1820,86 @@ def cmd_review(args):
     return 0 if all(item["returncode"] == 0 for item in results) else 1
 
 
+_LIVE_PROBE_TIMEOUT = 10  # hard 10s timeout for live probes.
+
+
+def _probe_provider(provider, provider_config, root):
+    """Run a minimal live probe against a provider CLI.
+
+    Returns a dict with 'status' ('pass'|'fail') and if fail, 'cause'
+    ('auth'|'quota'|'timeout'|'error') and 'detail'. Returns None when
+    the provider cannot be probed (static check would already have
+    caught it).
+    """
+    try:
+        command = parse_provider_command(provider, provider_config)
+    except ValueError:
+        return None
+    executable, issue = executable_health(command, root)
+    if issue or executable is None:
+        return None
+    env = build_provider_env()
+    try:
+        result = subprocess.run(
+            command,
+            input="Reply with exactly one word: OK\n",
+            capture_output=True,
+            text=True,
+            timeout=_LIVE_PROBE_TIMEOUT,
+            env=env,
+        )
+        if result.returncode == 0:
+            return {"status": "pass"}
+
+        combined = ((result.stdout or "") + "\n" + (result.stderr or "")).lower()
+        if any(
+            p in combined
+            for p in (
+                "401",
+                "403",
+                "unauthorized",
+                "auth",
+                "api key",
+                "invalid key",
+                "forbidden",
+                "permission",
+            )
+        ):
+            cause = "auth"
+        elif any(
+            p in combined
+            for p in (
+                "429",
+                "quota",
+                "rate limit",
+                "rate_limit",
+                "too many",
+                "insufficient",
+            )
+        ):
+            cause = "quota"
+        else:
+            cause = "error"
+
+        detail = (result.stdout or "").strip()[:200] or (result.stderr or "").strip()[
+            :200
+        ]
+        if detail:
+            detail = f"exit code {result.returncode}: {detail}"
+        else:
+            detail = f"exit code {result.returncode}"
+        return {"status": "fail", "cause": cause, "detail": detail}
+
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "fail",
+            "cause": "timeout",
+            "detail": f"no response within {_LIVE_PROBE_TIMEOUT}s",
+        }
+    except FileNotFoundError:
+        return None
+
+
 def cmd_doctor(args):
     root = resolve_health_root(args.root)
     config = load_config(args.config)
@@ -2319,81 +2399,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
-_LIVE_PROBE_TIMEOUT = 10  # hard 10s timeout for live probes.
-
-
-def _probe_provider(provider, provider_config, root):
-    """Run a minimal live probe against a provider CLI.
-
-    Returns a dict with 'status' ('pass'|'fail') and if fail, 'cause'
-    ('auth'|'quota'|'timeout'|'error') and 'detail'. Returns None when
-    the provider cannot be probed (static check would already have
-    caught it).
-    """
-    try:
-        command = parse_provider_command(provider, provider_config)
-    except ValueError:
-        return None
-    executable, issue = executable_health(command, root)
-    if issue or executable is None:
-        return None
-    env = build_provider_env()
-    try:
-        result = subprocess.run(
-            command,
-            input="Reply with exactly one word: OK\n",
-            capture_output=True,
-            text=True,
-            timeout=_LIVE_PROBE_TIMEOUT,
-            env=env,
-        )
-        if result.returncode == 0:
-            return {"status": "pass"}
-
-        combined = ((result.stdout or "") + "\n" + (result.stderr or "")).lower()
-        if any(
-            p in combined
-            for p in (
-                "401",
-                "403",
-                "unauthorized",
-                "auth",
-                "api key",
-                "invalid key",
-                "forbidden",
-                "permission",
-            )
-        ):
-            cause = "auth"
-        elif any(
-            p in combined
-            for p in (
-                "429",
-                "quota",
-                "rate limit",
-                "rate_limit",
-                "too many",
-                "insufficient",
-            )
-        ):
-            cause = "quota"
-        else:
-            cause = "error"
-
-        detail = (result.stdout or "").strip()[:200] or (result.stderr or "").strip()[
-            :200
-        ]
-        if detail:
-            detail = f"exit code {result.returncode}: {detail}"
-        else:
-            detail = f"exit code {result.returncode}"
-        return {"status": "fail", "cause": cause, "detail": detail}
-
-    except subprocess.TimeoutExpired:
-        return {
-            "status": "fail",
-            "cause": "timeout",
-            "detail": f"no response within {_LIVE_PROBE_TIMEOUT}s",
-        }
-    except FileNotFoundError:
-        return None

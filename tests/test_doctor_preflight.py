@@ -615,3 +615,46 @@ def test_live_probe_fail_renders_in_verbose_output(tmp_path):
     }
     lines = _format_provider_block(result)
     assert any("live: FAIL - auth" in line for line in lines)
+
+
+def test_live_probe_via_script_execution(tmp_path):
+    """Regression for PR #215 codex P1: `doctor --live` must work when
+    codex.py executes as a script (`__main__`), not only when imported.
+
+    The probe helpers were originally appended AFTER the `__main__`
+    block, so `main()` ran before they were defined and `--live`
+    crashed with NameError. Import-based tests cannot catch that
+    execution-order bug; this test runs the real CLI as a subprocess.
+    """
+    import json
+    import subprocess
+
+    fake = tmp_path / "ok_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+
+    config_path = tmp_path / "trinity.codex.json"
+    config_path.write_text(
+        json.dumps({"providers": {"test": {"cli": str(fake), "timeout": 30}}})
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "codex.py"),
+            "doctor",
+            "--root",
+            str(tmp_path),
+            "--config",
+            str(config_path),
+            "--providers",
+            "test",
+            "--live",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert "NameError" not in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "live: pass" in result.stdout
