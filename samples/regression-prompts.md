@@ -320,3 +320,35 @@ that same path, reads the transcript, and reports liveness with a line count.
       or path-resolution error
 - [ ] After the agent finishes, a second heartbeat reflects the terminal state
       instead of erroring on the resolved path
+
+---
+
+## 12. Transcript resolution via `trinity session-path` (session_path.py surface)
+
+The `output_file` check above covers `scripts/session.py`; the
+`scripts/session_path.py` resolver is a different mechanism — it maps
+`sessions.<key>.session_id` to the provider's transcript file and is wired
+through the `trinity session-path` CLI subcommand, not through dispatch or
+heartbeat. Exercise it directly.
+
+**Prompt:** after at least one `/trinity glm "..."` dispatch has completed, run
+in a terminal at the project root:
+
+```
+trinity session-path glm
+```
+
+**Expected route:**
+`cmd_session_path` normalizes the lookup key (`glm` ≡ `glm:default`) → reads
+`sessions.glm.session_id` from `.claude/trinity.json` → validates the id format
+→ dispatches to the glm resolver → prints the resolved transcript path.
+
+**Pass criteria:**
+
+- [ ] `.claude/trinity.json` `sessions.glm` contains a non-empty `session_id`
+- [ ] `trinity session-path glm` exits 0 and prints a single absolute path to a
+      file that exists on disk
+- [ ] `trinity session-path glm:default` prints the same path (suffix
+      normalization)
+- [ ] `trinity session-path nonexistent` exits non-zero with
+      `no session pointer for 'nonexistent'` on stderr (no traceback)
