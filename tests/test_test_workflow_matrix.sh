@@ -36,7 +36,7 @@ fi
 
 require_file_contains "${WORKFLOW}" 'name: test / \$\{\{ matrix\.os \}\} / Python \$\{\{ matrix\.python-version \}\}' "matrix job name includes OS and Python version"
 require_file_contains "${WORKFLOW}" 'os: \[ubuntu-latest, macos-latest\]' "OS matrix keeps ubuntu and macos"
-require_file_contains "${WORKFLOW}" "python-version: \\['3\\.11', '3\\.12', '3\\.13'\\]" "Python matrix covers 3.11, 3.12, and 3.13"
+require_file_contains "${WORKFLOW}" "python-version: \\['3\\.11', '3\\.12', '3\\.13', '3\\.14'\\]" "Python matrix covers 3.11, 3.12, 3.13, and 3.14"
 require_file_contains "${WORKFLOW}" 'runs-on: \$\{\{ matrix\.os \}\}' "runner uses OS matrix"
 require_file_contains "${WORKFLOW}" 'uses: actions/setup-python@[0-9a-f]{40} # v6' "setup-python action is pinned to SHA"
 require_file_contains "${WORKFLOW}" 'python-version: \$\{\{ matrix\.python-version \}\}' "setup-python uses Python matrix"
