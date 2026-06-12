@@ -715,3 +715,27 @@ def test_live_probe_reports_launch_failure(tmp_path):
     assert result["status"] == "fail"
     assert result["cause"] == "error"
     assert "failed to launch" in result["detail"]
+
+
+def test_live_probe_timeout_kills_process_group(tmp_path, monkeypatch):
+    """Regression (PR #215 codex P2 #4): when a provider spawns a child
+    that inherits the captured pipes, a probe timeout must kill the whole
+    process group — otherwise communicate() keeps waiting on the pipes
+    held by the orphaned child, far past the advertised timeout."""
+    import time as _time
+
+    monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", 1)
+
+    fake = tmp_path / "forking_provider"
+    fake.write_text("#!/bin/sh\nsleep 30 &\nsleep 30\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 120}
+
+    start = _time.monotonic()
+    result = codex_mod._probe_provider("test", config, tmp_path)
+    elapsed = _time.monotonic() - start
+
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "timeout"
+    assert elapsed < 10, f"probe blocked {elapsed:.1f}s past its 1s timeout"

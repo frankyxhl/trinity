@@ -1842,21 +1842,36 @@ def _probe_provider(provider, provider_config, root):
     try:
         # Mirror run_provider semantics: the prompt is appended as the final
         # CLI argument (gemini -p / droid exec / codex exec all take it that
-        # way) and the probe runs from the resolved root so relative
-        # executable paths match the static executable_health check.
-        result = subprocess.run(
+        # way), the probe runs from the resolved root so relative
+        # executable paths match the static executable_health check, and the
+        # probe gets its own session so a timeout can kill the whole process
+        # group — descendants holding the captured pipes would otherwise
+        # stall communicate() well past the advertised timeout.
+        proc = subprocess.Popen(
             command + ["Reply with exactly one word: OK"],
             cwd=str(root),
-            input="",
-            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=_LIVE_PROBE_TIMEOUT,
+            start_new_session=True,
             env=env,
         )
-        if result.returncode == 0:
+        try:
+            probe_stdout, probe_stderr = proc.communicate(
+                timeout=_LIVE_PROBE_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            terminate_process_group(proc)
+            return {
+                "status": "fail",
+                "cause": "timeout",
+                "detail": f"no response within {_LIVE_PROBE_TIMEOUT}s",
+            }
+        if proc.returncode == 0:
             return {"status": "pass"}
 
-        combined = ((result.stdout or "") + "\n" + (result.stderr or "")).lower()
+        combined = ((probe_stdout or "") + "\n" + (probe_stderr or "")).lower()
         if any(
             p in combined
             for p in (
@@ -1886,21 +1901,15 @@ def _probe_provider(provider, provider_config, root):
         else:
             cause = "error"
 
-        detail = (result.stdout or "").strip()[:200] or (result.stderr or "").strip()[
+        detail = (probe_stdout or "").strip()[:200] or (probe_stderr or "").strip()[
             :200
         ]
         if detail:
-            detail = f"exit code {result.returncode}: {detail}"
+            detail = f"exit code {proc.returncode}: {detail}"
         else:
-            detail = f"exit code {result.returncode}"
+            detail = f"exit code {proc.returncode}"
         return {"status": "fail", "cause": cause, "detail": detail}
 
-    except subprocess.TimeoutExpired:
-        return {
-            "status": "fail",
-            "cause": "timeout",
-            "detail": f"no response within {_LIVE_PROBE_TIMEOUT}s",
-        }
     except OSError as exc:
         # executable_health already vouched for the file, so a launch-time
         # OSError (FileNotFoundError from a missing shebang interpreter,
