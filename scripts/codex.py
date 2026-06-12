@@ -1858,9 +1858,7 @@ def _probe_provider(provider, provider_config, root):
             env=env,
         )
         try:
-            probe_stdout, probe_stderr = proc.communicate(
-                timeout=_LIVE_PROBE_TIMEOUT
-            )
+            probe_stdout, probe_stderr = proc.communicate(timeout=_LIVE_PROBE_TIMEOUT)
         except subprocess.TimeoutExpired:
             terminate_process_group(proc)
             return {
