@@ -332,10 +332,12 @@ through the `trinity session-path` CLI subcommand, not through dispatch or
 heartbeat. Exercise it directly.
 
 **Prompt:** after at least one `/trinity glm "..."` dispatch has completed, run
-in a terminal at the project root:
+in a terminal **at the repo checkout of the branch under review** (invoking the
+branch script directly — the installed `trinity` wrapper comes from
+`make install-codex` and may be missing or stale in a Claude-only setup):
 
 ```
-trinity session-path glm
+python3 scripts/codex.py session-path glm
 ```
 
 **Expected route:**
@@ -346,9 +348,9 @@ trinity session-path glm
 **Pass criteria:**
 
 - [ ] `.claude/trinity.json` `sessions.glm` contains a non-empty `session_id`
-- [ ] `trinity session-path glm` exits 0 and prints a single absolute path to a
+- [ ] `python3 scripts/codex.py session-path glm` exits 0 and prints a single absolute path to a
       file that exists on disk
-- [ ] `trinity session-path glm:default` prints the same path (suffix
+- [ ] `... session-path glm:default` prints the same path (suffix
       normalization)
-- [ ] `trinity session-path nonexistent` exits non-zero with
+- [ ] `... session-path nonexistent` exits non-zero with
       `no session pointer for 'nonexistent'` on stderr (no traceback)
