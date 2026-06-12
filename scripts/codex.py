@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -473,6 +474,7 @@ def _make_health_result(
         "cli": cli,
         "auth": auth,
         "timeout_warning": timeout_warning,
+        "live_probe": None,
     }
 
 
@@ -740,6 +742,12 @@ def _format_provider_block(result, *, optional=False):
             lines.append(
                 f"    auth: missing — ${auth['env_var']} unset, {auth['file']} absent"
             )
+    probe = result.get("live_probe")
+    if probe is not None:
+        if probe["status"] == "pass":
+            lines.append("    live: pass")
+        else:
+            lines.append(f"    live: FAIL - {probe['cause']}: {probe['detail']}")
     for w in result.get("warnings", []):
         lines.append(f"    warning: {w}")
     for issue in result.get("issues", []):
@@ -1813,6 +1821,121 @@ def cmd_review(args):
     return 0 if all(item["returncode"] == 0 for item in results) else 1
 
 
+_LIVE_PROBE_TIMEOUT = 10  # hard 10s timeout for live probes.
+
+
+def _probe_provider(provider, provider_config, root):
+    """Run a minimal live probe against a provider CLI.
+
+    Returns a dict with 'status' ('pass'|'fail') and if fail, 'cause'
+    ('auth'|'quota'|'timeout'|'error') and 'detail'. Returns None when
+    the provider cannot be probed (static check would already have
+    caught it).
+    """
+    try:
+        command = parse_provider_command(provider, provider_config)
+    except ValueError:
+        return None
+    executable, issue = executable_health(command, root)
+    if issue or executable is None:
+        return None
+    env = build_provider_env()
+    try:
+        # Mirror run_provider semantics: the prompt is appended as the final
+        # CLI argument (gemini -p / droid exec / codex exec all take it that
+        # way), the probe runs from the resolved root so relative
+        # executable paths match the static executable_health check, and the
+        # probe gets its own session so a timeout can kill the whole process
+        # group — descendants holding the captured pipes would otherwise
+        # stall communicate() well past the advertised timeout.
+        proc = subprocess.Popen(
+            command + ["Reply with exactly one word: OK"],
+            cwd=str(root),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+            env=env,
+        )
+        try:
+            probe_stdout, probe_stderr = proc.communicate(timeout=_LIVE_PROBE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            # terminate_process_group no-ops once the leader has exited,
+            # but children that inherited the pipes can keep the group
+            # alive (and communicate() blocked). start_new_session=True
+            # makes the group id equal to proc.pid, so signal the group
+            # directly — covering both the live-leader and exited-leader
+            # cases. The probe is a throwaway call; no graceful TERM
+            # needed.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                proc.communicate(timeout=1)
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                pass
+            return {
+                "status": "fail",
+                "cause": "timeout",
+                "detail": f"no response within {_LIVE_PROBE_TIMEOUT}s",
+            }
+        if proc.returncode == 0:
+            return {"status": "pass"}
+
+        combined = ((probe_stdout or "") + "\n" + (probe_stderr or "")).lower()
+        if any(
+            p in combined
+            for p in (
+                "401",
+                "403",
+                "unauthorized",
+                "auth",
+                "api key",
+                "invalid key",
+                "forbidden",
+                "permission",
+            )
+        ):
+            cause = "auth"
+        elif any(
+            p in combined
+            for p in (
+                "429",
+                "quota",
+                "rate limit",
+                "rate_limit",
+                "too many",
+                "insufficient",
+            )
+        ):
+            cause = "quota"
+        else:
+            cause = "error"
+
+        detail = (probe_stdout or "").strip()[:200] or (probe_stderr or "").strip()[
+            :200
+        ]
+        if detail:
+            detail = f"exit code {proc.returncode}: {detail}"
+        else:
+            detail = f"exit code {proc.returncode}"
+        return {"status": "fail", "cause": cause, "detail": detail}
+
+    except OSError as exc:
+        # executable_health already vouched for the file, so a launch-time
+        # OSError (FileNotFoundError from a missing shebang interpreter,
+        # ENOEXEC, etc.) means reviews cannot launch this provider —
+        # surface it as a live failure rather than silently omitting the
+        # probe result for a statically healthy provider.
+        return {
+            "status": "fail",
+            "cause": "error",
+            "detail": f"failed to launch: {exc}",
+        }
+
+
 def cmd_doctor(args):
     root = resolve_health_root(args.root)
     config = load_config(args.config)
@@ -1843,6 +1966,20 @@ def cmd_doctor(args):
                 f"auth file {auth['file']} has wrong mode (expected 600 or 400)"
             )
             h["ok"] = False
+    if args.live:
+        provider_configs = config.get("providers", {})
+        if not isinstance(provider_configs, dict):
+            provider_configs = {}
+        for h in health:
+            if not h["ok"]:
+                continue
+            probe = _probe_provider(
+                h["provider"], provider_configs.get(h["provider"], {}), root
+            )
+            h["live_probe"] = probe
+            if probe and probe["status"] == "fail":
+                h["issues"].append(f"live probe: {probe['cause']} — {probe['detail']}")
+                h["ok"] = False
     env_pollution = detect_env_pollution()
     print(
         format_health_results(
@@ -2226,6 +2363,11 @@ def build_parser():
     doctor.add_argument("--config", default=str(DEFAULT_CONFIG))
     doctor.add_argument("--providers")
     doctor.add_argument("--preset")
+    doctor.add_argument(
+        "--live",
+        action="store_true",
+        help="Probe providers with a minimal prompt to surface auth/quota/timeout failures.",
+    )
 
     review = subparsers.add_parser("review")
     review.add_argument("--root", default=".")

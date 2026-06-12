@@ -278,6 +278,21 @@ so existing `grep` patterns continue to work.
 Doctor still does not call the provider, so API-key or quota errors can
 still surface during an actual review.
 
+### Live probe
+
+```bash
+trinity doctor --live --providers glm,gemini,deepseek
+trinity doctor --live --preset fast-review
+```
+
+With `--live`, doctor runs a minimal "reply OK" prompt against each
+statically-healthy provider with a short (10s) timeout. Failures are
+classified as **auth**, **quota**, **timeout**, or **error**. REQUIRED
+providers with live failures exit 1; OPTIONAL provider failures are
+demoted to warnings (exit 0), matching the existing static-check
+semantics. The first line per provider stays grep-compatible; live
+results appear as additional lines in verbose output.
+
 ### Run a review
 
 ```bash
