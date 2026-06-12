@@ -518,6 +518,7 @@ def test_canonical_wrapper_resolves_symlinks(tmp_path, monkeypatch):
 
     assert _is_canonical_wrapper(str(canonical), "deepseek") is True
 
+
 # ---------------------------------------------------------------------------
 # Live probe tests (TRN-3042_209)
 # ---------------------------------------------------------------------------
@@ -525,7 +526,7 @@ def test_canonical_wrapper_resolves_symlinks(tmp_path, monkeypatch):
 
 def test_live_probe_success(tmp_path):
     """Probe passes when the provider exits 0."""
-    from codex import _probe_provider, _LIVE_PROBE_TIMEOUT
+    from codex import _probe_provider
 
     fake = tmp_path / "ok_provider"
     fake.write_text("#!/bin/sh\necho OK\n")
@@ -590,15 +591,13 @@ def test_live_probe_skips_bad_config(tmp_path):
 
 def test_live_probe_renders_in_verbose_output(tmp_path):
     """A passed live probe adds 'live: pass' in verbose format."""
-    from codex import _probe_provider, _format_provider_block
+    from codex import _format_provider_block
 
     fake = tmp_path / "ok_provider"
     fake.write_text("#!/bin/sh\necho OK\n")
     fake.chmod(0o755)
 
-    result = _make_health_result(
-        "test", ok=True, executable=str(fake), timeout=30
-    )
+    result = _make_health_result("test", ok=True, executable=str(fake), timeout=30)
     result["live_probe"] = {"status": "pass"}
     lines = _format_provider_block(result)
     assert any("live: pass" in line for line in lines)
@@ -608,9 +607,11 @@ def test_live_probe_fail_renders_in_verbose_output(tmp_path):
     """A failed live probe adds 'live: FAIL - cause: detail' in verbose."""
     from codex import _format_provider_block
 
-    result = _make_health_result(
-        "test", ok=False, executable="/bin/fake", timeout=30
-    )
-    result["live_probe"] = {"status": "fail", "cause": "auth", "detail": "exit 1: 401 Unauthorized"}
+    result = _make_health_result("test", ok=False, executable="/bin/fake", timeout=30)
+    result["live_probe"] = {
+        "status": "fail",
+        "cause": "auth",
+        "detail": "exit 1: 401 Unauthorized",
+    }
     lines = _format_provider_block(result)
     assert any("live: FAIL - auth" in line for line in lines)

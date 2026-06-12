@@ -744,7 +744,7 @@ def _format_provider_block(result, *, optional=False):
     probe = result.get("live_probe")
     if probe is not None:
         if probe["status"] == "pass":
-            lines.append(f"    live: pass")
+            lines.append("    live: pass")
         else:
             lines.append(f"    live: FAIL - {probe['cause']}: {probe['detail']}")
     for w in result.get("warnings", []):
@@ -2247,8 +2247,11 @@ def build_parser():
     doctor.add_argument("--config", default=str(DEFAULT_CONFIG))
     doctor.add_argument("--providers")
     doctor.add_argument("--preset")
-    doctor.add_argument("--live", action="store_true",
-        help="Probe providers with a minimal prompt to surface auth/quota/timeout failures.")
+    doctor.add_argument(
+        "--live",
+        action="store_true",
+        help="Probe providers with a minimal prompt to surface auth/quota/timeout failures.",
+    )
 
     review = subparsers.add_parser("review")
     review.add_argument("--root", default=".")
@@ -2364,13 +2367,22 @@ def _probe_provider(provider, provider_config, root):
             cause = "auth"
         elif any(
             p in combined
-            for p in ("429", "quota", "rate limit", "rate_limit", "too many", "insufficient")
+            for p in (
+                "429",
+                "quota",
+                "rate limit",
+                "rate_limit",
+                "too many",
+                "insufficient",
+            )
         ):
             cause = "quota"
         else:
             cause = "error"
 
-        detail = (result.stdout or "").strip()[:200] or (result.stderr or "").strip()[:200]
+        detail = (result.stdout or "").strip()[:200] or (result.stderr or "").strip()[
+            :200
+        ]
         if detail:
             detail = f"exit code {result.returncode}: {detail}"
         else:
