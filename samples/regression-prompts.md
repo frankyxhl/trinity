@@ -288,3 +288,35 @@ provider → provider discovery runs → `nonexistent` not found → error repor
 - [ ] Error lists available providers the user can install instead
 - [ ] No agent is spawned
 - [ ] No session entry is created
+
+---
+
+## 11. Session output-file resolution (session.py / session_path.py surface)
+
+**Prompt:**
+
+```
+/trinity glm "print hello and exit"
+```
+
+then, after the launch summary appears:
+
+```
+/trinity heartbeat glm
+```
+
+**Expected route:**
+Dispatch records `sessions.glm.output_file` via the session-path resolution
+helpers (`scripts/session.py` / `scripts/session_path.py`) → heartbeat resolves
+that same path, reads the transcript, and reports liveness with a line count.
+
+**Pass criteria:**
+
+- [ ] `.claude/trinity.json` `sessions.glm.output_file` is an **absolute path to a
+      file that exists on disk** at the time of the heartbeat (not a placeholder,
+      not a dangling path)
+- [ ] `/trinity heartbeat glm` reads that file successfully — it reports a state
+      (`alive`/`stalled`/`done`) plus a `+N lines` delta, with no "file not found"
+      or path-resolution error
+- [ ] After the agent finishes, a second heartbeat reflects the terminal state
+      instead of erroring on the resolved path

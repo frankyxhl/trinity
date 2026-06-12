@@ -15,6 +15,12 @@
   natively.
 
 ### Added
+- `samples/regression-prompts.md`: manual regression prompt set for Claude
+  Code SKILL.md dispatch paths (single dispatch, named-instance resume,
+  `provider*N`, preset expansion, reserved words, heartbeat, session
+  output-file resolution), with a TRN-1007 §5 readiness-gate item requiring a
+  run when SKILL.md, `providers/_base/`, or `scripts/session(_path).py`
+  change. Closes #211.
 - PR CI test matrix now also covers Python 3.14 on both Ubuntu and macOS,
   matching the local development venv, while preserving the existing
   `ubuntu-latest` / `macos-latest` aggregate required-check names. Closes #208.
