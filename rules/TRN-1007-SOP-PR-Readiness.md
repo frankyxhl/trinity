@@ -113,6 +113,7 @@ For new code surfaces, verify each step in the CHG body OR a PR-body checklist. 
 
 - **Install / UI / runtime-spawn changes documented in the PR body** — include the actual command run and expected output, not just "verified locally"
 - **Reproducer for any user-facing behavior change** — small command snippet showing pre/post
+- **SKILL.md regression prompts** — run `samples/regression-prompts.md` manually when the PR touches SKILL.md dispatch syntax, parse order, reserved words, preset definitions, heartbeat shape, or error handling. Pass each prompt's pass criteria before opening the PR.
 
 ### §6. Identity (per CLD `CLAUDE.md` global rule)
 
