@@ -748,6 +748,7 @@ def test_live_probe_timeout_kills_orphaned_children(tmp_path, monkeypatch):
     survived. The probe must signal the process group id directly
     (== proc.pid under start_new_session) so the orphan dies too."""
     import os as _os
+    import subprocess
     import time as _time
 
     monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", 1)
@@ -764,12 +765,27 @@ def test_live_probe_timeout_kills_orphaned_children(tmp_path, monkeypatch):
     assert result["status"] == "fail"
     assert result["cause"] == "timeout"
 
+    def _gone_or_zombie(pid):
+        # signal-0 succeeds for zombies (codex P1 on PR #215): a child
+        # killed by os.killpg but adopted by PID 1 may linger as STAT Z
+        # before the init reaper collects it. A zombie runs no provider
+        # work, so treat it as dead; fall back to ps for the state.
+        try:
+            _os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        ps = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+        )
+        stat = ps.stdout.strip()
+        return stat == "" or stat.startswith("Z")
+
     child_pid = int(pid_file.read_text().strip())
     deadline = _time.monotonic() + 5
     while _time.monotonic() < deadline:
-        try:
-            _os.kill(child_pid, 0)
-        except ProcessLookupError:
+        if _gone_or_zombie(child_pid):
             break
         _time.sleep(0.1)
     else:
