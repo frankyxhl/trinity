@@ -78,7 +78,7 @@ jobs:
           echo "Dispatched from main — one-click path"
 
       - name: Checkout (full history for ancestor check)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag_name || github.ref }}
@@ -214,7 +214,7 @@ jobs:
       # All other paths skip this step (no tag-push needed).
       - name: Checkout main HEAD with PAT (one-click path only)
         if: needs.verify.outputs.one_click == '1'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 1
           ref: refs/heads/main
