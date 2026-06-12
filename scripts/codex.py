@@ -1840,9 +1840,14 @@ def _probe_provider(provider, provider_config, root):
         return None
     env = build_provider_env()
     try:
+        # Mirror run_provider semantics: the prompt is appended as the final
+        # CLI argument (gemini -p / droid exec / codex exec all take it that
+        # way) and the probe runs from the resolved root so relative
+        # executable paths match the static executable_health check.
         result = subprocess.run(
-            command,
-            input="Reply with exactly one word: OK\n",
+            command + ["Reply with exactly one word: OK"],
+            cwd=str(root),
+            input="",
             capture_output=True,
             text=True,
             timeout=_LIVE_PROBE_TIMEOUT,

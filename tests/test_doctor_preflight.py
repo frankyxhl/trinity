@@ -658,3 +658,42 @@ def test_live_probe_via_script_execution(tmp_path):
     assert "NameError" not in result.stderr
     assert result.returncode == 0, result.stderr
     assert "live: pass" in result.stdout
+
+
+def test_live_probe_passes_prompt_as_cli_argument(tmp_path):
+    """Regression (PR #215 codex P2): the probe prompt must be appended as
+    the final CLI argument, mirroring run_provider, because the bundled
+    CLIs (gemini -p / droid exec / codex exec) take the prompt via argv —
+    a stdin-only probe would report live failures for working providers."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "argv_provider"
+    fake.write_text('#!/bin/sh\n[ -n "$1" ] || exit 1\necho OK\n')
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "pass"
+
+
+def test_live_probe_runs_from_resolved_root(tmp_path, monkeypatch):
+    """Regression (PR #215 codex P2): a provider configured with a relative
+    executable path passes executable_health (resolved against root) but
+    the probe subprocess ran from the process cwd, hit FileNotFoundError,
+    and was silently skipped. The probe must run with cwd=root."""
+    from codex import _probe_provider
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "rel_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    config = {"cli": "bin/rel_provider", "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None, "probe must not be silently skipped"
+    assert result["status"] == "pass"
