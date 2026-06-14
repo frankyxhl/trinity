@@ -31,6 +31,15 @@
   models). Reverses
   the TRN-3035 built-in-id decision out of necessity until droid ships M3
   natively.
+- Dependency bumps (Dependabot, weekly cadence). GitHub Actions —
+  `astral-sh/setup-uv` 6.8.0 → 8.2.0 (#198), `gitleaks/gitleaks-action`
+  2.3.9 → 3.0.0 (#199), `actions/checkout` 6.0.2 → 6.0.3 (#200),
+  `github/codeql-action` 4.36.0 → 4.36.2 (#201). Dev dependencies —
+  `ruff` 0.15.15 → 0.15.17 (#222), `idna` 3.17 → 3.18 (#203),
+  `msgpack` 1.1.2 → 1.2.0 (#221), `filelock` 3.29.0 → 3.29.4 (#223),
+  `cyclonedx-python-lib` 11.7.0 → 11.10.0 (#220). The `setup-uv` and
+  `gitleaks-action` major bumps were unblocked by the action-pin test fix
+  above.
 
 ### Added
 - `samples/regression-prompts.md`: manual regression prompt set for Claude
