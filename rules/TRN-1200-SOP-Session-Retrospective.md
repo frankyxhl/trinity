@@ -70,7 +70,7 @@ Two destinations, not one — route each finding deliberately:
 
 | Finding shape | Destination | How |
 |---------------|-------------|-----|
-| A reusable behavioural lesson (a correction, a confirmed approach, a permission/tool boundary) | **Auto-memory** | Write a `feedback_*` / `reference_*` file under the session memory dir and add the one-line `MEMORY.md` pointer. This is the primary home for pipeline lessons; see the existing `reference_assembly_slash_command`, `reference_merge_permission_owner_only` entries. |
+| A reusable behavioural lesson (a correction, a confirmed approach, a permission/tool boundary) | **Auto-memory** | Write a `feedback_*` / `reference_*` file in the **user-private** memory dir (`~/.claude/projects/-Users-frank-Projects-trinity/memory/` — NOT repo scope, per TRN-3033) and add the one-line pointer to that dir's `MEMORY.md`. This is the primary home for pipeline lessons; see the existing `reference_assembly_slash_command`, `reference_merge_permission_owner_only` entries. |
 | A process gap in an existing trinity SOP | **TRN doc update** | Amend the target TRN SOP + add a Change History row (COR-1200 step 4). |
 | A genuinely new, repeatable trinity process | **New TRN SOP** + GitHub issue | File per TRN-1009, draft the SOP per TRN-1801. |
 | A session summary worth preserving verbatim | **Retro REF doc** | `af create ref --prefix TRN --area 12 --title "Session Retrospective <UTC>-DN"` (area 12 = Check phase, matching COR-1200 step 5). Optional — only when the session is large enough to warrant a standing record. |
@@ -88,7 +88,7 @@ In addition to COR-1200's generic prompts, ask these each retrospective:
 | **PR lifecycle** | Did an Assembly branch need a replacement PR because `ryosaeba1985` can't push to it? Did CI fail on something a worktree pre-check would have caught (lint, stale version-pin tests)? | `reference_merge_permission_owner_only`, `feedback_always_pr_no_direct_push` |
 | **Permission boundary** | Did `ryosaeba1985` hit an owner-only wall (merge, issue-close, `update-branch`, `@dependabot` command)? Record the exact refusal so it's not re-attempted. | `reference_merge_permission_owner_only` |
 | **Test/CI fragility** | Did a test break on a correct change because it froze a value Dependabot manages (the action-pin `# vN` lesson)? Generalise the assertion. | TRN doc / issue |
-| **MEMORY pressure** | Is `memory/MEMORY.md` near its truncation limit? Any stale or duplicate entries to prune? | Prune in place |
+| **MEMORY pressure** | Is the user-private `MEMORY.md` (`~/.claude/projects/-Users-frank-Projects-trinity/memory/MEMORY.md`, per TRN-3033 — not in repo) near its truncation limit? Any stale or duplicate entries to prune? | Prune in place |
 
 ## §C. Routing rule
 

@@ -82,13 +82,18 @@ Start: what kind of task is this?
 10. Filing a new issue / bug report / feature request?
     └── TRN-1009 (Issue Filing SOP) — ISSUE_TEMPLATE field-label alignment, repro steps, acceptance criteria
 
-11. New feature / design work?
+11. Ending a session / post-milestone reflection?
+    └── TRN-1200 (Session Retrospective SOP) — instantiates COR-1200; scan trinity
+        signal sources (Assembly / codex / PR-lifecycle / permission / CI-fragility /
+        memory), route each finding to memory / TRN-doc / new SOP
+
+12. New feature / design work?
     └── COR-1102 (PRP) → COR-1602 strict review → COR-1101 (CHG)
 
-12. Bug / incident?
+13. Bug / incident?
     └── INC → COR-1101 (CHG)
 
-13. Code change (any)?
+14. Code change (any)?
     └── COR-1500 (TDD) overlay always applies
 ```
 
