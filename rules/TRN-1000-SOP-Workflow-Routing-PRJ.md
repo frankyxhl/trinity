@@ -1,8 +1,8 @@
 # SOP-1000: Workflow Routing PRJ — Trinity
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-09
-**Last reviewed:** 2026-05-09
+**Last updated:** 2026-06-14
+**Last reviewed:** 2026-06-14
 **Status:** Active
 
 ---
@@ -82,13 +82,18 @@ Start: what kind of task is this?
 10. Filing a new issue / bug report / feature request?
     └── TRN-1009 (Issue Filing SOP) — ISSUE_TEMPLATE field-label alignment, repro steps, acceptance criteria
 
-11. New feature / design work?
+11. Ending a session / post-milestone reflection?
+    └── TRN-1200 (Session Retrospective SOP) — instantiates COR-1200; scan trinity
+        signal sources (Assembly / codex / PR-lifecycle / permission / CI-fragility /
+        memory), route each finding to memory / TRN-doc / new SOP
+
+12. New feature / design work?
     └── COR-1102 (PRP) → COR-1602 strict review → COR-1101 (CHG)
 
-12. Bug / incident?
+13. Bug / incident?
     └── INC → COR-1101 (CHG)
 
-13. Code change (any)?
+14. Code change (any)?
     └── COR-1500 (TDD) overlay always applies
 ```
 
@@ -144,3 +149,4 @@ This is a routing SOP — no procedural steps. See the Project Decision Tree abo
 | 2026-04-26 | Decision tree path 4: release flow now `release-prep` + CI (TRN-2006) | Claude Opus 4.7 |
 | 2026-04-26 | Decision tree: add path 6 (TRN-1006 model-ID pinning) and path 7 (TRN-1801 evolve cycle); shift feature/incident/TDD paths to 8/9/10 | Claude Opus 4.7 |
 | 2026-05-09 | Decision tree: add paths 8 (TRN-1007 PR readiness), 9 (TRN-1008 multi-agent review loop), 10 (TRN-1009 issue filing); shift feature/incident/TDD paths to 11/12/13; add Coverage audit section with drift-detection snippet | Claude Opus 4.7 |
+| 2026-06-14 | Decision tree: add path 11 (TRN-1200 session retrospective); shift feature/incident/code paths to 12/13/14 | Claude Code |
