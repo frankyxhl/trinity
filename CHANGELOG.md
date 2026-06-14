@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+- GitHub Action pin regression tests no longer hardcode the major version in
+  the `# vN` comment match (`# v6`/`# v7`/`# v2`/`# v4` → `# v[0-9]+`) across
+  `tests/test_dependency_audit_workflow.sh`,
+  `tests/test_test_workflow_matrix.sh`, `tests/test_gitleaks_config.sh`,
+  `tests/test_codeql_workflow.sh`, and `tests/test_coverage_visibility.sh`.
+  The assertions still require a full 40-char SHA pin plus a version comment
+  (both security properties preserved) but tolerate Dependabot major-version
+  bumps, which previously broke CI on every such PR (e.g. setup-uv 6→8,
+  gitleaks-action 2→3).
+
 ### Changed
 - `scripts/codex.py` (2295+ lines, ~86 functions) split into three focused
   per-subcommand modules — `scripts/_doctor.py` (health checks, preflight,

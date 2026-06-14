@@ -42,9 +42,9 @@ check "concurrency cancels stale runs" grep -qF 'cancel-in-progress: true' "$WOR
 check "gitleaks job present" grep -qE '^  gitleaks:$' "$WORKFLOW"
 check "gitleaks runs on ubuntu latest" grep -qF 'runs-on: ubuntu-latest' "$WORKFLOW"
 check "gitleaks has timeout" grep -qF 'timeout-minutes: 10' "$WORKFLOW"
-check "checkout uses pinned SHA with version comment" grep -qE 'uses: actions/checkout@[0-9a-f]{40} # v6' "$WORKFLOW"
+check "checkout uses pinned SHA with version comment" grep -qE 'uses: actions/checkout@[0-9a-f]{40} # v[0-9]+' "$WORKFLOW"
 check "checkout fetches full history" grep -qF 'fetch-depth: 0' "$WORKFLOW"
-check "official gitleaks action used with pinned SHA" grep -qE 'uses: gitleaks/gitleaks-action@[0-9a-f]{40} # v2' "$WORKFLOW"
+check "official gitleaks action used with pinned SHA" grep -qE 'uses: gitleaks/gitleaks-action@[0-9a-f]{40} # v[0-9]+' "$WORKFLOW"
 check "GITHUB_TOKEN is provided" grep -qF 'GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}' "$WORKFLOW"
 check "custom config is wired" grep -qF 'GITLEAKS_CONFIG: .gitleaks.toml' "$WORKFLOW"
 
