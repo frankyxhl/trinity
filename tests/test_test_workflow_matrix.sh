@@ -36,11 +36,11 @@ fi
 
 require_file_contains "${WORKFLOW}" 'name: test / \$\{\{ matrix\.os \}\} / Python \$\{\{ matrix\.python-version \}\}' "matrix job name includes OS and Python version"
 require_file_contains "${WORKFLOW}" 'os: \[ubuntu-latest, macos-latest\]' "OS matrix keeps ubuntu and macos"
-require_file_contains "${WORKFLOW}" "python-version: \\['3\\.11', '3\\.12', '3\\.13'\\]" "Python matrix covers 3.11, 3.12, and 3.13"
+require_file_contains "${WORKFLOW}" "python-version: \\['3\\.11', '3\\.12', '3\\.13', '3\\.14'\\]" "Python matrix covers 3.11, 3.12, 3.13, and 3.14"
 require_file_contains "${WORKFLOW}" 'runs-on: \$\{\{ matrix\.os \}\}' "runner uses OS matrix"
-require_file_contains "${WORKFLOW}" 'uses: actions/setup-python@[0-9a-f]{40} # v6' "setup-python action is pinned to SHA"
+require_file_contains "${WORKFLOW}" 'uses: actions/setup-python@[0-9a-f]{40} # v[0-9]+' "setup-python action is pinned to SHA"
 require_file_contains "${WORKFLOW}" 'python-version: \$\{\{ matrix\.python-version \}\}' "setup-python uses Python matrix"
-require_file_contains "${WORKFLOW}" 'uses: astral-sh/setup-uv@[0-9a-f]{40} # v7' "setup-uv action is pinned to SHA"
+require_file_contains "${WORKFLOW}" 'uses: astral-sh/setup-uv@[0-9a-f]{40} # v[0-9]+' "setup-uv action is pinned to SHA"
 require_file_contains "${WORKFLOW}" 'enable-cache: true' "setup-uv cache is enabled"
 require_file_contains "${WORKFLOW}" 'cache-dependency-glob:' "setup-uv cache dependency glob configured"
 require_file_contains "${WORKFLOW}" 'pyproject\.toml' "setup-uv cache keys pyproject"
@@ -52,8 +52,8 @@ require_file_contains "${WORKFLOW}" '^    name: macos-latest$' "legacy macos req
 require_file_contains "${WORKFLOW}" 'needs: test' "required-check gates depend on matrix job"
 require_file_contains "${WORKFLOW}" '\$\{\{ needs\.test\.result \}\}' "required-check gates inspect matrix result"
 
-setup_line=$(grep -nE 'uses: actions/setup-python@[0-9a-f]{40} # v6' "${WORKFLOW}" | head -1 | cut -d: -f1)
-uv_line=$(grep -nE 'uses: astral-sh/setup-uv@[0-9a-f]{40} # v7' "${WORKFLOW}" | head -1 | cut -d: -f1)
+setup_line=$(grep -nE 'uses: actions/setup-python@[0-9a-f]{40} # v[0-9]+' "${WORKFLOW}" | head -1 | cut -d: -f1)
+uv_line=$(grep -nE 'uses: astral-sh/setup-uv@[0-9a-f]{40} # v[0-9]+' "${WORKFLOW}" | head -1 | cut -d: -f1)
 install_line=$(grep -nF 'run: make setup' "${WORKFLOW}" | head -1 | cut -d: -f1)
 lint_line=$(grep -nF 'run: make lint' "${WORKFLOW}" | head -1 | cut -d: -f1)
 test_line=$(grep -nF 'run: make test' "${WORKFLOW}" | head -1 | cut -d: -f1)

@@ -2,7 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed
+- GitHub Action pin regression tests no longer hardcode the major version in
+  the `# vN` comment match (`# v6`/`# v7`/`# v2`/`# v4` → `# v[0-9]+`) across
+  `tests/test_dependency_audit_workflow.sh`,
+  `tests/test_test_workflow_matrix.sh`, `tests/test_gitleaks_config.sh`,
+  `tests/test_codeql_workflow.sh`, and `tests/test_coverage_visibility.sh`.
+  The assertions still require a full 40-char SHA pin plus a version comment
+  (both security properties preserved) but tolerate Dependabot major-version
+  bumps, which previously broke CI on every such PR (e.g. setup-uv 6→8,
+  gitleaks-action 2→3).
+
 ### Changed
+- `scripts/codex.py` (2295+ lines, ~86 functions) split into three focused
+  per-subcommand modules — `scripts/_doctor.py` (health checks, preflight,
+  `cmd_doctor`), `scripts/_review.py` (review orchestration, prompt building,
+  `cmd_review`), and `scripts/_status.py` (status rendering, `cmd_status`) —
+  while keeping `scripts/codex.py` as the stable CLI entry point and
+  re-exporting all previously public names so existing importers are
+  unaffected. Closes #206.
 - `minimax` provider upgraded from MiniMax 2.7 to MiniMax M3 (released
   2026-06-01). M3 is not yet in droid's built-in catalog, so the CLI now uses
   the BYOK reference `droid exec --auto medium --model custom:MiniMax-M3`
@@ -15,6 +33,15 @@
   natively.
 
 ### Added
+- `samples/regression-prompts.md`: manual regression prompt set for Claude
+  Code SKILL.md dispatch paths (single dispatch, named-instance resume,
+  `provider*N`, preset expansion, reserved words, heartbeat, session
+  output-file resolution), with a TRN-1007 §5 readiness-gate item requiring a
+  run when SKILL.md, `providers/_base/`, or `scripts/session(_path).py`
+  change. Closes #211.
+- PR CI test matrix now also covers Python 3.14 on both Ubuntu and macOS,
+  matching the local development venv, while preserving the existing
+  `ubuntu-latest` / `macos-latest` aggregate required-check names. Closes #208.
 - PR CI now restores the uv dependency cache in each test matrix leg before
   `make setup`, keyed by `pyproject.toml` and `uv.lock`. Closes #162.
 - GitHub Actions workflow steps are now pinned to full commit SHAs with trailing
