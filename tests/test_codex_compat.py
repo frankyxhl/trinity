@@ -15,6 +15,8 @@ PLUGIN_ROOT = ROOT / "plugins" / "trinity"
 PLUGIN_MANIFEST = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
 PLUGIN_SKILL = PLUGIN_ROOT / "skills" / "trinity" / "SKILL.md"
 MARKETPLACE = ROOT / ".agents" / "plugins" / "marketplace.json"
+CODEX_DOCS = ROOT / "docs" / "codex-compatibility.md"
+USAGE_DOCS = ROOT / "docs" / "usage-guide.md"
 README = ROOT / "README.md"
 ROOT_SKILL = ROOT / "SKILL.md"
 
@@ -77,27 +79,35 @@ def test_repo_marketplace_installs_local_trinity_plugin():
 
 
 def test_readme_documents_claude_and_codex_load_smoke_checks():
-    text = README.read_text()
+    """Codex-specific smoke check docs moved to docs/; Claude Code checks stay in README."""
+    readme_text = README.read_text()
+    codex_text = CODEX_DOCS.read_text()
+    usage_text = USAGE_DOCS.read_text()
 
-    assert "Codex repo-local skill" in text
-    assert "Codex plugin" in text
-    assert "/skills" in text
-    assert "/plugins" in text
-    assert "/trinity status" in text
-    assert "Claude Code" in text
-    assert "make install-codex" in text
-    assert "trinity review --providers glm,gemini,deepseek" in text
-    assert "trinity doctor --preset fast-review" in text
-    assert "trinity review --preset fast-review" in text
-    assert "trinity review --pr 21 --preset deep-review" in text
-    assert "trinity review --sop COR-1602 --rubric COR-1609" in text
-    assert "Strict COR review mode" in text
-    assert "review.max_parallel_providers" in text
-    assert "Progress is logged to stderr" in text
-    assert "incomplete.json" in text
-    assert ".agents/trinity.codex.json" in text
-    assert "| `fast-review` | `glm`, `deepseek` | none |" in text
-    assert "explicit `--providers`, explicit `--preset`" in text
+    # README keeps general Claude Code smoke-check references (install section)
+    assert "/trinity status" in readme_text
+    assert "Claude Code" in readme_text
+
+    # Codex-specific docs live in docs/codex-compatibility.md
+    assert "Codex repo-local skill" in codex_text
+    assert "Codex plugin" in codex_text
+    assert "/skills" in codex_text
+    assert "/plugins" in codex_text
+    assert "make install-codex" in codex_text
+    assert "trinity review --providers glm,gemini,deepseek" in codex_text
+    assert "trinity doctor --preset fast-review" in codex_text
+    assert "trinity review --preset fast-review" in codex_text
+    assert "trinity review --pr 21 --preset deep-review" in codex_text
+    assert "trinity review --sop COR-1602 --rubric COR-1609" in codex_text
+    assert "Strict COR review mode" in codex_text
+    assert "review.max_parallel_providers" in codex_text
+    assert "Progress is logged to stderr" in codex_text
+    assert "incomplete.json" in codex_text
+    assert ".agents/trinity.codex.json" in codex_text
+    assert "explicit `--providers`, explicit `--preset`" in codex_text
+
+    # Preset table moved to docs/usage-guide.md
+    assert "| `fast-review` | `glm`, `deepseek` | none |" in usage_text
 
 
 def test_readme_version_examples_match_version():

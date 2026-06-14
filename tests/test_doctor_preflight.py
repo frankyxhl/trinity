@@ -52,6 +52,7 @@ def test_a1_result_dict_has_all_new_keys():
         "cli",
         "auth",
         "timeout_warning",
+        "live_probe",
     ):
         assert key in result, f"missing key {key}"
 
@@ -516,3 +517,277 @@ def test_canonical_wrapper_resolves_symlinks(tmp_path, monkeypatch):
     _os.symlink(real, canonical)
 
     assert _is_canonical_wrapper(str(canonical), "deepseek") is True
+
+
+# ---------------------------------------------------------------------------
+# Live probe tests (TRN-3042_209)
+# ---------------------------------------------------------------------------
+
+
+def test_live_probe_success(tmp_path):
+    """Probe passes when the provider exits 0."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "ok_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "pass"
+
+
+def test_live_probe_auth_failure(tmp_path):
+    """Probe classifies 401/unauthorized output as auth failure."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "auth_fail"
+    fake.write_text("#!/bin/sh\necho '401 Unauthorized: invalid API key'\nexit 1\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "auth"
+
+
+def test_live_probe_quota_failure(tmp_path):
+    """Probe classifies 429/quota output as quota failure."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "quota_fail"
+    fake.write_text("#!/bin/sh\necho '429 Too Many Requests: quota exceeded'\nexit 1\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "quota"
+
+
+def test_live_probe_timeout(tmp_path):
+    """Probe reports timeout when the provider does not respond in time."""
+    from codex import _probe_provider, _LIVE_PROBE_TIMEOUT
+
+    fake = tmp_path / "slow_provider"
+    # Sleep a long time
+    fake.write_text(f"#!/bin/sh\nsleep {_LIVE_PROBE_TIMEOUT + 5}\necho 'too late'\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 120}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "timeout"
+
+
+def test_live_probe_skips_bad_config(tmp_path):
+    """Probe returns None when the provider config is unparseable."""
+    from codex import _probe_provider
+
+    config = {"cli": ""}  # missing cli — parse error
+    result = _probe_provider("test", config, tmp_path)
+    assert result is None
+
+
+def test_live_probe_renders_in_verbose_output(tmp_path):
+    """A passed live probe adds 'live: pass' in verbose format."""
+    from codex import _format_provider_block
+
+    fake = tmp_path / "ok_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+
+    result = _make_health_result("test", ok=True, executable=str(fake), timeout=30)
+    result["live_probe"] = {"status": "pass"}
+    lines = _format_provider_block(result)
+    assert any("live: pass" in line for line in lines)
+
+
+def test_live_probe_fail_renders_in_verbose_output(tmp_path):
+    """A failed live probe adds 'live: FAIL - cause: detail' in verbose."""
+    from codex import _format_provider_block
+
+    result = _make_health_result("test", ok=False, executable="/bin/fake", timeout=30)
+    result["live_probe"] = {
+        "status": "fail",
+        "cause": "auth",
+        "detail": "exit 1: 401 Unauthorized",
+    }
+    lines = _format_provider_block(result)
+    assert any("live: FAIL - auth" in line for line in lines)
+
+
+def test_live_probe_via_script_execution(tmp_path):
+    """Regression for PR #215 codex P1: `doctor --live` must work when
+    codex.py executes as a script (`__main__`), not only when imported.
+
+    The probe helpers were originally appended AFTER the `__main__`
+    block, so `main()` ran before they were defined and `--live`
+    crashed with NameError. Import-based tests cannot catch that
+    execution-order bug; this test runs the real CLI as a subprocess.
+    """
+    import json
+    import subprocess
+
+    fake = tmp_path / "ok_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+
+    config_path = tmp_path / "trinity.codex.json"
+    config_path.write_text(
+        json.dumps({"providers": {"test": {"cli": str(fake), "timeout": 30}}})
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "codex.py"),
+            "doctor",
+            "--root",
+            str(tmp_path),
+            "--config",
+            str(config_path),
+            "--providers",
+            "test",
+            "--live",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert "NameError" not in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "live: pass" in result.stdout
+
+
+def test_live_probe_passes_prompt_as_cli_argument(tmp_path):
+    """Regression (PR #215 codex P2): the probe prompt must be appended as
+    the final CLI argument, mirroring run_provider, because the bundled
+    CLIs (gemini -p / droid exec / codex exec) take the prompt via argv —
+    a stdin-only probe would report live failures for working providers."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "argv_provider"
+    fake.write_text('#!/bin/sh\n[ -n "$1" ] || exit 1\necho OK\n')
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None
+    assert result["status"] == "pass"
+
+
+def test_live_probe_runs_from_resolved_root(tmp_path, monkeypatch):
+    """Regression (PR #215 codex P2): a provider configured with a relative
+    executable path passes executable_health (resolved against root) but
+    the probe subprocess ran from the process cwd, hit FileNotFoundError,
+    and was silently skipped. The probe must run with cwd=root."""
+    from codex import _probe_provider
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "rel_provider"
+    fake.write_text("#!/bin/sh\necho OK\n")
+    fake.chmod(0o755)
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    config = {"cli": "bin/rel_provider", "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None, "probe must not be silently skipped"
+    assert result["status"] == "pass"
+
+
+def test_live_probe_reports_launch_failure(tmp_path):
+    """Regression (PR #215 codex P2 #3): a file that passes the static
+    executable check but cannot launch (missing shebang interpreter)
+    must surface as a live 'error' failure, not be silently skipped —
+    otherwise doctor --live exits 0 for a provider reviews cannot run."""
+    from codex import _probe_provider
+
+    fake = tmp_path / "broken_shebang"
+    fake.write_text("#!/no/such/interpreter\necho OK\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 30}
+    result = _probe_provider("test", config, tmp_path)
+    assert result is not None, "launch failure must not be silently skipped"
+    assert result["status"] == "fail"
+    assert result["cause"] == "error"
+    assert "failed to launch" in result["detail"]
+
+
+def test_live_probe_timeout_kills_process_group(tmp_path, monkeypatch):
+    """Regression (PR #215 codex P2 #4): when a provider spawns a child
+    that inherits the captured pipes, a probe timeout must kill the whole
+    process group — otherwise communicate() keeps waiting on the pipes
+    held by the orphaned child, far past the advertised timeout."""
+    import time as _time
+
+    monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", 1)
+
+    fake = tmp_path / "forking_provider"
+    fake.write_text("#!/bin/sh\nsleep 30 &\nsleep 30\n")
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 120}
+
+    start = _time.monotonic()
+    result = codex_mod._probe_provider("test", config, tmp_path)
+    elapsed = _time.monotonic() - start
+
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "timeout"
+    assert elapsed < 10, f"probe blocked {elapsed:.1f}s past its 1s timeout"
+
+
+def test_live_probe_timeout_kills_orphaned_children(tmp_path, monkeypatch):
+    """Regression (PR #215 codex P2 #5): when the provider leader exits
+    before the deadline but leaves a pipe-holding child behind,
+    terminate_process_group() short-circuits on poll() and the child
+    survived. The probe must signal the process group id directly
+    (== proc.pid under start_new_session) so the orphan dies too."""
+    import os as _os
+    import subprocess
+    import time as _time
+
+    monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", 1)
+
+    pid_file = tmp_path / "child.pid"
+    fake = tmp_path / "exiting_leader"
+    fake.write_text(f'#!/bin/sh\nsleep 30 &\necho $! > "{pid_file}"\nexit 0\n')
+    fake.chmod(0o755)
+    config = {"cli": str(fake), "timeout": 120}
+
+    result = codex_mod._probe_provider("test", config, tmp_path)
+
+    assert result is not None
+    assert result["status"] == "fail"
+    assert result["cause"] == "timeout"
+
+    def _gone_or_zombie(pid):
+        # signal-0 succeeds for zombies (codex P1 on PR #215): a child
+        # killed by os.killpg but adopted by PID 1 may linger as STAT Z
+        # before the init reaper collects it. A zombie runs no provider
+        # work, so treat it as dead; fall back to ps for the state.
+        try:
+            _os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        ps = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+        )
+        stat = ps.stdout.strip()
+        return stat == "" or stat.startswith("Z")
+
+    child_pid = int(pid_file.read_text().strip())
+    deadline = _time.monotonic() + 5
+    while _time.monotonic() < deadline:
+        if _gone_or_zombie(child_pid):
+            break
+        _time.sleep(0.1)
+    else:
+        _os.kill(child_pid, 9)  # cleanup before failing
+        raise AssertionError("orphaned child survived the probe timeout")
