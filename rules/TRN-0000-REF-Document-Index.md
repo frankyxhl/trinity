@@ -52,7 +52,7 @@
 | 3021 | CHG | Expand Doctor Preflight |
 | 3022 | CHG | Normalize Review Result Schema |
 | 3023 | CHG | Sanitize Provider Environment At Spawn Time |
-| 3024 | PRP | Loopback MCP Bridge |
+| 3024 | PRP | Loopback MCP Bridge (Withdrawn) |
 | 3027 | CHG | SOP 1006 Registry Amendment |
 | 3028 | CHG | Richer Synthesis Summary |
 | 3029 | CHG | GraphQL Scan And Blueprint Gate |
