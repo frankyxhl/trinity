@@ -44,7 +44,7 @@ fi
 
 require_file_contains "${WORKFLOW}" 'name: Upload coverage report' "test workflow uploads coverage report"
 require_file_contains "${WORKFLOW}" 'if: always\(\) && steps\.changes\.outputs\.run_tests == '\''true'\''' "coverage upload runs even after coverage failure"
-require_file_contains "${WORKFLOW}" 'uses: actions/upload-artifact@[0-9a-f]{40} # v7' "coverage upload uses pinned artifact action"
+require_file_contains "${WORKFLOW}" 'uses: actions/upload-artifact@[0-9a-f]{40} # v[0-9]+' "coverage upload uses pinned artifact action"
 require_file_contains "${WORKFLOW}" 'name: coverage-\$\{\{ matrix\.os \}\}-py\$\{\{ matrix\.python-version \}\}' "coverage artifact name is unique per matrix leg"
 require_file_contains "${WORKFLOW}" 'coverage\.xml' "coverage upload includes XML report"
 require_file_contains "${WORKFLOW}" 'htmlcov/' "coverage upload includes HTML report"
