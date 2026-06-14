@@ -1,8 +1,8 @@
 # SOP-1000: Workflow Routing PRJ — Trinity
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-09
-**Last reviewed:** 2026-05-09
+**Last updated:** 2026-06-14
+**Last reviewed:** 2026-06-14
 **Status:** Active
 
 ---
@@ -149,3 +149,4 @@ This is a routing SOP — no procedural steps. See the Project Decision Tree abo
 | 2026-04-26 | Decision tree path 4: release flow now `release-prep` + CI (TRN-2006) | Claude Opus 4.7 |
 | 2026-04-26 | Decision tree: add path 6 (TRN-1006 model-ID pinning) and path 7 (TRN-1801 evolve cycle); shift feature/incident/TDD paths to 8/9/10 | Claude Opus 4.7 |
 | 2026-05-09 | Decision tree: add paths 8 (TRN-1007 PR readiness), 9 (TRN-1008 multi-agent review loop), 10 (TRN-1009 issue filing); shift feature/incident/TDD paths to 11/12/13; add Coverage audit section with drift-detection snippet | Claude Opus 4.7 |
+| 2026-06-14 | Decision tree: add path 11 (TRN-1200 session retrospective); shift feature/incident/code paths to 12/13/14 | Claude Code |
