@@ -1,10 +1,11 @@
 # REF-1800: Evolution Philosophy
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-04-26
+**Last updated:** 2026-06-15
 **Last reviewed:** 2026-04-26
 **Status:** Active
 **Inherits from:** COR-1800 (full-replace per table; unspecified tables inherit COR defaults)
+**Overlays:** COR-1800
 
 ---
 
@@ -93,3 +94,4 @@ Replaces COR-1800 default signal table in full.
 | Date | Change | By |
 |------|--------|----|
 | 2026-04-26 | Initial PRJ override of COR-1800 for the `trinity` repo. Mirrors the CLD-1800 shape used by `~/.claude/`; weights and signals customised for trinity's Python+shell+CI surface (cross-platform parity, generated-vs-source build, provider parity, share-readiness). | Claude Opus 4.7 |
+| 2026-06-15 | Added machine-readable `Overlays: COR-1800` binding after COR disposition reconciliation. | Codex |

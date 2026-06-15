@@ -1,10 +1,11 @@
 # REF-1209: Multi-Agent Loop Project Configuration
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-24
+**Last updated:** 2026-06-15
 **Last reviewed:** 2026-05-24
 **Status:** Active
 **Related:** TRN-1008 (Multi-Agent Review Loop — trinity overlay that consumes these bindings), COR-1622 (parameter schema authored from), COR-1617 (umbrella SOP), COR-1618 (consent gate), COR-1619 (worker dispatch), COR-1620 (loop primitives), COR-1621 (triage), COR-1615 (bot loop)
+**Instantiates:** COR-1622
 
 ---
 
@@ -137,3 +138,4 @@ If `<intake-quality-mode>` ever changes (e.g. from `2FA` to `1FA`), every previo
 | 2026-05-10 | R7 (PR #118 codex-bot R6 P2): R5's footnote definition was placed BETWEEN table rows, which terminated the GFM table at the agent-branch row and orphaned the last two binding rows (`CLARIFY round-counter cap`, `Fast-review-tier providers`). Moved the footnote definition to AFTER the final `\|...\|` row of the §Trinity-only extensions table; reference link `[^pipe-esc]` still resolves. | Claude Opus 4.7 |
 | 2026-05-18 | TRN-3042: split panel bindings into 3-provider plan-review tier (`glm` + `deepseek` + `minimax`) and 2-provider code-review tier (`glm` + `deepseek`); split worker routing into implementation=`trinity-glm` and test-code=`trinity-deepseek`. | Codex |
 | 2026-05-24 | TRN-3044: clarify bot-actor API login matching and current-head anchoring for the Review Completion Gate. | Claude Code |
+| 2026-06-15 | Added machine-readable `Instantiates: COR-1622` binding after COR disposition reconciliation. | Codex |
