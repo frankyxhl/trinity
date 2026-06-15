@@ -1,11 +1,12 @@
 # SOP-1200: Session Retrospective — Trinity
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-06-14
+**Last updated:** 2026-06-15
 **Last reviewed:** 2026-06-14
 **Status:** Active
 **Last executed:** —
 **Depends on:** COR-1200 (generic Session Retrospective — cycle, af-log reconstruction recipe, scoring rubric)
+**Overlays:** COR-1200
 **Related:** TRN-1008 (Multi-Agent Review Loop), TRN-1009 (Issue Filing), TRN-1007 (PR Readiness), TRN-1801 (Evolve Trinity), TRN-1800 (Evolution Philosophy)
 
 ---
@@ -109,3 +110,4 @@ For each finding: score per **COR-1200 §Scoring**, then send it to the §A dest
 | Date | Change | By |
 |------|--------|----|
 | 2026-06-14 | Initial version — trinity instantiation of COR-1200; adds §A destination routing, §B trinity signal sources (Assembly / codex / PR-lifecycle / permission / CI-fragility / memory), §C scoring-to-destination rule | Claude Code |
+| 2026-06-15 | Added machine-readable `Overlays: COR-1200` binding after COR disposition reconciliation. | Codex |
