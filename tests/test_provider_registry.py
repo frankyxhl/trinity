@@ -379,7 +379,7 @@ def test_register_from_registry_no_warning_for_builtin_models(tmp_path, capsys):
     factory settings file is absent."""
     install_py.warn_missing_custom_models(
         "glm",
-        "droid exec --auto medium --model glm-5.1 --reasoning-effort high",
+        "droid exec --auto medium --model glm-5.2 --reasoning-effort high",
         str(tmp_path / "missing.json"),
     )
     assert capsys.readouterr().err == ""

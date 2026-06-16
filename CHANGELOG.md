@@ -14,6 +14,16 @@
   gitleaks-action 2→3).
 
 ### Changed
+- `glm` provider upgraded from GLM-5.1 to GLM-5.2. Registry-managed
+  native-CLI bump per TRN-1006 §A: `providers/registry.json`,
+  `.agents/trinity.codex.json`, and `providers/glm.delta.md` move from
+  `droid exec --auto medium --model glm-5.1 --reasoning-effort high` to
+  `--model glm-5.2` (all other flags unchanged); `providers/glm.md`
+  regenerated via `make build`. Docs (`README.md`, `SKILL.md`), the
+  TRN-1006 pin-value table, the provider-issue template placeholder, and
+  the `glm` CLI-signature assertions in `tests/test_build_providers.sh`,
+  `tests/test_codex_adapter.py`, `tests/test_install_sh.sh`, and
+  `tests/test_provider_registry.py` updated to match.
 - `scripts/codex.py` (2295+ lines, ~86 functions) split into three focused
   per-subcommand modules — `scripts/_doctor.py` (health checks, preflight,
   `cmd_doctor`), `scripts/_review.py` (review orchestration, prompt building,

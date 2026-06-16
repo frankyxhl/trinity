@@ -181,7 +181,7 @@ Then create `~/.claude/trinity.json`:
   "providers": {
     "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
-    "glm":        { "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high", "installed": true },
+    "glm":        { "cli": "droid exec --auto medium --model glm-5.2 --reasoning-effort high", "installed": true },
     "minimax":    { "cli": "droid exec --auto medium --model custom:MiniMax-M3", "installed": true },
     "openrouter":  { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p",  "installed": true },
     "deepseek":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",    "installed": true },
