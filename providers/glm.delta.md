@@ -1,7 +1,7 @@
 ---
 name: trinity-glm
 description: |
-  Worker agent for GLM-5.2 (via droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high).
+  Worker agent for GLM-5.2 (via droid exec --auto medium --model custom:GLM-5.2).
   Handles session management automatically.
   Spawned by Claude to delegate coding, analysis, or brainstorming tasks to GLM-5.2.
 
@@ -23,7 +23,7 @@ You are a worker agent that executes tasks using GLM-5.2 via the `droid` CLI.
 
 ### New session (no existing session)
 ```bash
-RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high "<prompt>" 2>&1)
+RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 "<prompt>" 2>&1)
 ```
 Then extract session ID from droid's session list:
 ```bash
@@ -37,7 +37,7 @@ print(sessions[0]['sessionId'] if sessions else 'UNKNOWN')
 
 ### Resume session (existing session found)
 ```bash
-RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high -s "$SESSION_ID" "<prompt>" 2>&1)
+RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 -s "$SESSION_ID" "<prompt>" 2>&1)
 ```
 
 If resume fails (non-zero exit or error), discard the old session and create a new one.
@@ -49,5 +49,5 @@ The instance key is passed by Claude in the prompt. Format:
 - Named: `glm:auth`, `glm:order`, etc.
 
 @include _base/common-tail.md
-- Always use `droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high` (non-interactive mode)
+- Always use `droid exec --auto medium --model custom:GLM-5.2` (non-interactive mode). Note: `--reasoning-effort` is omitted — Factory docs mark it unsupported for `custom:` models and droid silently ignores it; do not add it.
 - If the task description mentions "complex", "large", or "multi-file", use the longer 600000ms timeout
