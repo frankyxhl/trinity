@@ -154,7 +154,7 @@ done
 # Provider-specific CLI signatures (delta content survived).
 check "codex CLI signature"      grep -q 'codex exec' providers/codex.md
 check "gemini CLI signature"     grep -q 'gemini --model' providers/gemini.md
-check "glm CLI signature"        grep -q 'droid exec --auto medium --model custom:GLM-5.2' providers/glm.md
+check "glm CLI signature"        grep -q 'droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high' providers/glm.md
 check "minimax CLI signature"    grep -q 'droid exec --auto medium --model custom:MiniMax-M3' providers/minimax.md
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
 check "deepseek run function"    grep -q 'run_deepseek()' providers/deepseek.md

@@ -85,7 +85,7 @@ Single source of truth per provider (post-TRN-3020 / TRN-3027):
 |----------|--------------------|----------------------------------|
 | `codex` | `providers/registry.json` → `providers.codex.cli` | `codex exec --skip-git-repo-check -m gpt-5.5` (TRN-2005) |
 | `gemini` | `providers/gemini.delta.md` `### New session` invocation (registry deferred — TRN-3025) | `gemini-3.1-pro-preview` |
-| `glm` | `providers/registry.json` → `providers.glm.cli` + `.agents/trinity.codex.json` + `providers/glm.delta.md` | Claude Code install + Codex review: `droid exec --auto medium --model custom:GLM-5.2` (BYOK custom model — Z.AI; `--reasoning-effort` dropped, unsupported for `custom:` models) |
+| `glm` | `providers/registry.json` → `providers.glm.cli` + `.agents/trinity.codex.json` + `providers/glm.delta.md` | Claude Code install + Codex review: `droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high` (BYOK custom model — Z.AI endpoint) |
 | `deepseek` | Model: `providers/bin/deepseek` env block. Bin path: `providers/registry.json` → `providers.deepseek.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="deepseek-v4-pro[1m]"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash"` |
 | `openrouter` | Model: `providers/bin/openrouter` env block. Bin path: `providers/registry.json` → `providers.openrouter.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
 

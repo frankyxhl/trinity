@@ -17,12 +17,13 @@
 - `glm` provider upgraded from GLM-5.1 to GLM-5.2 (Z.AI, released
   2026-06-13). GLM-5.2 is not in droid's built-in catalog and is served
   via BYOK, so the registry CLI now uses the custom-model reference
-  `droid exec --auto medium --model custom:GLM-5.2` (requires a
-  `~/.factory/settings.json` `customModels` entry with an **explicit**
-  `"id": "custom:GLM-5.2"` pointing at the Z.AI endpoint — without it
-  `scripts/install.py` emits a warning and dispatch fails;
-  `--reasoning-effort` dropped — unsupported for `custom:` models).
-  Mirrors the MiniMax M3 BYOK wiring. Registry-managed native-CLI bump
+  `droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high`
+  (requires a `~/.factory/settings.json` `customModels` entry with an
+  **explicit** `"id": "custom:GLM-5.2"` pointing at the Z.AI endpoint —
+  without it `scripts/install.py` emits a warning and dispatch fails).
+  `--reasoning-effort high` is retained (verified: droid accepts the flag
+  on `custom:` models — unlike the conservative MiniMax M3 wiring which
+  dropped it). Registry-managed native-CLI bump
   per TRN-1006 §A: `providers/registry.json`,
   `.agents/trinity.codex.json`, and `providers/glm.delta.md` updated;
   `providers/glm.md` regenerated via `make build`. Docs (`README.md`,

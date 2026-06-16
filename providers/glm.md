@@ -1,7 +1,7 @@
 ---
 name: trinity-glm
 description: |
-  Worker agent for GLM-5.2 (via droid exec --auto medium --model custom:GLM-5.2).
+  Worker agent for GLM-5.2 (via droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high).
   Handles session management automatically.
   Spawned by Claude to delegate coding, analysis, or brainstorming tasks to GLM-5.2.
 
@@ -37,7 +37,7 @@ python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTA
 
 ### New session (no existing session)
 ```bash
-RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 "<prompt>" 2>&1)
+RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high "<prompt>" 2>&1)
 ```
 Then extract session ID from droid's session list:
 ```bash
@@ -51,7 +51,7 @@ print(sessions[0]['sessionId'] if sessions else 'UNKNOWN')
 
 ### Resume session (existing session found)
 ```bash
-RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 -s "$SESSION_ID" "<prompt>" 2>&1)
+RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high -s "$SESSION_ID" "<prompt>" 2>&1)
 ```
 
 If resume fails (non-zero exit or error), discard the old session and create a new one.
@@ -106,5 +106,5 @@ Providers that do not emit the block continue to work — synthesis falls back t
 - If the provider needs file contents, read the file yourself and include it in the prompt
 - If the provider produces code, verify it looks reasonable before returning
 - Keep your summary focused — Claude doesn't need the full conversation log
-- Always use `droid exec --auto medium --model custom:GLM-5.2` (non-interactive mode). Note: `--reasoning-effort` is not supported for `custom:` models — do not add it.
+- Always use `droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high` (non-interactive mode)
 - If the task description mentions "complex", "large", or "multi-file", use the longer 600000ms timeout
