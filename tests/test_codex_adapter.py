@@ -128,7 +128,7 @@ def test_codex_default_config_has_direct_review_providers():
     data = json.loads(CODEX_CONFIG.read_text())
 
     assert data["providers"]["glm"] == {
-        "cli": "droid exec --auto medium --model glm-5.2 --reasoning-effort high",
+        "cli": "droid exec --auto medium --model custom:GLM-5.2",
         "supports_resume": True,
         "resume_arg": "-s",
         "timeout": 360,
@@ -1596,7 +1596,7 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     installed_config = json.loads((home / ".codex" / "trinity.json").read_text())
     assert (
         installed_config["providers"]["glm"]["cli"]
-        == "droid exec --auto medium --model glm-5.2 --reasoning-effort high"
+        == "droid exec --auto medium --model custom:GLM-5.2"
     )
     assert installed_config["providers"]["deepseek"]["cli"] == (
         "~/.codex/skills/trinity/bin/deepseek -p"

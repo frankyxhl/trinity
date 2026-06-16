@@ -291,7 +291,7 @@ EOF
 
     # GLM is migrated to the current highest-reasoning default.
     ACTUAL_GLM=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['glm']['cli'])")
-    if [ "${ACTUAL_GLM}" != "droid exec --auto medium --model glm-5.2 --reasoning-effort high" ]; then
+    if [ "${ACTUAL_GLM}" != "droid exec --auto medium --model custom:GLM-5.2" ]; then
         _fail "T11: glm registration not migrated: '${ACTUAL_GLM}'"
         rm -rf "${FAKE_HOME}"; return
     fi

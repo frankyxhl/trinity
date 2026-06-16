@@ -86,4 +86,4 @@ body:
       label: This provider's entry in `~/.claude/trinity.json`
       description: |
         Just the `cli` line for the affected provider (redact any path containing `/Users/<your-name>/`). Helps confirm the config matches what the failure shape implies.
-      placeholder: 'e.g. "cli": "droid exec --auto medium --model glm-5.2 --reasoning-effort high"'
+      placeholder: 'e.g. "cli": "droid exec --auto medium --model custom:GLM-5.2"'
