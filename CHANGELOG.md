@@ -22,7 +22,9 @@
   **explicit** `"id": "custom:GLM-5.2"` pointing at the Z.AI endpoint —
   without it both the Claude-side `scripts/install.py` register path and
   the Codex-side `scripts/codex.py init-config` path emit a warning and
-  dispatch fails).
+  dispatch fails; the manual-install instructions in `README.md` document
+  the required Factory `customModels` entry for the copy-paste path that
+  runs neither installer).
   `--reasoning-effort high` is retained (verified: droid accepts the flag
   on `custom:` models — unlike the conservative MiniMax M3 wiring which
   dropped it). Registry-managed native-CLI bump

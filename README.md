@@ -194,6 +194,18 @@ Then create `~/.claude/trinity.json`:
 }
 ```
 
+> **BYOK prerequisite for `glm` and `minimax`.** Both use droid `custom:` models
+> (`custom:GLM-5.2`, `custom:MiniMax-M3`), which are **not** in droid's built-in
+> catalog. Each requires a matching entry in `~/.factory/settings.json` →
+> `customModels` with an **explicit** `id` equal to the value after `--model`
+> (without it droid auto-generates an indexed id and dispatch fails). Example for GLM-5.2 (Z.AI):
+> ```json
+> { "id": "custom:GLM-5.2", "model": "glm-5.2",
+>   "baseUrl": "https://api.z.ai/api/coding/paas/v4" }
+> ```
+> The `make install` / `make install-codex` installers emit a warning when this
+> entry is missing; the manual path above does not, so add it before first dispatch.
+
 To use review presets via the Claude Code skill, add them to the same file:
 
 ```json
