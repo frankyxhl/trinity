@@ -181,7 +181,7 @@ Then create `~/.claude/trinity.json`:
   "providers": {
     "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
-    "glm":        { "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high", "installed": true },
+    "glm":        { "cli": "droid exec --auto medium --model custom:GLM-5.2", "installed": true },
     "minimax":    { "cli": "droid exec --auto medium --model custom:MiniMax-M3", "installed": true },
     "openrouter":  { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p",  "installed": true },
     "deepseek":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",    "installed": true },
@@ -193,6 +193,28 @@ Then create `~/.claude/trinity.json`:
   }
 }
 ```
+
+> **BYOK prerequisite for `glm` and `minimax`.** Both use droid `custom:` models
+> (`custom:GLM-5.2`, `custom:MiniMax-M3`), which are **not** in droid's built-in
+> catalog. Each requires a matching entry in `~/.factory/settings.json` →
+> `customModels` with an **explicit** `id` equal to the value after `--model`
+> (without it droid auto-generates an indexed id and dispatch fails). A complete
+> entry needs all of `id`, `model`, `baseUrl`, `apiKey`, and `provider` — the
+> installer warning only checks `id`, so an entry missing `apiKey`/`provider`
+> silences the warning but still fails at dispatch. Example for GLM-5.2 (Z.AI):
+> ```json
+> {
+>   "id": "custom:GLM-5.2",
+>   "model": "glm-5.2",
+>   "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+>   "apiKey": "<your Z.AI coding-plan API key>",
+>   "provider": "generic-chat-completion-api"
+> }
+> ```
+> (`custom:MiniMax-M3` is analogous: `baseUrl` `https://api.minimaxi.com/anthropic`,
+> `provider` `anthropic`, its own `apiKey`.) The `make install` / `make install-codex`
+> installers emit a warning when the `id` is missing; the manual path above does not,
+> so add the full entry before first dispatch.
 
 To use review presets via the Claude Code skill, add them to the same file:
 

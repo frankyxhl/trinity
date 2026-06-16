@@ -309,8 +309,8 @@ def test_a3i_install_sh_no_orphan_registers():
 def test_a3j_test_install_sh_glm_cli_matches_registry():
     body = (ROOT / "tests" / "test_install_sh.sh").read_text()
     registry_glm_cli = _load_registry()["providers"]["glm"]["cli"]
-    # Anchor on `--reasoning-effort high` (a glm-only flag) to find the line.
-    assert "--reasoning-effort high" in body
+    # Anchor on `custom:GLM-5.2` (the glm BYOK model id) to find the line.
+    assert "custom:GLM-5.2" in body
     assert registry_glm_cli in body, (
         f"tests/test_install_sh.sh must contain registry glm.cli ({registry_glm_cli!r})"
     )
@@ -378,8 +378,8 @@ def test_register_from_registry_no_warning_for_builtin_models(tmp_path, capsys):
     """CLI strings without a `custom:` reference never warn — even when the
     factory settings file is absent."""
     install_py.warn_missing_custom_models(
-        "glm",
-        "droid exec --auto medium --model glm-5.1 --reasoning-effort high",
+        "codex",
+        "codex exec --skip-git-repo-check -m gpt-5.5",
         str(tmp_path / "missing.json"),
     )
     assert capsys.readouterr().err == ""

@@ -25,6 +25,18 @@ try:
 except ImportError:
     import review_schema as _review_schema
 
+# Reuse install.py's BYOK custom-model warning so the Codex init path surfaces
+# the same `~/.factory/settings.json` prerequisite as the Claude-side
+# install.py register path (PR #228 review: codex init copies providers into
+# ~/.codex/trinity.json without going through install.py).
+try:
+    from .install import warn_missing_custom_models as _warn_missing_custom_models
+except ImportError:
+    try:
+        from install import warn_missing_custom_models as _warn_missing_custom_models
+    except ImportError:  # install.py not bundled alongside — skip silently
+        _warn_missing_custom_models = None
+
 try:
     from . import _doctor as _doctor_mod
 except ImportError:
@@ -270,7 +282,25 @@ def write_default_config(path):
         if section in source:
             current[section] = source[section]
     target.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+    _warn_missing_custom_models_for_config(current)
     return target
+
+
+def _warn_missing_custom_models_for_config(config):
+    """Emit the BYOK custom-model install warning for any provider cli that
+    references a droid `custom:` model id (e.g. custom:GLM-5.2) but has no
+    matching explicit entry in ~/.factory/settings.json. Mirrors the
+    install.py register path so Codex installs get the same prerequisite
+    guidance instead of failing on first dispatch (PR #228 review)."""
+    if _warn_missing_custom_models is None:
+        return
+    providers = config.get("providers", {})
+    if not isinstance(providers, dict):
+        return
+    for name, entry in providers.items():
+        cli = entry.get("cli") if isinstance(entry, dict) else None
+        if isinstance(cli, str):
+            _warn_missing_custom_models(name, cli)
 
 
 def split_provider_csv(value):

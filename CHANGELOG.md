@@ -14,6 +14,30 @@
   gitleaks-action 2→3).
 
 ### Changed
+- `glm` provider upgraded from GLM-5.1 to GLM-5.2 (Z.AI, released
+  2026-06-13). GLM-5.2 is not in droid's built-in catalog and is served
+  via BYOK, so the registry CLI now uses the custom-model reference
+  `droid exec --auto medium --model custom:GLM-5.2`
+  (requires a `~/.factory/settings.json` `customModels` entry with an
+  **explicit** `"id": "custom:GLM-5.2"` pointing at the Z.AI endpoint —
+  without it both the Claude-side `scripts/install.py` register path and
+  the Codex-side `scripts/codex.py init-config` path emit a warning and
+  dispatch fails; the manual-install instructions in `README.md` document
+  the required Factory `customModels` entry for the copy-paste path that
+  runs neither installer).
+  `--reasoning-effort` is omitted: Factory's Droid Exec docs mark it
+  unsupported for `custom:` models, and testing confirmed droid silently
+  ignores it (an out-of-profile `xhigh` level was accepted without error),
+  so carrying it would be dead, misleading config (matches the MiniMax M3
+  wiring). Registry-managed native-CLI bump
+  per TRN-1006 §A: `providers/registry.json`,
+  `.agents/trinity.codex.json`, and `providers/glm.delta.md` updated;
+  `providers/glm.md` regenerated via `make build`. Docs (`README.md`,
+  `SKILL.md`), the TRN-1006 pin-value table, the provider-issue template
+  placeholder, and the `glm` CLI-signature assertions in
+  `tests/test_build_providers.sh`, `tests/test_codex_adapter.py`,
+  `tests/test_install_sh.sh`, and `tests/test_provider_registry.py`
+  updated to match.
 - `scripts/codex.py` (2295+ lines, ~86 functions) split into three focused
   per-subcommand modules — `scripts/_doctor.py` (health checks, preflight,
   `cmd_doctor`), `scripts/_review.py` (review orchestration, prompt building,

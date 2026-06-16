@@ -128,7 +128,7 @@ def test_codex_default_config_has_direct_review_providers():
     data = json.loads(CODEX_CONFIG.read_text())
 
     assert data["providers"]["glm"] == {
-        "cli": "droid exec --auto medium --model glm-5.1 --reasoning-effort high",
+        "cli": "droid exec --auto medium --model custom:GLM-5.2",
         "supports_resume": True,
         "resume_arg": "-s",
         "timeout": 360,
@@ -1596,7 +1596,7 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     installed_config = json.loads((home / ".codex" / "trinity.json").read_text())
     assert (
         installed_config["providers"]["glm"]["cli"]
-        == "droid exec --auto medium --model glm-5.1 --reasoning-effort high"
+        == "droid exec --auto medium --model custom:GLM-5.2"
     )
     assert installed_config["providers"]["deepseek"]["cli"] == (
         "~/.codex/skills/trinity/bin/deepseek -p"
@@ -1725,3 +1725,36 @@ def test_parse_structured_review_default_threshold():
     raw_fix = f"```json\n{payload_fix}\n```"
     result_fix = _codex_mod.parse_structured_review(raw_fix)
     assert result_fix["effective_decision"] == "FIX"
+
+
+def test_init_config_warns_on_undeclared_custom_model(tmp_path):
+    """codex init-config must surface the BYOK custom-model prerequisite —
+    custom:GLM-5.2 needs an explicit ~/.factory/settings.json customModels
+    entry, mirroring the install.py register path so Codex installs get the
+    same guidance instead of failing on first dispatch (PR #228 review)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    cfg = home / ".codex" / "trinity.json"
+    rc, out, err = run_codex(["init-config", "--global-config", str(cfg)], env=env)
+    assert rc == 0
+    assert cfg.exists()
+    assert "custom:GLM-5.2" in err
+    assert "glm" in err
+
+
+def test_init_config_no_warn_when_custom_model_declared(tmp_path):
+    """No warning once the explicit customModels id is declared in
+    ~/.factory/settings.json."""
+    home = tmp_path / "home"
+    (home / ".factory").mkdir(parents=True)
+    (home / ".factory" / "settings.json").write_text(
+        json.dumps({"customModels": [{"id": "custom:GLM-5.2"}]})
+    )
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    cfg = home / ".codex" / "trinity.json"
+    rc, out, err = run_codex(["init-config", "--global-config", str(cfg)], env=env)
+    assert rc == 0
+    assert "custom:GLM-5.2" not in err
