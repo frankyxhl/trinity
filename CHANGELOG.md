@@ -20,7 +20,9 @@
   `droid exec --auto medium --model custom:GLM-5.2 --reasoning-effort high`
   (requires a `~/.factory/settings.json` `customModels` entry with an
   **explicit** `"id": "custom:GLM-5.2"` pointing at the Z.AI endpoint —
-  without it `scripts/install.py` emits a warning and dispatch fails).
+  without it both the Claude-side `scripts/install.py` register path and
+  the Codex-side `scripts/codex.py init-config` path emit a warning and
+  dispatch fails).
   `--reasoning-effort high` is retained (verified: droid accepts the flag
   on `custom:` models — unlike the conservative MiniMax M3 wiring which
   dropped it). Registry-managed native-CLI bump
