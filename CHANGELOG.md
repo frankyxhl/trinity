@@ -5,6 +5,10 @@
 ## [3.3.0] - 2026-06-19
 
 ### Fixed
+- `msgpack` upgraded 1.1.2 → 1.2.1 in `uv.lock`/`requirements-dev.txt` to
+  clear GHSA-6v7p-g79w-8964 (flagged by the `pip-audit` CI gate); also
+  reconciles a drift where `requirements-dev.txt` had pinned the vulnerable
+  1.2.0 while `uv.lock` still resolved 1.1.2.
 - GitHub Action pin regression tests no longer hardcode the major version in
   the `# vN` comment match (`# v6`/`# v7`/`# v2`/`# v4` → `# v[0-9]+`) across
   `tests/test_dependency_audit_workflow.sh`,

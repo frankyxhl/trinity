@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh |
 This downloads all skill files to `~/.claude/` and registers the seven default providers (glm, minimax, codex, gemini, openrouter, deepseek, claude-code) in `~/.claude/trinity.json`. Expected output ends with:
 
 ```
-Trinity 3.2.0 installed to ~/.claude/
+Trinity 3.3.0 installed to ~/.claude/
 ```
 
 If the command fails, check stderr for `trinity-install: failed downloading <file>` — that tells you exactly which file 404'd.
@@ -102,7 +102,7 @@ curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh |
 This downloads all skill files directly to `~/.claude/` — no git clone required. To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=3.2.0 bash
+curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | TRINITY_VERSION=3.3.0 bash
 ```
 
 **Or, if you have the repo cloned:**
