@@ -2,7 +2,18 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-06-19
+
 ### Fixed
+- `msgpack` upgraded to 1.2.1 in `uv.lock`/`requirements-dev.txt` to clear
+  GHSA-6v7p-g79w-8964 (flagged by the `pip-audit` CI gate).
+- Reconciled a `uv.lock` ↔ `requirements-dev.txt` drift: prior Dependabot
+  bumps updated `requirements-dev.txt` directly without regenerating
+  `uv.lock`, so the lock still resolved stale versions (`msgpack` 1.1.2,
+  `cyclonedx-python-lib` 11.7.0, `filelock` 3.29.0, `idna` 3.17). Ran
+  `uv lock --upgrade-package` for all four and re-exported so both files now
+  agree at `msgpack` 1.2.1, `cyclonedx-python-lib` 11.11.0, `filelock`
+  3.29.4, `idna` 3.18.
 - GitHub Action pin regression tests no longer hardcode the major version in
   the `# vN` comment match (`# v6`/`# v7`/`# v2`/`# v4` → `# v[0-9]+`) across
   `tests/test_dependency_audit_workflow.sh`,
@@ -60,8 +71,9 @@
   2.3.9 → 3.0.0 (#199), `actions/checkout` 6.0.2 → 6.0.3 (#200),
   `github/codeql-action` 4.36.0 → 4.36.2 (#201). Dev dependencies —
   `ruff` 0.15.15 → 0.15.17 (#222), `idna` 3.17 → 3.18 (#203),
-  `msgpack` 1.1.2 → 1.2.0 (#221), `filelock` 3.29.0 → 3.29.4 (#223),
-  `cyclonedx-python-lib` 11.7.0 → 11.10.0 (#220). The `setup-uv` and
+  `msgpack` 1.1.2 → 1.2.1 (#221, see Fixed above), `filelock`
+  3.29.0 → 3.29.4 (#223),
+  `cyclonedx-python-lib` 11.7.0 → 11.11.0 (#220). The `setup-uv` and
   `gitleaks-action` major bumps were unblocked by the action-pin test fix
   above.
 
