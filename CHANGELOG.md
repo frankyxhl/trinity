@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-06-19
+
 ### Fixed
 - GitHub Action pin regression tests no longer hardcode the major version in
   the `# vN` comment match (`# v6`/`# v7`/`# v2`/`# v4` → `# v[0-9]+`) across
