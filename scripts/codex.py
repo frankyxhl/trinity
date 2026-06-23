@@ -54,7 +54,6 @@ except ImportError:
 
 parse_provider_command = _provider_runtime.parse_provider_command
 provider_timeout = _provider_runtime.provider_timeout
-command_has_path = _provider_runtime.command_has_path
 provider_command = _provider_runtime.provider_command
 build_prompt_handoff = _provider_runtime.build_prompt_handoff
 progress = _provider_runtime.progress
