@@ -52,7 +52,10 @@ from pathlib import Path
 # of truth for the trinity.json read flow (per CHG-3040 module-location
 # decision). Both `session.py:cmd_read` and the new resolver below funnel
 # through `_read_pointer`.
-from session import _read_pointer, POINTER_MISSING
+try:
+    from .session import _read_pointer, POINTER_MISSING
+except ImportError:
+    from session import _read_pointer, POINTER_MISSING
 
 # Conservative regex (per CHG-3040 Surface 1 / Threat Model):
 #   - allows letters, digits, underscore, hyphen, dot
