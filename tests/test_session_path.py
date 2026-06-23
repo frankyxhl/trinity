@@ -415,6 +415,44 @@ def test_codex_wrapper_normalizes_default_suffix(tmp_path, monkeypatch, capsys):
     assert out.out.strip() == str(transcript)
 
 
+def test_codex_wrapper_package_import_resolves_session_path(tmp_path, capsys):
+    """Package imports of scripts.codex must resolve the session-path sibling
+    without temporarily mutating sys.path in cmd_session_path."""
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    for module_name in (
+        "scripts.codex",
+        "scripts.session_path",
+        "scripts.session",
+    ):
+        sys.modules.pop(module_name, None)
+    import scripts.codex as codex_mod
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    sid = "wrapper-package-import"
+    _write_pointer(project, {"glm": {"session_id": sid}})
+
+    fake_home = Path(os.environ["HOME"])
+    transcript = (
+        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
+    )
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
+
+    project_str = str(project)
+
+    class _Args:
+        provider_spec = "glm"
+        project = project_str
+
+    rc = codex_mod.cmd_session_path(_Args())
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert out.out.strip() == str(transcript)
+
+
 # ---------------------------------------------------------------------------
 # Path-only contract: no JSONL is ever opened/read.
 # ---------------------------------------------------------------------------

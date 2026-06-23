@@ -511,18 +511,10 @@ def cmd_session_path(args):
     (e.g. `glm:experimental`) pass through verbatim and look up the
     suffixed key.
     """
-    # Local import: keep `scripts/session_path.py` off the import path of
-    # codex.py at module load (consistent with how this file imports the
-    # heavy dependencies lazily inside command handlers elsewhere).
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
+        from . import session_path
+    except ImportError:
         import session_path
-    finally:
-        # Best-effort cleanup; harmless if path was already present.
-        try:
-            sys.path.remove(str(Path(__file__).resolve().parent))
-        except ValueError:
-            pass
 
     spec = args.provider_spec or ""
     if ":" in spec:
