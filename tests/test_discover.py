@@ -211,6 +211,36 @@ def test_project_agent_takes_precedence_over_global(tmp_path, patch_home):
     assert entry["agent"] == project_agent_path
 
 
+def test_dangling_project_agent_symlink_falls_back_to_global(tmp_path, patch_home):
+    global_agents_dir = patch_home / ".claude" / "agents"
+    global_config = tmp_path / "global" / "trinity.json"
+    project_dir = tmp_path / "project"
+
+    write_config(
+        project_dir / ".claude" / "trinity.json",
+        {"providers": {"glm": {"cli": "droid exec --model glm-5"}}},
+    )
+    global_agent_path = write_global_agent(global_agents_dir, "glm")
+    project_agents_dir = project_dir / ".claude" / "agents"
+    project_agents_dir.mkdir(parents=True)
+    (project_agents_dir / "trinity-glm.md").symlink_to(project_dir / "missing.md")
+
+    rc, out, err = run(
+        [
+            "list",
+            "--global-config",
+            str(global_config),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+    assert rc == 0
+    result = json.loads(out)
+    assert len(result) == 1
+    assert result[0]["status"] == "usable"
+    assert result[0]["agent"] == global_agent_path
+
+
 def test_output_sorted_usable_then_missing_agent_then_missing_config(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"

@@ -48,23 +48,6 @@ def get_merged_config(global_config, project_dir):
         return {}
 
 
-def find_agent_file(name, project_dir):
-    """
-    Find agent file for given provider name.
-    Check project .claude/agents/trinity-<name>.md first,
-    then ~/.claude/agents/trinity-<name>.md.
-    Returns resolved path string if found, else None.
-    """
-    filename = f"trinity-{name}.md"
-    project_agent = os.path.join(project_dir, ".claude", "agents", filename)
-    if os.path.exists(project_agent):
-        return str(project_agent)
-    global_agent = os.path.expanduser(os.path.join("~", ".claude", "agents", filename))
-    if os.path.exists(global_agent):
-        return str(global_agent)
-    return None
-
-
 def scan_agent_dirs(project_dir):
     """
     Scan .claude/agents/ and ~/.claude/agents/ for trinity-*.md files.
@@ -77,18 +60,24 @@ def scan_agent_dirs(project_dir):
     if os.path.isdir(global_agents_dir):
         for fname in os.listdir(global_agents_dir):
             if fname.startswith("trinity-") and fname.endswith(".md"):
+                agent_path = os.path.join(global_agents_dir, fname)
+                if not os.path.exists(agent_path):
+                    continue
                 name = fname[len("trinity-") : -len(".md")]
                 if name and name not in found:
-                    found[name] = os.path.join(global_agents_dir, fname)
+                    found[name] = agent_path
 
     # Project agents (higher precedence — overwrite global)
     project_agents_dir = os.path.join(project_dir, ".claude", "agents")
     if os.path.isdir(project_agents_dir):
         for fname in os.listdir(project_agents_dir):
             if fname.startswith("trinity-") and fname.endswith(".md"):
+                agent_path = os.path.join(project_agents_dir, fname)
+                if not os.path.exists(agent_path):
+                    continue
                 name = fname[len("trinity-") : -len(".md")]
                 if name:
-                    found[name] = os.path.join(project_agents_dir, fname)
+                    found[name] = agent_path
 
     return found
 
@@ -105,7 +94,7 @@ def cmd_list(global_config, project_dir):
     # (a) For each config entry, check agent file
     for name, entry in providers.items():
         cli = entry.get("cli") if entry else None
-        agent_path = find_agent_file(name, project_dir)
+        agent_path = all_agent_files.get(name)
         if agent_path:
             rows[name] = {
                 "name": name,
