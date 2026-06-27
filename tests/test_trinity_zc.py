@@ -342,8 +342,13 @@ class TestDispatchInstructionGuards:
     def test_heartbeat_fails_fast_on_missing_output(self):
         """A missing output file past the launch grace must surface as a launch
         failure, not be counted as 0 bytes and hidden until max_at."""
-        assert "failed to launch" in SKILL_MD.read_text(), (
+        text = SKILL_MD.read_text()
+        assert "failed to launch" in text, (
             "heartbeat no longer fails fast on a missing output file"
+        )
+        assert "running (buffered" not in text, (
+            "stale buffered-wrapper heartbeat instruction contradicts the "
+            "streaming wrapper — a missing file must fail fast, not report running"
         )
 
     def test_doctor_smoke_sanitizes_env(self):

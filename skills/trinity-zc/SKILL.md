@@ -364,7 +364,7 @@ Print this SKILL.md's Syntax + architecture-summary sections.
 - Usable list empty → `No providers registered.` (point to `/trinity install <provider>` in Claude Code; trinity-zc does not install providers itself — it reuses trinity's config).
 - Missing agent file / config → report which, point to `trinity install`.
 - Empty task → `Task cannot be empty`.
-- `output_file` missing at heartbeat: elapsed < 30s → `🟡 starting`; ≥ 30s but still within the task-type timeout (and the dispatch block buffers output until exit) → `🔄 running (buffered, no output yet)` rather than `failed to start`; only treat as `❌ failed to start` if the process is confirmed gone with no output. The buffered dispatch wrapper writes the file only on provider exit (see §Streaming caveat).
+- `output_file` missing at heartbeat: step 5 streams via `>"$OUTPUT_FILE"`, which creates the file the instant the provider launches. So elapsed < ~5s startup grace → `🟡 starting`; **missing past the grace → `❌ failed to launch`** (bad output path, or the shell never reached the redirect) — surface it immediately, do NOT hold until the task timeout. A present-but-0-byte file within `max_at` is `🔄 running (no output yet)` (see §Heartbeat).
 - Background process cleanup on timeout/abort: signal the harness to cancel the backgrounded Bash (which cascades to the foreground provider). Fallback: `pgrep -f '<provider-cli-token>'` to find the PID, then `kill -TERM`, wait 5s, `kill -9`. No `$OUTPUT_FILE.pid` is written (P1 fix removed double-backgrounding); no `setsid`/`pkill -g` (absent/unreliable on macOS).
 
 ## Out of scope (v1)
