@@ -175,7 +175,7 @@ Because the provider runs in the foreground of the harness-backgrounded shell, t
 
 The sentinel `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` MUST match `provider_runtime.raw_output` so `parse_structured_review` can split stdout/stderr back apart. **Do not alter this string.**
 
-**Environment sanitization** (mirror `provider_runtime.build_provider_env`): keep only `PATH, HOME, USER, LOGNAME, LANG, TERM, SHELL, TZ, TMPDIR, XDG_*, SSH_AUTH_SOCK, HTTP(S)_PROXY, NO_PROXY, PWD, LC_*, GIT_*`. Strip `*_BASE_URL`, `*_API_BASE`, `*_API_HOST`, `OTEL_*`, `TRINITY_DISABLE_DISPATCH`, `TRINITY_MCP_TOKEN`.
+**Environment sanitization** — `provider_runtime.build_provider_env` is a **denylist**, not an allowlist: it keeps every inherited variable EXCEPT a small set it strips. Mirror that — keep the inherited environment (provider API keys / auth tokens like `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, droid/factory creds MUST survive) and strip only: `*_BASE_URL`, `*_API_BASE`, `*_API_HOST`, `OTEL_*`, `TRINITY_DISABLE_DISPATCH`, `TRINITY_MCP_TOKEN`. **Do NOT switch to an allowlist** — dropping everything not on a fixed list would strip provider credentials and break auth on every dispatch.
 
 **6. Record dispatch state** in `.claude/trinity-zc.json` (see §State Store). State = `running`.
 
@@ -208,7 +208,7 @@ Separate file from trinity's `.claude/trinity.json` to avoid schema collision (t
       "task_type": "review",
       "state": "running",
       "cli": "droid exec --auto medium --model custom:GLM-5.2",
-      "output_file": "/tmp/trinity-zc/a1b2c3d4/glm.out",
+      "output_file": "/tmp/trinity-zc.a1b2c3d4/glm.out",
       "start_time": "2026-06-27T20:30:00",
       "end_time": null,
       "returncode": null,
@@ -260,7 +260,7 @@ For multi-provider review dispatch, build the trinity-shaped results list and ca
 # Stage each provider's dispatch output into review_dir/raw/<provider>.txt — the
 # exact path write_synthesis reads. Dispatch (step 5) wrote $RUN_DIR/<instance>.out,
 # a DIFFERENT path, so copy it across FIRST. If raw/<provider>.txt is missing,
-# _review._safe_read_raw returns None and an rc=0 provider is rendered as PASS
+# review_schema._safe_read_raw returns None and an rc=0 provider is rendered as PASS
 # with no findings — silently dropping a real FIX/BLOCK verdict.
 mkdir -p "$REVIEW_DIR/raw"
 cp "$OUTPUT_FILE" "$REVIEW_DIR/raw/glm.txt"   # one cp per provider; the basename
@@ -319,7 +319,7 @@ If instance given, check only it; else check all `running` sessions. For each:
 - `clear glm:auth` → delete that key.
 - `clear glm` → delete `glm` and all `glm:*`.
 - `clear all` → write `{"sessions": {}}`.
-Kill any still-running process group before clearing. Confirm.
+Kill any still-running provider first (same path as §Timeout: signal the harness to cancel the backgrounded Bash, or `pgrep -f '<provider-cli-token>'` then `kill -TERM`/`kill -9`; no PID/PGID is recorded and `pkill -g` is unreliable on macOS). Confirm before deleting.
 
 ### `result <instance>`
 
@@ -352,7 +352,7 @@ smoke() {
 
 Note on the timeout status: when `perl ... exec @ARGV` is killed by SIGALRM, bash's command-substitution exit status is `128 + 14 = 142`, not `14`. Check both so the timeout branch is actually reached.
 
-Report a per-provider table. Only providers present in the merged config are tested — gemini/openrouter/claude-code were retired from `~/.claude/trinity.json` (2026-06-27) and are no longer discovered. Flag any provider that returns non-`trinity-ok` output with its stderr tail.
+Report a per-provider table. Only **usable** providers (a merged-config entry AND an agent file — see §Provider Discovery) are tested; a provider absent from the merged config or missing its agent file is simply not discovered, so it is not probed (this is config-dependent per machine, not a hard-coded retirement). Flag any probed provider that returns non-`trinity-ok` output with its stderr tail.
 
 ### `help`
 
