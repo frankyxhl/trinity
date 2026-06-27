@@ -43,8 +43,15 @@ can race on):
 ```bash
 RESULT_JSON=$(droid exec --auto medium --model custom:GLM-5.2 -o json "<prompt>" 2>&1)
 # JSON envelope: {"type":"result","result":"<text>","session_id":"<uuid>","usage":{...}}
-SESSION_ID=$(printf '%s' "$RESULT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('session_id','UNKNOWN'))")
-RESPONSE=$(printf '%s' "$RESULT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('result',''))")
+# session_id + response from the process's own stdout; on a droid failure
+# (non-JSON output) SESSION_ID=UNKNOWN and RESPONSE=raw output.
+PARSED=$(printf '%s' "$RESULT_JSON" | python3 -c "import json,sys
+raw=sys.stdin.read()
+try: d=json.loads(raw)
+except Exception: d={'session_id':'UNKNOWN','result':raw}
+sys.stdout.write(d.get('session_id','UNKNOWN')+'\n'+d.get('result',raw))")
+SESSION_ID=${PARSED%%$'\n'*}
+RESPONSE=${PARSED#*$'\n'}
 ```
 
 ### Resume session (existing session found)
