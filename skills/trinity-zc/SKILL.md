@@ -38,10 +38,13 @@ trinity-zc is an honest adaptation: it reaches the same provider backends direct
 # 1. python3 present
 command -v python3 >/dev/null 2>&1 || { echo "trinity-zc: python3 not found"; exit 1; }
 
-# 2. trinity scripts installed + version (reuse trinity's gate — same scripts)
+# 2. trinity scripts installed + version (reuse trinity's gate — same scripts).
+# REQUIRED_VERSION is rewritten by `make bump` (same as the root SKILL.md), so
+# it tracks the shipped scripts version and never goes stale on release.
 SCRIPTS_VERSION=$(python3 ~/.claude/skills/trinity/scripts/session.py --version 2>/dev/null)
-[ "$SCRIPTS_VERSION" = "3.3.0" ] || {
-  echo "trinity-zc: trinity scripts missing/outdated (found ${SCRIPTS_VERSION:-none}, need 3.3.0)"
+REQUIRED_VERSION="3.3.0"
+[ "$SCRIPTS_VERSION" = "$REQUIRED_VERSION" ] || {
+  echo "trinity-zc: trinity scripts missing/outdated (found ${SCRIPTS_VERSION:-none}, need ${REQUIRED_VERSION})"
   echo "Run: make install (trinity repo) or cp -r trinity/scripts/. ~/.claude/skills/trinity/scripts/"
   exit 1
 }

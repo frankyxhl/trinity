@@ -280,6 +280,20 @@ class TestDispatchInstructionGuards:
             "step 4 no longer states the task prompt is the final dispatch arg"
         )
 
+    def test_required_version_tracks_shipped_scripts(self):
+        """The startup REQUIRED_VERSION gate must equal the shipped version
+        (rewritten by `make bump`). A stale value would reject the matching
+        installed scripts as 'outdated' after the next release."""
+        m = re.search(
+            r'REQUIRED_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"', SKILL_MD.read_text()
+        )
+        assert m, "trinity-zc SKILL.md lost its REQUIRED_VERSION gate"
+        shipped = (ROOT / "VERSION").read_text().strip()
+        assert m.group(1) == shipped, (
+            f"trinity-zc REQUIRED_VERSION {m.group(1)} != VERSION {shipped}; "
+            "`make bump` must rewrite skills/trinity-zc/SKILL.md too"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tier 2: Instruction fidelity (the regression-catcher)

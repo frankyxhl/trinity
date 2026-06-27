@@ -111,7 +111,7 @@ bump:           ## Bump version (TRN-1003): make bump VERSION=x.y.z
 	$(MAKE) build
 	@echo "$(VERSION)" > VERSION
 	@perl -i -pe 's/__version__ = ".*"/__version__ = "$(VERSION)"/' scripts/__init__.py
-	@perl -i -pe 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="$(VERSION)"/' SKILL.md
+	@perl -i -pe 's/REQUIRED_VERSION=".*"/REQUIRED_VERSION="$(VERSION)"/' SKILL.md skills/trinity-zc/SKILL.md
 	@perl -i -pe 's/^  "version": "[0-9]+\.[0-9]+\.[0-9]+",/  "version": "$(VERSION)",/' plugins/trinity/.codex-plugin/plugin.json
 	@perl -i -pe 's#Trinity [0-9]+\.[0-9]+\.[0-9]+ installed to ~/\.claude/#Trinity $(VERSION) installed to ~/.claude/#' README.md
 	@perl -i -pe 's/TRINITY_VERSION=[0-9]+\.[0-9]+\.[0-9]+/TRINITY_VERSION=$(VERSION)/' README.md
