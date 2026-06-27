@@ -697,3 +697,145 @@ def shutil_which(cmd: str) -> str | None:
     from shutil import which
 
     return which(cmd)
+
+
+# ---------------------------------------------------------------------------
+# Executed-contract coverage: run the ACTUAL SKILL.md snippets (not a
+# reimplementation), plus consistency checks against trinity's source of truth.
+# Closes blind spots where a prose/code regression would pass a static grep.
+# ---------------------------------------------------------------------------
+
+
+def _extract_bash_after(anchor: str) -> str:
+    text = SKILL_MD.read_text()
+    idx = text.find(anchor)
+    assert idx != -1, f"anchor not found: {anchor}"
+    m = re.search(r"```bash\n(.*?)\n```", text[idx:], re.DOTALL)
+    assert m, f"no bash fence after: {anchor}"
+    return m.group(1)
+
+
+def _extract_python_after(anchor: str) -> str:
+    text = SKILL_MD.read_text()
+    idx = text.find(anchor)
+    assert idx != -1, f"anchor not found: {anchor}"
+    m = re.search(r"```python\n(.*?)\n```", text[idx:], re.DOTALL)
+    assert m, f"no python fence after: {anchor}"
+    return m.group(1)
+
+
+class TestExecutedContracts:
+    """Run the real SKILL.md snippets so a logic regression (not just a missing
+    phrase) is caught."""
+
+    def test_step3_sanitizes_instance_key_in_path(self, tmp_path):
+        """Execute step 3 with an instance key containing ':' and '/'. The
+        allocated OUTPUT_FILE basename must be sanitized to '-' and creatable —
+        the exact failure the prose warns about (glm:feature/auth)."""
+        block = _extract_bash_after("**3. Allocate output file.**")
+        cap = tmp_path / "captured"
+        script = (
+            f'export TMPDIR="{tmp_path}"\n'
+            'INSTANCE_KEY="glm:feature/auth"\n'
+            f"{block}\n"
+            f'printf "%s" "$OUTPUT_FILE" > "{cap}"\n'
+            'touch "$OUTPUT_FILE"\n'
+        )
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        assert r.returncode == 0, f"step 3 failed: {r.stderr}"
+        out_path = cap.read_text()
+        base = out_path.rsplit("/", 1)[-1]
+        assert base == "glm-feature-auth.out", f"instance key not sanitized: {base}"
+        assert Path(out_path).exists(), "OUTPUT_FILE not creatable (run dir missing)"
+
+    def test_state_store_snippet_round_trips(self, tmp_path):
+        """Execute the actual State Store atomic-write python snippet (not the
+        test's reimplementation) and read the result back."""
+        block = _extract_python_after("**Atomic writes**")
+        preamble = 'key = "glm:e2e"\nentry = {"provider": "glm", "state": "running"}\n'
+        r = subprocess.run(
+            [sys.executable, "-c", preamble + block],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0, f"state-store snippet failed: {r.stderr}"
+        data = json.loads((tmp_path / ".claude" / "trinity-zc.json").read_text())
+        assert data["sessions"]["glm:e2e"]["state"] == "running"
+
+    def test_discovery_merge_snippet_executes(self, tmp_path):
+        """Execute the actual Provider Discovery merge snippet and verify its
+        semantics: project providers win, global presets preserved, presets merge
+        by key, preset_aliases carried + merged."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        proj = tmp_path / "proj"
+        (proj / ".claude").mkdir(parents=True)
+        (home / ".claude" / "trinity.json").write_text(
+            json.dumps(
+                {
+                    "providers": {"glm": {"cli": "g"}, "codex": {"cli": "c"}},
+                    "presets": {"review": {"providers": ["glm"]}},
+                    "preset_aliases": {"r": "review"},
+                }
+            )
+        )
+        (proj / ".claude" / "trinity.json").write_text(
+            json.dumps(
+                {
+                    "providers": {"glm": {"cli": "PROJ"}},
+                    "presets": {"custom": {"providers": ["codex"]}},
+                    "preset_aliases": {"c": "custom"},
+                }
+            )
+        )
+        block = _extract_python_after("Read the merged config with inline Python")
+        epilogue = (
+            "\nimport json as _j\n"
+            'print(_j.dumps({"providers": providers, "presets": presets, '
+            '"preset_aliases": preset_aliases}))\n'
+        )
+        r = subprocess.run(
+            [sys.executable, "-c", block + epilogue],
+            cwd=proj,
+            env={**os.environ, "HOME": str(home)},
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0, f"discovery snippet failed: {r.stderr}"
+        res = json.loads(r.stdout.strip().splitlines()[-1])
+        assert res["providers"]["glm"]["cli"] == "PROJ", "project provider must win"
+        assert res["providers"]["codex"]["cli"] == "c", "global provider must survive"
+        assert "review" in res["presets"] and "custom" in res["presets"], (
+            "presets must merge by key, not replace"
+        )
+        assert res["preset_aliases"] == {"r": "review", "c": "custom"}, (
+            "preset_aliases must be carried and merged"
+        )
+
+    def test_timeout_table_matches_trinity(self):
+        """trinity-zc's timeout table must match trinity's source-of-truth table
+        (a silent drift would change kill timing)."""
+
+        def parse(text):
+            return {
+                m.group(1): (m.group(2).replace(" ", ""), m.group(3).replace(" ", ""))
+                for m in re.finditer(
+                    r"\|\s*(tdd|review|prp|general)\s*\|\s*(\d+ min)\s*\|\s*(\d+ min)\s*\|",
+                    text,
+                )
+            }
+        zc = parse(SKILL_MD.read_text())
+        root = parse((ROOT / "SKILL.md").read_text())
+        assert zc, "no timeout table parsed from trinity-zc SKILL.md"
+        assert zc == root, f"timeout table drifted from trinity: {zc} != {root}"
+
+    def test_task_type_mapping_matches_trinity(self):
+        """trinity-zc's task-type keyword mapping must match trinity's (incl. the
+        Chinese keywords), or `/trinity-zc review` could infer the wrong type."""
+        zc = SKILL_MD.read_text()
+        root = (ROOT / "SKILL.md").read_text()
+        for kw, typ in [("审查", "review"), ("测试", "tdd"), ("proposal", "prp")]:
+            pat = rf"{re.escape(kw)}[`\"]\s*→\s*[`\"]{typ}"
+            assert re.search(pat, zc), f"trinity-zc task-type missing {kw}→{typ}"
+            assert re.search(pat, root), f"root task-type missing {kw}→{typ}"
