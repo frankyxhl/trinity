@@ -11,6 +11,7 @@ the real home directory is never touched.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -71,3 +72,44 @@ def test_skips_trinity_zc_when_no_agents_dir(tmp_path):
     )
     # Unconditional install still happened.
     assert (home / ".claude" / "skills" / "trinity" / "SKILL.md").exists()
+
+
+def test_manifest_ships_full_review_synthesis_closure(tmp_path):
+    """A manifest-only install (the install.sh path) must be able to run
+    `_review.write_synthesis` — it lazy-imports `codex`, which pulls `_doctor`
+    etc. A module missing from the manifest raises ModuleNotFoundError *after*
+    providers finish, so `/trinity-zc review` would lose the whole verdict.
+    Copy only the manifest's scripts/*.py into an isolated tree and run it.
+    """
+    manifest = json.loads(MANIFEST.read_text())
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    for e in manifest["files"]:
+        if e["src"].startswith("scripts/") and e["src"].endswith(".py"):
+            shutil.copy(ROOT / e["src"], scripts_dir / Path(e["src"]).name)
+
+    review_dir = tmp_path / "rev"
+    (review_dir / "raw").mkdir(parents=True)
+    sentinel = "%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%"
+    (review_dir / "raw" / "glm.txt").write_text(
+        "ok\n```json\n"
+        '{"decision":"FIX","weighted_score":7.0,'
+        '"blocking":[{"title":"x","evidence":"y","fix":"z"}],"advisories":[]}\n'
+        f"```\n\n{sentinel}\n"
+    )
+    code = (
+        f"import sys; sys.path.insert(0, {str(scripts_dir)!r})\n"
+        "from pathlib import Path\n"
+        "import _review\n"
+        "r=[{'provider':'glm','returncode':0,'raw':'raw/glm.txt',"
+        "'started_at':'t','finished_at':'t'}]\n"
+        f"s,p=_review.write_synthesis(Path({str(review_dir)!r}), 'scope', r)\n"
+        "assert p.exists()\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+    assert result.returncode == 0, (
+        "write_synthesis failed using only manifest-shipped scripts "
+        f"(missing module?):\n{result.stderr}"
+    )
