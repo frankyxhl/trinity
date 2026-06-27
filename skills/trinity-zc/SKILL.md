@@ -132,23 +132,29 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 - codex: `<cli>` (codex resume is experimental/session-scoped; omit unless explicitly requested)
 - others: no resume arg
 
-**5. Spawn via Bash background.** Use `Bash(run_in_background=true)`. The harness's background mode already provides process isolation — do NOT wrap in `setsid` (it does not exist on macOS/BSD; wrapping it there causes a silent failure where the provider never runs but the outer shell still exits 0, masking the dispatch as "success"). Pass `OUTPUT_FILE` via environment (avoids quote-nesting errors), sanitize the env, capture both streams with a sentinel separator, and record the return code + PID:
+**5. Spawn via Bash background.** Use `Bash(run_in_background=true)`. The harness's background mode already provides process isolation — do NOT add a trailing `&` inside the block: that double-backgrounds the provider (the harness-tracked shell exits immediately after launch while the provider runs on as an untracked orphan, so the completion notification fires on launch rather than on provider completion). Likewise do NOT wrap in `setsid` (it does not exist on macOS/BSD). Pass `OUTPUT_FILE` via environment, **sanitize the environment before invoking the provider**, capture both streams with a sentinel separator, and record the return code:
 
 ```bash
 OUTPUT_FILE="<run_dir>/<instance>.out"
 export OUTPUT_FILE
+# Sanitize the environment (mirror provider_runtime.build_provider_env):
+# strip *_BASE_URL, *_API_BASE, *_API_HOST, OTEL_*, TRINITY_DISABLE_DISPATCH, TRINITY_MCP_TOKEN.
+# Use env+sed discovery (portable across bash 3.2+/zsh) rather than ${!pat@} indirect
+# expansion, which is bash 4+ only and fails on macOS default /bin/bash.
+for v in $(env | sed -n 's/^\([A-Z_]*BASE_URL\)=.*/\1/p; s/^\([A-Z_]*API_BASE\)=.*/\1/p; s/^\([A-Z_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
+unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
+# Run the provider in the FOREGROUND of this already-backgrounded shell:
 bash -c '
   STDOUT=$("$@" 2>"$OUTPUT_FILE.err"); RC=$?
   STDERR=$(cat "$OUTPUT_FILE.err" 2>/dev/null); rm -f "$OUTPUT_FILE.err"
   printf "%s\n%%%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%%%\n%s\n" "$STDOUT" "$STDERR" > "$OUTPUT_FILE"
   echo "$RC" > "$OUTPUT_FILE.rc"
-' _ <cli-and-args...> &
-echo "$!" > "$OUTPUT_FILE.pid"
+' _ <cli-and-args...>
 ```
 
 Note on the sentinel escaping: the literal sentinel is `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` (it contains double-percent signs). Inside a `printf` format string, every literal `%` must be written as `%%`, so the sentinel appears as `%%%%...%%%%` in the format — four percents at each end produce the two literal percents the sentinel requires. Getting this wrong produces a file the synthesis parser cannot split.
 
-Record `$!` (the wrapper PID) to `$OUTPUT_FILE.pid` for timeout cleanup (§Timeout). The provider CLI runs as a child of the wrapper; killing the wrapper PID cascades to the child on most shells. If you need to be sure, walk `$!`'s children via `pgrep -P <pid>`.
+Because the provider runs in the foreground of the harness-backgrounded shell, the harness tracks the provider's lifetime directly — there is no separate wrapper PID to record, and no `$!` to capture. Process cleanup on timeout is handled by the harness killing the backgrounded Bash (which cascades to its foreground child).
 
 The sentinel `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` MUST match `provider_runtime.raw_output` so `parse_structured_review` can split stdout/stderr back apart. **Do not alter this string.**
 
@@ -302,10 +308,12 @@ smoke() {
   out=$(perl -e 'alarm shift; exec @ARGV' 30 "$@" 2>&1); rc=$?
   printf "%-12s exit=%-3d " "$name" "$rc"
   if echo "$out" | grep -qi "trinity-ok"; then echo "✅ PASS"
-  elif [ $rc -eq 14 ]; then echo "⏰ TIMEOUT (30s)"
+  elif [ $rc -eq 142 ] || [ $rc -eq 14 ]; then echo "⏰ TIMEOUT (30s)"   # 142 = 128+SIGALRM(14) under bash cmd-subst; 14 = bare perl SIGALRM
   else echo "❌ FAIL"; echo "$out" | tail -4 | sed 's/^/      | /'; fi
 }
 ```
+
+Note on the timeout status: when `perl ... exec @ARGV` is killed by SIGALRM, bash's command-substitution exit status is `128 + 14 = 142`, not `14`. Check both so the timeout branch is actually reached.
 
 Report a per-provider table. Only providers present in the merged config are tested — gemini/openrouter/claude-code were retired from `~/.claude/trinity.json` (2026-06-27) and are no longer discovered. Flag any provider that returns non-`trinity-ok` output with its stderr tail.
 

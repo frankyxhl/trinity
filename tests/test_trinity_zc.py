@@ -279,9 +279,9 @@ class TestInstructionFidelity:
         exec_block = exec_block.replace("<instance>", instance)
         exec_block = exec_block.replace("<cli-and-args...>", stub_provider)
 
-        # Run it. The block ends with `&` (backgrounds); we wait for it.
-        # Wrap so the backgrounded job completes before we read the file.
-        full = f"set -e\n{exec_block}\nwait\n"
+        # Run it. The block runs the provider in the foreground (no `&` since
+        # the P1 fix); the harness backgrounds at a higher level. No wait needed.
+        full = f"set -e\n{exec_block}\n"
         result = subprocess.run(
             ["bash", "-c", full],
             capture_output=True,
@@ -309,26 +309,130 @@ class TestInstructionFidelity:
         assert parsed["decision"] == "PASS"
         assert parsed["weighted_score"] == 9.6
 
-    def test_step5_block_writes_rc_and_pid_files(self, tmp_path):
-        """The step-5 block must record returncode (.rc) and wrapper pid (.pid)."""
+    def test_step5_block_writes_rc_file(self, tmp_path):
+        """The step-5 block must record the returncode (.rc).
+
+        No .pid is expected: the provider runs in the foreground of the
+        harness-backgrounded shell, so the harness tracks it directly
+        (no double-backgrounding — the P1 fix removed the trailing &).
+        """
         block = _extract_step5_block()
         output_file = tmp_path / "glm.out"
         stub = "printf 'ok\\n'"
         exec_block = block.replace("<run_dir>", str(tmp_path))
         exec_block = exec_block.replace("<instance>", "glm")
         exec_block = exec_block.replace("<cli-and-args...>", stub)
-        full = f"set -e\n{exec_block}\nwait\n"
-        subprocess.run(
+        full = f"set -e\n{exec_block}\n"
+        result = subprocess.run(
             ["bash", "-c", full],
             capture_output=True,
             text=True,
             cwd=tmp_path,
             env={**os.environ, "OUTPUT_FILE": str(output_file)},
+        )
+        assert result.returncode == 0, f"block failed: {result.stderr}"
+        assert (tmp_path / "glm.out.rc").exists(), "no .rc file written"
+        assert (tmp_path / "glm.out.rc").read_text().strip() == "0"
+        # No .pid file should exist (double-backgrounding removed).
+        assert not (tmp_path / "glm.out.pid").exists(), (
+            "unexpected .pid file (P1 fix regressed)"
+        )
+
+    def test_step5_block_sanitizes_dangerous_env(self, tmp_path):
+        """The step-5 block must strip *_BASE_URL before invoking the provider.
+
+        This is the P2 env-sanitization fix: a dangerous endpoint var set in
+        the caller env must NOT reach the provider. The stub provider echoes
+        the var; it must come back empty.
+        """
+        block = _extract_step5_block()
+        output_file = tmp_path / "glm.out"
+        stub = 'printf "base=%s" "${OPENAI_BASE_URL:-UNSET}"'
+        exec_block = block.replace("<run_dir>", str(tmp_path))
+        exec_block = exec_block.replace("<instance>", "glm")
+        exec_block = exec_block.replace("<cli-and-args...>", stub)
+        full = f"set -e\n{exec_block}\n"
+        subprocess.run(
+            ["bash", "-c", full],
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            env={
+                **os.environ,
+                "OUTPUT_FILE": str(output_file),
+                "OPENAI_BASE_URL": "https://evil.example/v1",
+            },
             check=True,
         )
-        assert (tmp_path / "glm.out.rc").exists(), "no .rc file written"
-        assert (tmp_path / "glm.out.pid").exists(), "no .pid file written"
-        assert (tmp_path / "glm.out.rc").read_text().strip() == "0"
+        raw = output_file.read_text()
+        stdout_part = raw.split("%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%")[0]
+        assert "evil.example" not in stdout_part, (
+            "OPENAI_BASE_URL leaked to provider — env sanitization regressed"
+        )
+
+
+def _extract_doctor_smoke() -> str:
+    """Extract the smoke() function from SKILL.md's doctor section."""
+    text = SKILL_MD.read_text()
+    m = re.search(r"smoke\(\) \{.*?\n\}", text, re.DOTALL)
+    assert m, "no smoke() function in SKILL.md doctor section"
+    return m.group(0)
+
+
+class TestDoctorTimeoutDetection:
+    """AC: the doctor smoke() must classify a SIGALRM-timeout correctly.
+
+    The perl-alarm wrapper dies on SIGALRM; under bash command-substitution the
+    exit status is 128+14=142, not 14. The smoke() timeout branch must match 142
+    (this is the Codex-review P2 finding — the original `[ $rc -eq 14 ]` never
+    fired, hiding every timeout as a FAIL).
+    """
+
+    def test_timeout_exit_status_is_142(self):
+        """Confirm the perl-alarm wrapper actually yields 142, not 14."""
+        rc = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "out=$(perl -e 'alarm shift; exec @ARGV' 1 sleep 3); echo $?",
+            ],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert rc == "142", f"perl-alarm timeout rc is {rc}, expected 142"
+
+    def test_smoke_function_classifies_timeout_as_timeout_not_fail(self, tmp_path):
+        """The smoke() timeout branch must reference rc 142 (not just 14).
+
+        Fast: checks the extracted smoke() contains the 142 check, rather than
+        waiting 30s for a real timeout (the end-to-end variant is `slow`).
+        """
+        smoke_fn = _extract_doctor_smoke()
+        assert "142" in smoke_fn, (
+            "smoke() timeout branch does not check rc 142 (SIGALRM under bash); "
+            "this is the Codex-review P2 regression — timeouts fall through to FAIL"
+        )
+
+    @pytest.mark.slow
+    def test_smoke_timeout_end_to_end(self, tmp_path):
+        """Slow: run smoke() against a 35s-sleep provider to verify the TIMEOUT
+        line is printed (not FAIL) end-to-end. ~30s wall-clock."""
+        smoke_fn = _extract_doctor_smoke()
+        script = textwrap.dedent(f"""\
+            {smoke_fn}
+            smoke hung_provider sleep 35
+        """)
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            timeout=60,
+        )
+        assert "TIMEOUT" in result.stdout, (
+            f"smoke misclassified timeout:\n{result.stdout}"
+        )
+        assert "FAIL" not in result.stdout
 
 
 class TestSynthesisReuse:
