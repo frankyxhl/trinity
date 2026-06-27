@@ -273,31 +273,6 @@ def _resolve_gemini(session_id: str, project_dir: str) -> Path:
 # Single source of truth for "which providers support session-path" in v1.
 # `providers/registry.json` is intentionally unchanged in v1 (per CHG-3040
 # Migration §); v2 may unify under a `transcript_path_template` field.
-def _make_claude_family_resolver(provider: str):
-    """Bind `provider` into the claude-family resolver to match the
-    ``(session_id, project_dir) -> Path`` dispatch signature."""
-
-    def _resolve(session_id: str, project_dir: str) -> Path:
-        return _resolve_claude_family(session_id, project_dir, provider)
-
-    _resolve.__name__ = f"_resolve_{provider.replace('-', '_')}"
-    return _resolve
-
-
-_DISPATCH = {
-    # Droid-family providers (~/.factory/sessions/<encoded-path>/<sid>.jsonl).
-    # `glm` and `minimax` both use the droid CLI session store; layout is
-    # identical so they share `_resolve_glm`. Source: `providers/glm.md` +
-    # `providers/minimax.md` (same `droid exec` flow + same SESSION_DIR
-    # convention) + `providers/registry.json` lists both with `cli: droid ...`.
-    "glm": _resolve_glm,
-    "minimax": _resolve_glm,
-    "codex": _resolve_codex,
-    "claude-code": _make_claude_family_resolver("claude-code"),
-    "deepseek": _make_claude_family_resolver("deepseek"),
-    "openrouter": _make_claude_family_resolver("openrouter"),
-    "gemini": _resolve_gemini,
-}
 
 
 def cmd_session_path(project_dir: str, lookup_key: str) -> int:
@@ -332,16 +307,27 @@ def cmd_session_path(project_dir: str, lookup_key: str) -> int:
 
     # Provider name is the lookup_key prefix before any colon.
     provider = lookup_key.split(":", 1)[0]
-    resolver = _DISPATCH.get(provider)
-    if resolver is None:
-        print(
-            f"provider '{provider}' not supported by session-path resolver",
-            file=sys.stderr,
-        )
-        return 3
 
     try:
-        resolved = resolver(session_id, project_dir)
+        # Droid-family providers (~/.factory/sessions/<encoded-path>/<sid>.jsonl).
+        # `glm` and `minimax` both use the droid CLI session store; layout is
+        # identical so they share `_resolve_glm`. Source: `providers/glm.md` +
+        # `providers/minimax.md` (same `droid exec` flow + same SESSION_DIR
+        # convention) + `providers/registry.json` lists both with `cli: droid ...`.
+        if provider in {"glm", "minimax"}:
+            resolved = _resolve_glm(session_id, project_dir)
+        elif provider == "codex":
+            resolved = _resolve_codex(session_id, project_dir)
+        elif provider in _CLAUDE_FAMILY_ROOTS:
+            resolved = _resolve_claude_family(session_id, project_dir, provider)
+        elif provider == "gemini":
+            resolved = _resolve_gemini(session_id, project_dir)
+        else:
+            print(
+                f"provider '{provider}' not supported by session-path resolver",
+                file=sys.stderr,
+            )
+            return 3
     except SystemExit as exc:
         # Resolvers (gemini stub, codex multi-match) may sys.exit directly;
         # propagate the integer code unchanged.
