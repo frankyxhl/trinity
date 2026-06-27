@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+- `session-path` resolver for claude-family providers (`deepseek`,
+  `openrouter`, `claude-code`) now keeps the leading dash in the project
+  slug, matching the claude CLI's actual on-disk layout
+  (`~/.claude-*/projects/-Users-frank-...`). Previously the resolver stripped
+  the leading dash and returned exit 3 ("transcript file not found") for
+  every claude-family provider; it only appeared to work because the worker
+  agent improvised a fallback to the dashed directory. `_encode_project_slug`
+  drops `.lstrip("-")`; the `PROJECT_SLUG` sed in
+  `providers/{claude-code,deepseek,openrouter}.delta.md` drops `s|^-||`
+  (regenerated via `make build`); the test helper `_claude_slug` no longer
+  mirrors the bug; a new literal-anchor test pins the real macOS + Linux
+  slugs independent of the helper. Closes #262.
+
 ## [3.3.0] - 2026-06-19
 
 ### Fixed

@@ -78,9 +78,11 @@ def _encoded(project_dir: Path) -> str:
 
 def _claude_slug(project_dir: Path) -> str:
     """Claude-family `PROJECT_SLUG` encoding (`~/.claude-trinity-claude-code/`,
-    `~/.claude-deepseek/`, `~/.claude-openrouter/`): strip leading dash.
-    Per ``providers/claude-code.md:69-71`` etc. — `s|/|-|g; s|^-||`."""
-    return str(project_dir.resolve()).replace("/", "-").lstrip("-")
+    `~/.claude-deepseek/`, `~/.claude-openrouter/`): keep leading dash — matches
+    the claude CLI's actual on-disk layout. Per CHG-3045; the hardcoded anchor
+    in `test_claude_slug_matches_real_claude_cli_layout` pins this against a
+    coordinated helper/resolver re-break."""
+    return str(project_dir.resolve()).replace("/", "-")
 
 
 _CLAUDE_FAMILY_ROOTS = {
@@ -194,11 +196,11 @@ def test_codex_index_malformed_line_falls_through_to_glob(tmp_path, capsys):
 @pytest.mark.parametrize("provider", ["claude-code", "deepseek", "openrouter"])
 def test_claude_family_happy_path(provider, tmp_path, capsys):
     """Each claude-CLI wrapper has its own CLAUDE_CONFIG_DIR root + uses the
-    leading-dash-stripped PROJECT_SLUG. Per providers/<name>.md:
+    leading-dash-kept PROJECT_SLUG. Per providers/<name>.md:
     SESSION_DIR=$HOME/.claude-trinity-claude-code/projects/${PROJECT_SLUG}
     SESSION_DIR=$HOME/.claude-deepseek/projects/${PROJECT_SLUG}
     SESSION_DIR=$HOME/.claude-openrouter/projects/${PROJECT_SLUG}
-    PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g; s|^-||').
+    PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g').
     """
     sp = _import_session_path()
     project = tmp_path / "proj"
@@ -221,6 +223,29 @@ def test_claude_family_happy_path(provider, tmp_path, capsys):
     out = capsys.readouterr()
     assert rc == 0, out.err
     assert out.out.strip() == str(transcript)
+
+
+def test_claude_slug_matches_real_claude_cli_layout():
+    """Literal anchor (CHG-3045): the claude-family slug MUST keep the leading
+    dash to match the claude CLI's real on-disk projects dir. Hardcoded expected
+    values NOT routed through `_claude_slug`, so a coordinated re-break of
+    helper + resolver cannot ship green (closes the f(resolver)==f(helper)
+    tautology the §4 glm reviewer flagged).
+
+    Provenance: macOS form observed 2026-06-27 at
+    ~/.claude-deepseek/projects/-Users-frank-Projects-trinity/ (real transcript,
+    11868 bytes); Linux form matches the actions/checkout layout used by the
+    CI (ubuntu-latest) matrix.
+    """
+    sp = _import_session_path()
+    assert (
+        sp._encode_project_slug("/Users/frank/Projects/trinity")
+        == "-Users-frank-Projects-trinity"
+    )
+    assert (
+        sp._encode_project_slug("/home/runner/work/trinity/trinity")
+        == "-home-runner-work-trinity-trinity"
+    )
 
 
 def test_gemini_stub_returns_exit_3(tmp_path, capsys):
