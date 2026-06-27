@@ -772,3 +772,58 @@ def test_codex_honors_codex_home_env_var(tmp_path, monkeypatch, capsys):
         f"got {rc}; stderr={out.err!r}"
     )
     assert out.out.strip() == str(transcript)
+
+
+def test_codex_home_glob_metacharacters_resolve_via_index(
+    tmp_path, monkeypatch, capsys
+):
+    """CODEX_HOME is a literal root, even when it contains glob metacharacters."""
+    sp = _import_session_path()
+    project = tmp_path / "proj"
+    project.mkdir()
+    sid = "019dc7bc-codex-meta-index"
+    _write_pointer(project, {"codex": {"session_id": sid}})
+
+    custom_codex = tmp_path / "codex[meta]"
+    custom_codex.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(custom_codex))
+
+    day_dir = custom_codex / "sessions" / "2026" / "05" / "11"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    transcript = day_dir / f"rollout-2026-05-11T08-00-00-{sid}.jsonl"
+    transcript.write_text("")
+
+    index_path = custom_codex / "session_index.jsonl"
+    index_path.write_text(
+        json.dumps({"id": sid, "updated_at": "2026-05-11T08:00:00.000000Z"}) + "\n"
+    )
+
+    rc = sp.cmd_session_path(str(project), "codex")
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert out.out.strip() == str(transcript)
+
+
+def test_codex_home_glob_metacharacters_resolve_via_broad_fallback(
+    tmp_path, monkeypatch, capsys
+):
+    """The broad Codex fallback also treats CODEX_HOME as a literal root."""
+    sp = _import_session_path()
+    project = tmp_path / "proj"
+    project.mkdir()
+    sid = "019dc7bc-codex-meta-fallback"
+    _write_pointer(project, {"codex": {"session_id": sid}})
+
+    custom_codex = tmp_path / "codex[meta]"
+    custom_codex.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(custom_codex))
+
+    day_dir = custom_codex / "sessions" / "2026" / "05" / "12"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    transcript = day_dir / f"rollout-2026-05-12T08-00-00-{sid}.jsonl"
+    transcript.write_text("")
+
+    rc = sp.cmd_session_path(str(project), "codex")
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert out.out.strip() == str(transcript)

@@ -41,7 +41,6 @@ Exit codes:
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
@@ -150,6 +149,31 @@ def _codex_root() -> Path:
     return Path(os.path.expanduser("~")) / ".codex"
 
 
+def _find_codex_transcript(
+    session_id: str,
+    search_root: Path,
+    relative_pattern: str,
+) -> Path | None:
+    """Return the unique codex transcript matching a relative glob, if any.
+
+    Codex on-disk filenames are `rollout-<ISO-ts>-<session_id>.jsonl`.
+    The caller's pattern must include `*-<session_id>.jsonl` so the file glob
+    requires a dash immediately before the session_id. Post-filter via
+    `.endswith` preserves the exact dash-boundary anchor even if the glob sees
+    an unexpected variant. Keep the root as a literal Path so CODEX_HOME/HOME
+    values containing glob metacharacters are not reinterpreted as patterns.
+    """
+    anchor = f"-{session_id}.jsonl"
+    matches = sorted(
+        p for p in search_root.glob(relative_pattern) if p.name.endswith(anchor)
+    )
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        _die_multi_match(session_id)
+    return None
+
+
 def _codex_index_lookup(session_id: str) -> Path | None:
     """Try ~/.codex/session_index.jsonl first.
 
@@ -157,7 +181,7 @@ def _codex_index_lookup(session_id: str) -> Path | None:
     "updated_at": "2026-04-26T03:01:39.838528Z"}``. We extract the date
     components from ``updated_at`` to construct
     ``~/.codex/sessions/<YYYY>/<MM>/<DD>/`` and then glob for
-    ``*<session-id>.jsonl`` within that day directory (codex prepends a
+    ``*-<session-id>.jsonl`` within that day directory (codex prepends a
     ``rollout-<timestamp>-`` prefix to the actual filename).
 
     Robustness: malformed lines are skipped per CHG-3040 AC bullet
@@ -191,23 +215,13 @@ def _codex_index_lookup(session_id: str) -> Path | None:
                     continue
                 yyyy, mm, dd = m.group(1), m.group(2), m.group(3)
                 day_dir = codex_root / "sessions" / yyyy / mm / dd
-                # Codex on-disk filename is `rollout-<ISO-ts>-<session_id>.jsonl`.
-                # Glob `*-<session_id>.jsonl` requires a dash immediately before
-                # the session_id (anchors to the boundary in the codex format)
-                # — `*<id>` would suffix-match `rollout-...-xabc.jsonl` for a
-                # short `id == "abc"`. Post-filter via `.endswith` enforces
-                # exact-anchor at the dash boundary even if the glob sees an
-                # unexpected variant (defense-in-depth per codex-bot R3 P2).
-                anchor = f"-{session_id}.jsonl"
-                matches = sorted(
-                    p
-                    for p in day_dir.glob(f"*-{session_id}.jsonl")
-                    if p.name.endswith(anchor)
+                match = _find_codex_transcript(
+                    session_id,
+                    day_dir,
+                    f"*-{session_id}.jsonl",
                 )
-                if len(matches) == 1:
-                    return matches[0]
-                if len(matches) > 1:
-                    _die_multi_match(session_id)
+                if match is not None:
+                    return match
                 # 0 matches in the dated dir — fall through; caller may try
                 # the broader glob (covers the "index entry stale" case).
                 return None
@@ -230,17 +244,13 @@ def _resolve_codex(session_id: str, project_dir: str) -> Path:
     if indexed is not None:
         return indexed
     codex_root = _codex_root()
-    # Same anchor logic as the index-driven path: glob requires a dash
-    # immediately before the session_id; post-filter via `.endswith` enforces
-    # exact-anchor (per codex-bot R3 P2 — `*<id>` would suffix-match `xabc`
-    # for a short `id == "abc"`).
-    anchor = f"-{session_id}.jsonl"
-    pattern = str(codex_root / "sessions" / "*" / "*" / "*" / f"*-{session_id}.jsonl")
-    matches = sorted(p for p in glob.glob(pattern) if p.endswith(anchor))
-    if len(matches) == 1:
-        return Path(matches[0])
-    if len(matches) > 1:
-        _die_multi_match(session_id)
+    match = _find_codex_transcript(
+        session_id,
+        codex_root / "sessions",
+        f"*/*/*/*-{session_id}.jsonl",
+    )
+    if match is not None:
+        return match
     # No matches — return a synthetic path so the caller's existence check
     # produces the canonical "transcript file not found" message rather than
     # leaking the search glob (per Threat Model: stderr message hygiene).
