@@ -368,6 +368,15 @@ class TestDispatchInstructionGuards:
             "for instances whose key contains '/'"
         )
 
+    def test_dispatch_redirects_stdin(self):
+        """The provider invocation must redirect stdin from /dev/null — verified
+        live that claude-wrapper providers (deepseek/openrouter/claude-code)
+        otherwise block ~3s waiting on stdin and emit a warning."""
+        block = _extract_step5_block()
+        assert "</dev/null" in block, (
+            "step 5 provider invocation does not redirect stdin from /dev/null"
+        )
+
     def test_presets_merge_by_key(self):
         """Discovery prose must say presets merge by key (not wholesale replace),
         matching scripts/config.py::merge_configs."""

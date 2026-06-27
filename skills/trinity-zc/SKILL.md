@@ -160,7 +160,7 @@ unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
 # capture stderr aside, then append the sentinel + stderr after exit so the
 # completion handler still reads `stdout + SENTINEL + stderr` for parsing.
 bash -c '
-  "$@" >"$OUTPUT_FILE" 2>"$OUTPUT_FILE.err"; RC=$?
+  "$@" >"$OUTPUT_FILE" 2>"$OUTPUT_FILE.err" </dev/null; RC=$?   # </dev/null: claude-wrapper providers (deepseek/openrouter/claude-code) otherwise wait 3s for stdin and warn
   printf "\n%%%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%%%\n" >> "$OUTPUT_FILE"
   cat "$OUTPUT_FILE.err" >> "$OUTPUT_FILE" 2>/dev/null; rm -f "$OUTPUT_FILE.err"
   echo "$RC" > "$OUTPUT_FILE.rc"
