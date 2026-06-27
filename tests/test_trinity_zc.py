@@ -223,8 +223,16 @@ class TestConfigOverlay:
                     dangling.append((pname, ref))
         assert ("bogus", "ghost") in dangling
 
+    @pytest.mark.integration
     def test_live_global_config_has_no_dangling_refs(self):
-        """The real ~/.claude/trinity.json must not reference retired providers."""
+        """The real ~/.claude/trinity.json must not reference retired providers.
+
+        Opt-in only (`integration` marker, deselected by default): it reads the
+        runner's live home config, so on a machine with unrelated stale preset
+        refs it would fail `make test` even though the repo is unchanged. The
+        dangling-detection *logic* is covered deterministically by
+        test_dangling_preset_reference_detected.
+        """
         global_path = Path.home() / ".claude" / "trinity.json"
         if not global_path.exists():
             pytest.skip("no global trinity.json")
@@ -237,6 +245,40 @@ class TestConfigOverlay:
                 if ref not in provider_names:
                     dangling.append((pname, ref))
         assert dangling == [], f"global config has dangling preset refs: {dangling}"
+
+
+class TestDispatchInstructionGuards:
+    """Static guards for SKILL.md dispatch instructions (Codex-review P2 fixes).
+
+    These pin prose-level contracts that have no executable surface but, if they
+    regress, silently break real dispatches.
+    """
+
+    def test_run_dir_is_portable(self):
+        """Run-dir must use mktemp (uuidgen is absent on minimal Linux/ZCode
+        images, where `uuidgen | cut` expands to an empty suffix and parallel
+        dispatches collide on one shared dir)."""
+        text = SKILL_MD.read_text()
+        assert "RUN_DIR=$(mktemp -d" in text, "run-dir allocation must use mktemp -d"
+        assert 'RUN_DIR="/tmp/trinity-zc/$(uuidgen' not in text, (
+            "run-dir reverted to the non-portable uuidgen code path"
+        )
+
+    def test_discovery_carries_preset_aliases(self):
+        """The merged-config discovery snippet must carry preset_aliases so
+        project-defined aliases resolve (not just hard-coded built-ins)."""
+        text = SKILL_MD.read_text()
+        assert 'preset_aliases = {**g.get("preset_aliases"' in text, (
+            "discovery snippet drops preset_aliases — custom aliases will not resolve"
+        )
+
+    def test_step4_appends_task_prompt(self):
+        """Step 4 must instruct that the task prompt is the final argument;
+        omitting it launches the provider with no task."""
+        text = SKILL_MD.read_text()
+        assert "task prompt is the final argument" in text, (
+            "step 4 no longer states the task prompt is the final dispatch arg"
+        )
 
 
 # ---------------------------------------------------------------------------

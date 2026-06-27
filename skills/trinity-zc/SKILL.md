@@ -88,6 +88,10 @@ g = load(os.path.expanduser("~/.claude/trinity.json"))
 proj = load(os.path.join(os.getcwd(), ".claude/trinity.json"))
 providers = {**g.get("providers",{}), **proj.get("providers",{})}
 presets = {**g.get("presets",{}), **proj.get("presets",{})}
+# Carry preset_aliases through (mirrors scripts/config.py) so project-defined
+# aliases resolve in the dispatch parser; without this, `/trinity-zc <alias>`
+# falls back to only the hard-coded built-ins (r/fr/dr).
+preset_aliases = {**g.get("preset_aliases",{}), **proj.get("preset_aliases",{})}
 ```
 
 ## Presets
@@ -119,10 +123,9 @@ SESSION_ID=$(python3 ~/.claude/skills/trinity/scripts/session.py read "$PWD" "$I
 # prints a session_id, or "NEW"
 ```
 
-**3. Allocate output file.**
+**3. Allocate output file.** Use `mktemp -d` for a guaranteed-unique run dir — `uuidgen` is absent on minimal Linux/ZCode images, where `$(uuidgen | cut ...)` expands to an empty suffix so parallel dispatches collide on one shared dir. `mktemp` honors `TMPDIR` for sandboxed runtimes.
 ```bash
-RUN_DIR="/tmp/trinity-zc/$(uuidgen | cut -c1-8)"
-mkdir -p "$RUN_DIR"
+RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/trinity-zc.XXXXXXXX")
 OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 ```
 
@@ -131,6 +134,8 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 - deepseek wrapper: `<cli> -r` (session resume is wrapper-managed)
 - codex: `<cli>` (codex resume is experimental/session-scoped; omit unless explicitly requested)
 - others: no resume arg
+
+**The task prompt is the final argument** (mirrors `provider_runtime.run_provider`, which appends the prompt handoff last, and the `providers/*.md` final-`<prompt>` convention). The full arg vector is therefore `<cli> [resume-flag] "<task>"`, and that is exactly the `<cli-and-args...>` placeholder substituted into step 5. **Omitting the prompt launches the provider with no task and yields an empty or unrelated result.**
 
 **5. Spawn via Bash background.** Use `Bash(run_in_background=true)`. The harness's background mode already provides process isolation — do NOT add a trailing `&` inside the block: that double-backgrounds the provider (the harness-tracked shell exits immediately after launch while the provider runs on as an untracked orphan, so the completion notification fires on launch rather than on provider completion). Likewise do NOT wrap in `setsid` (it does not exist on macOS/BSD). Pass `OUTPUT_FILE` via environment, **sanitize the environment before invoking the provider**, capture both streams with a sentinel separator, and record the return code:
 
