@@ -143,11 +143,15 @@ export OUTPUT_FILE
 # expansion, which is bash 4+ only and fails on macOS default /bin/bash.
 for v in $(env | sed -n 's/^\([A-Z_]*BASE_URL\)=.*/\1/p; s/^\([A-Z_]*API_BASE\)=.*/\1/p; s/^\([A-Z_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
 unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
-# Run the provider in the FOREGROUND of this already-backgrounded shell:
+# Run the provider in the FOREGROUND of this already-backgrounded shell.
+# Stream stdout straight to OUTPUT_FILE so the §Heartbeat byte-delta check sees
+# real progress mid-run (the file is created the moment the provider starts);
+# capture stderr aside, then append the sentinel + stderr after exit so the
+# completion handler still reads `stdout + SENTINEL + stderr` for parsing.
 bash -c '
-  STDOUT=$("$@" 2>"$OUTPUT_FILE.err"); RC=$?
-  STDERR=$(cat "$OUTPUT_FILE.err" 2>/dev/null); rm -f "$OUTPUT_FILE.err"
-  printf "%s\n%%%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%%%\n%s\n" "$STDOUT" "$STDERR" > "$OUTPUT_FILE"
+  "$@" >"$OUTPUT_FILE" 2>"$OUTPUT_FILE.err"; RC=$?
+  printf "\n%%%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%%%\n" >> "$OUTPUT_FILE"
+  cat "$OUTPUT_FILE.err" >> "$OUTPUT_FILE" 2>/dev/null; rm -f "$OUTPUT_FILE.err"
   echo "$RC" > "$OUTPUT_FILE.rc"
 ' _ <cli-and-args...>
 ```
@@ -156,7 +160,7 @@ Note on the sentinel escaping: the literal sentinel is `%%TRINITY-RAW-STDERR-BOU
 
 Because the provider runs in the foreground of the harness-backgrounded shell, the harness tracks the provider's lifetime directly — there is no separate wrapper PID to record, and no `$!` to capture. Process cleanup on timeout is handled by the harness killing the backgrounded Bash (which cascades to its foreground child).
 
-**Streaming caveat (heartbeat):** the wrapper above buffers all stdout in `STDOUT` and writes `OUTPUT_FILE` only after the provider exits. For providers that run longer than the first heartbeat interval, this means `OUTPUT_FILE` does not exist (or is empty) mid-run, so the byte-delta heartbeat (§Heartbeat) will report `🟡 starting` / `failed to start` for a healthy long-running review. Two mitigations: (a) treat "no output file yet + elapsed < task-type timeout" as `🔄 running (no output yet)`, not `failed`; (b) for long review tasks, prefer streaming output directly to the file with `> "$OUTPUT_FILE"` (appending the sentinel in a `trap` on EXIT) so byte deltas are observable. The buffered form here is simplest and correct for the completion path; the streaming form is a drop-in when liveness visibility matters.
+**Heartbeat visibility:** because stdout is streamed straight into `OUTPUT_FILE` (the `"$@" >"$OUTPUT_FILE"` redirect creates it the instant the provider starts and grows it as the provider writes), the byte-delta heartbeat (§Heartbeat) observes real progress mid-run — a healthy long-running review is never misread as `failed to start`. The sentinel + stderr are appended only after the provider exits, so the completion handler still reads the full `stdout + SENTINEL + stderr` format. One residual edge: a provider that has started but not yet emitted any stdout leaves a 0-byte `OUTPUT_FILE`; treat "0 bytes + elapsed < the task-type `max_at`" as `🔄 running (no output yet)`, not `failed` (see §Heartbeat).
 
 The sentinel `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` MUST match `provider_runtime.raw_output` so `parse_structured_review` can split stdout/stderr back apart. **Do not alter this string.**
 
@@ -283,8 +287,8 @@ Run provider discovery. Show:
 ### `heartbeat [<instance>]`
 
 If instance given, check only it; else check all `running` sessions. For each:
-1. `wc -c <output_file>` → current bytes; compare to stored `bytes`.
-2. Δ > 0 → `🔄 alive (+N bytes)`; Δ == 0 and elapsed > 60s → `⚠️ possibly stalled`.
+1. `wc -c <output_file>` → current bytes; compare to stored `bytes`. A missing file or `wc` error counts as 0 bytes (the redirect normally creates the file at launch, but tolerate the race).
+2. Δ > 0 → `🔄 alive (+N bytes)`; total bytes == 0 and elapsed < `max_at` → `🔄 running (no output yet)`; Δ == 0 with prior output and elapsed > 60s → `⚠️ possibly stalled`.
 3. Update `bytes` = current, `last_checked` = now (atomic flock write).
 4. Apply timeout thresholds.
 

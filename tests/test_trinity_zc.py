@@ -79,17 +79,25 @@ def _read_sessions(path: Path) -> dict:
         return json.load(f).get("sessions", {})
 
 
-def _load_merged_config(tmp_path: Path, project_overlay: dict | None = None) -> dict:
-    """Load global ~/.claude/trinity.json merged with a project overlay.
+def _load_merged_config(
+    global_config: dict | None = None, project_overlay: dict | None = None
+) -> dict:
+    """Merge a global trinity.json config with a project overlay.
 
-    This mirrors trinity-zc's provider-discovery logic (SKILL.md §Provider
-    Discovery). Used here for the config-overlay + dangling-preset tests.
+    Mirrors trinity-zc's provider-discovery logic (SKILL.md §Provider Discovery).
+    Pass ``global_config`` explicitly to keep the offline config-overlay tests
+    deterministic and independent of the runner's real ``~/.claude/trinity.json``
+    (otherwise a developer/CI image with Trinity already configured could mask or
+    pollute the assertions). Pass ``None`` to read the live global config — used
+    only by the live integration check.
     """
-    global_path = Path.home() / ".claude" / "trinity.json"
-    g = {}
-    if global_path.exists():
-        g = json.loads(global_path.read_text())
+    if global_config is None:
+        global_path = Path.home() / ".claude" / "trinity.json"
+        global_config = (
+            json.loads(global_path.read_text()) if global_path.exists() else {}
+        )
 
+    g = global_config
     proj = project_overlay or {}
     providers = {**g.get("providers", {}), **proj.get("providers", {})}
     presets = {**g.get("presets", {}), **proj.get("presets", {})}
@@ -198,8 +206,10 @@ class TestConfigOverlay:
 
     def test_dangling_preset_reference_detected(self, tmp_path):
         """A preset naming a provider absent from config is flagged."""
+        # Isolated global config ({}) so detection is deterministic regardless
+        # of the runner's real ~/.claude/trinity.json (P2 test-isolation fix).
         config = _load_merged_config(
-            tmp_path,
+            global_config={},
             project_overlay={
                 "providers": {"glm": {"cli": "x", "installed": True}},
                 "presets": {"bogus": {"providers": ["ghost", "glm"]}},
@@ -218,7 +228,8 @@ class TestConfigOverlay:
         global_path = Path.home() / ".claude" / "trinity.json"
         if not global_path.exists():
             pytest.skip("no global trinity.json")
-        config = _load_merged_config(Path.cwd())
+        # Live integration check: read the real global config (global_config=None).
+        config = _load_merged_config()
         provider_names = set(config["providers"])
         dangling = []
         for pname, pcfg in config["presets"].items():
