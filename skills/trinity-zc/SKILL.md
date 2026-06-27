@@ -156,6 +156,8 @@ Note on the sentinel escaping: the literal sentinel is `%%TRINITY-RAW-STDERR-BOU
 
 Because the provider runs in the foreground of the harness-backgrounded shell, the harness tracks the provider's lifetime directly — there is no separate wrapper PID to record, and no `$!` to capture. Process cleanup on timeout is handled by the harness killing the backgrounded Bash (which cascades to its foreground child).
 
+**Streaming caveat (heartbeat):** the wrapper above buffers all stdout in `STDOUT` and writes `OUTPUT_FILE` only after the provider exits. For providers that run longer than the first heartbeat interval, this means `OUTPUT_FILE` does not exist (or is empty) mid-run, so the byte-delta heartbeat (§Heartbeat) will report `🟡 starting` / `failed to start` for a healthy long-running review. Two mitigations: (a) treat "no output file yet + elapsed < task-type timeout" as `🔄 running (no output yet)`, not `failed`; (b) for long review tasks, prefer streaming output directly to the file with `> "$OUTPUT_FILE"` (appending the sentinel in a `trap` on EXIT) so byte deltas are observable. The buffered form here is simplest and correct for the completion path; the streaming form is a drop-in when liveness visibility matters.
+
 The sentinel `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` MUST match `provider_runtime.raw_output` so `parse_structured_review` can split stdout/stderr back apart. **Do not alter this string.**
 
 **Environment sanitization** (mirror `provider_runtime.build_provider_env`): keep only `PATH, HOME, USER, LOGNAME, LANG, TERM, SHELL, TZ, TMPDIR, XDG_*, SSH_AUTH_SOCK, HTTP(S)_PROXY, NO_PROXY, PWD, LC_*, GIT_*`. Strip `*_BASE_URL`, `*_API_BASE`, `*_API_HOST`, `OTEL_*`, `TRINITY_DISABLE_DISPATCH`, `TRINITY_MCP_TOKEN`.
@@ -233,7 +235,7 @@ From task keywords (mirrors trinity): `review`/`审查` → `review`; `tdd`/`tes
 | prp | 5 min | 8 min |
 | general | 10 min | 20 min |
 
-On each heartbeat/status check, compare `now - start_time`. At `warn_at` report `⚠️ possibly slow`. At `max_at` report `🚨 timed out` and kill the dispatched process: read the wrapper PID from `$OUTPUT_FILE.pid`, then `kill -TERM <pid>` (SIGTERM), wait 5s, `kill -9 <pid>` if still alive. Also walk child PIDs via `pgrep -P <pid>` and kill them if the provider CLI spawned subprocesses. Do NOT use `pkill -g` — its group semantics differ on BSD/macOS and it may not target the right processes.
+On each heartbeat/status check, compare `now - start_time`. At `warn_at` report `⚠️ possibly slow`. At `max_at` report `🚨 timed out` and kill the dispatched process. Because step 5 runs the provider in the foreground of the harness-backgrounded Bash (no separate wrapper PID is recorded), the kill path depends on the harness: the orchestrator signals "stop/cancel this background task" to the harness, which terminates the backgrounded Bash process group, cascading to the foreground provider. If the runtime exposes a task/cancel handle (e.g. a background-task id returned by the Bash tool), use that. As a fallback, discover the provider PID by matching the CLI in the process table (`pgrep -f '<provider-cli-token>'`) and `kill -TERM` it, then `kill -9` after 5s if still alive. Do NOT reference `$OUTPUT_FILE.pid` (no such file is written since the P1 double-backgrounding fix) and do NOT use `pkill -g` (its group semantics differ on BSD/macOS).
 
 ## Review Synthesis (reused from trinity)
 
@@ -327,8 +329,8 @@ Print this SKILL.md's Syntax + architecture-summary sections.
 - Usable list empty → `No providers registered.` (point to `/trinity install <provider>` in Claude Code; trinity-zc does not install providers itself — it reuses trinity's config).
 - Missing agent file / config → report which, point to `trinity install`.
 - Empty task → `Task cannot be empty`.
-- `output_file` missing at heartbeat: elapsed < 30s → `🟡 starting`; ≥ 30s → `❌ failed to start`.
-- Background process cleanup on timeout/abort: read wrapper PID from `$OUTPUT_FILE.pid`, `kill -TERM <pid>`, wait 5s, `kill -9 <pid>` if still alive; also `pgrep -P <pid>` to catch provider-spawned children. (No `setsid`/`pkill -g` — both are unreliable or absent on macOS.)
+- `output_file` missing at heartbeat: elapsed < 30s → `🟡 starting`; ≥ 30s but still within the task-type timeout (and the dispatch block buffers output until exit) → `🔄 running (buffered, no output yet)` rather than `failed to start`; only treat as `❌ failed to start` if the process is confirmed gone with no output. The buffered dispatch wrapper writes the file only on provider exit (see §Streaming caveat).
+- Background process cleanup on timeout/abort: signal the harness to cancel the backgrounded Bash (which cascades to the foreground provider). Fallback: `pgrep -f '<provider-cli-token>'` to find the PID, then `kill -TERM`, wait 5s, `kill -9`. No `$OUTPUT_FILE.pid` is written (P1 fix removed double-backgrounding); no `setsid`/`pkill -g` (absent/unreliable on macOS).
 
 ## Out of scope (v1)
 

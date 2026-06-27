@@ -482,9 +482,11 @@ class TestRealProviderDoctor:
     """
 
     @pytest.fixture(autouse=True)
-    def _skip_if_no_cli(self):
-        if not shutil_which("droid") and not shutil_which("codex"):
-            pytest.skip("no provider CLI available")
+    def _skip_if_no_droid(self):
+        # The GLM smoke runs `droid exec`; skip if droid is absent (codex
+        # alone is not sufficient — the test body is GLM/droid-specific).
+        if not shutil_which("droid"):
+            pytest.skip("droid CLI not available (required for GLM smoke)")
 
     def test_glm_replies_trinity_ok(self):
         out = subprocess.run(
