@@ -74,7 +74,7 @@ If all three pass, proceed.
 On every dispatch and status call, resolve usable providers exactly as trinity does:
 
 1. Load global config `~/.claude/trinity.json` → `providers`, `presets`, `preset_aliases`.
-2. Load project overlay `<cwd>/.claude/trinity.json` → project entries **win** on key conflict for `providers`; `presets` replace whole object; `defaults` shallow-merge.
+2. Load project overlay `<cwd>/.claude/trinity.json` → project entries **win** on key conflict for `providers`; `presets` **merge by key** (a project preset replaces the same-named global preset; other global presets are preserved — matches `scripts/config.py::merge_configs`, never a wholesale replace); `defaults` shallow-merge.
 3. For each config provider, verify a matching agent file exists: `~/.claude/agents/trinity-<name>.md` **or** `<cwd>/.claude/agents/trinity-<name>.md`.
 
 A provider is **usable** only with BOTH a config entry AND an agent file. `registry.json` is NOT read at runtime (install-time artifact only) — ignore it. All CLI strings come from the merged config's `providers.<name>.cli`.
@@ -103,11 +103,11 @@ Expand a preset keyword to its provider list (from merged config `presets.<name>
 
 | Preset | Required | Optional |
 |--------|----------|----------|
-| `review` | minimax, glm, deepseek | — |
+| `review` | glm, gemini, deepseek | codex, claude-code |
 | `fast-review` | glm, deepseek | — |
-| `deep-review` | codex, glm, deepseek | — |
+| `deep-review` | glm, gemini, deepseek | codex, claude-code |
 
-(Defaults reflect provider config after gemini/openrouter/claude-code were retired from `~/.claude/trinity.json`. Always read live presets from the merged config — these are fallbacks only.)
+(Mirrors trinity's own SKILL.md preset defaults so a stock install dispatches the same panel. These are fallbacks **only when the merged config has no live `presets`** — always prefer live presets. Required providers that discovery marks unusable on this machine, e.g. a retired `gemini`, are filtered out at dispatch; optional providers are included only when usable.)
 
 ## Dispatch Protocol
 
@@ -143,7 +143,10 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 **5. Spawn via Bash background.** Use `Bash(run_in_background=true)`. The harness's background mode already provides process isolation — do NOT add a trailing `&` inside the block: that double-backgrounds the provider (the harness-tracked shell exits immediately after launch while the provider runs on as an untracked orphan, so the completion notification fires on launch rather than on provider completion). Likewise do NOT wrap in `setsid` (it does not exist on macOS/BSD). Pass `OUTPUT_FILE` via environment, **sanitize the environment before invoking the provider**, capture both streams with a sentinel separator, and record the return code:
 
 ```bash
-OUTPUT_FILE="<run_dir>/<instance>.out"
+# OUTPUT_FILE is the sanitized path allocated in step 3 (RUN_DIR + the
+# colon/slash-sanitized instance key). Reuse it — do NOT recompute from the raw
+# <instance> here, or a name like `glm:feature/auth` would target a missing
+# `<run_dir>/glm:feature/` subdir and lose the .out/.rc files.
 export OUTPUT_FILE
 # Sanitize the environment (mirror provider_runtime.build_provider_env):
 # strip *_BASE_URL, *_API_BASE, *_API_HOST, OTEL_*, TRINITY_DISABLE_DISPATCH, TRINITY_MCP_TOKEN.
@@ -254,6 +257,15 @@ On each heartbeat/status check, compare `now - start_time`. At `warn_at` report 
 For multi-provider review dispatch, build the trinity-shaped results list and call trinity's `write_synthesis`:
 
 ```bash
+# Stage each provider's dispatch output into review_dir/raw/<provider>.txt — the
+# exact path write_synthesis reads. Dispatch (step 5) wrote $RUN_DIR/<instance>.out,
+# a DIFFERENT path, so copy it across FIRST. If raw/<provider>.txt is missing,
+# _review._safe_read_raw returns None and an rc=0 provider is rendered as PASS
+# with no findings — silently dropping a real FIX/BLOCK verdict.
+mkdir -p "$REVIEW_DIR/raw"
+cp "$OUTPUT_FILE" "$REVIEW_DIR/raw/glm.txt"   # one cp per provider; the basename
+                                              # must match the 'raw' field below.
+
 python3 -c "
 import sys; sys.path.insert(0, '$HOME/.claude/skills/trinity/scripts')
 from pathlib import Path
@@ -268,7 +280,7 @@ print(synth_path)
 ```
 
 Pre-conditions the reused function expects:
-- Each `review_dir/raw/<provider>.txt` already written in sentinel format (stdout + `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` + stderr) — our dispatch step 5 already does this.
+- Each `review_dir/raw/<provider>.txt` must be populated in sentinel format (stdout + `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` + stderr) **before** the call. Dispatch (step 5) writes `$RUN_DIR/<instance>.out`; the `cp` above stages it under the `raw/` name. A missing `raw/<provider>.txt` makes write_synthesis treat an rc=0 provider as PASS with no findings.
 - For TRN-3022 parsing to succeed, the provider's prompt must instruct it to emit a trailing fenced ```` ```json ```` block with `{decision, weighted_score, blocking, advisories, confidence?}`. trinity's `_review_schema_addendum` provides this text; append it to review prompts.
 
 Review-dir layout (matches trinity): `.trinity/reviews/<YYYYMMDD-HHMMSS-slug>/{raw,logs,prompt.md,metadata.json,synthesis.md}`.
@@ -319,10 +331,19 @@ Smoke-test EVERY usable provider using trinity's own convention (`SKILL.md:356`)
 smoke() {
   local name="$1"; shift
   local out rc
-  out=$(perl -e 'alarm shift; exec @ARGV' 30 "$@" 2>&1); rc=$?
+  # Sanitize the env (mirror step 5 / provider_runtime.build_provider_env) inside
+  # a subshell so doctor probes the same endpoint real dispatch uses, not a
+  # polluted shell's, and the unset never leaks to the next provider.
+  out=$(
+    for v in $(env | sed -n 's/^\([A-Z_]*BASE_URL\)=.*/\1/p; s/^\([A-Z_]*API_BASE\)=.*/\1/p; s/^\([A-Z_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
+    unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
+    perl -e 'alarm shift; exec @ARGV' 30 "$@" 2>&1
+  ); rc=$?
   printf "%-12s exit=%-3d " "$name" "$rc"
-  if echo "$out" | grep -qi "trinity-ok"; then echo "✅ PASS"
-  elif [ $rc -eq 142 ] || [ $rc -eq 14 ]; then echo "⏰ TIMEOUT (30s)"   # 142 = 128+SIGALRM(14) under bash cmd-subst; 14 = bare perl SIGALRM
+  # Check the timeout rc BEFORE the grep: a provider that prints trinity-ok and
+  # then hangs returns 142 and must report TIMEOUT, not a false PASS.
+  if [ $rc -eq 142 ] || [ $rc -eq 14 ]; then echo "⏰ TIMEOUT (30s)"   # 142 = 128+SIGALRM(14) under bash cmd-subst; 14 = bare perl SIGALRM
+  elif echo "$out" | grep -qi "trinity-ok"; then echo "✅ PASS"
   else echo "❌ FAIL"; echo "$out" | tail -4 | sed 's/^/      | /'; fi
 }
 ```

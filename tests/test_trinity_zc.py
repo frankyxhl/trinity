@@ -319,6 +319,64 @@ class TestDispatchInstructionGuards:
         assert bump, "make bump does not rewrite skills/trinity-zc/SKILL.md"
         assert staged, "release-prep git add does not stage skills/trinity-zc/SKILL.md"
 
+    def test_doctor_smoke_checks_timeout_before_pass(self):
+        """smoke() must test the timeout rc before the trinity-ok grep, so a
+        provider that prints then hangs reports TIMEOUT, not a false PASS."""
+        smoke = _extract_doctor_smoke()
+        timeout_pos = smoke.find("142")
+        pass_pos = smoke.find('grep -qi "trinity-ok"')
+        assert timeout_pos != -1 and pass_pos != -1
+        assert timeout_pos < pass_pos, (
+            "doctor smoke greps trinity-ok before the timeout rc check — "
+            "a print-then-hang provider would be a false PASS"
+        )
+
+    def test_doctor_smoke_sanitizes_env(self):
+        """smoke() must strip *_BASE_URL/OTEL_*/TRINITY_* before probing, like
+        step 5 dispatch — else doctor tests a different endpoint than dispatch."""
+        smoke = _extract_doctor_smoke()
+        assert "BASE_URL" in smoke and "TRINITY_DISABLE_DISPATCH" in smoke, (
+            "doctor smoke does not sanitize the provider environment"
+        )
+
+    def test_step5_reuses_sanitized_output_path(self):
+        """Step 5 must not recompute OUTPUT_FILE from the raw <instance> (which
+        could contain '/'); it reuses step 3's sanitized path."""
+        block = _extract_step5_block()
+        assert 'OUTPUT_FILE="<run_dir>/<instance>.out"' not in block, (
+            "step 5 recomputes OUTPUT_FILE from raw <instance> — loses output "
+            "for instances whose key contains '/'"
+        )
+
+    def test_presets_merge_by_key(self):
+        """Discovery prose must say presets merge by key (not wholesale replace),
+        matching scripts/config.py::merge_configs."""
+        assert "merge by key" in SKILL_MD.read_text(), (
+            "discovery prose still says presets replace the whole object"
+        )
+
+    def test_synthesis_stages_raw_before_write(self):
+        """Review synthesis must copy dispatch output into raw/<provider>.txt
+        before write_synthesis (else an rc=0 FIX is rendered as PASS)."""
+        text = SKILL_MD.read_text()
+        assert 'cp "$OUTPUT_FILE" "$REVIEW_DIR/raw/' in text, (
+            "synthesis does not stage the .out into raw/<provider>.txt"
+        )
+
+    def test_manifest_ships_review_modules(self):
+        """install.sh trees must get the review modules trinity-zc imports for
+        `/trinity-zc review`, not just session.py."""
+        manifest = json.loads((ROOT / "install-manifest.json").read_text())
+        srcs = {e["src"] for e in manifest["files"]}
+        for mod in (
+            "scripts/_review.py",
+            "scripts/review_schema.py",
+            "scripts/provider_runtime.py",
+            "scripts/_review_metadata.py",
+            "scripts/provider_state.py",
+        ):
+            assert mod in srcs, f"manifest omits {mod} (trinity-zc review needs it)"
+
 
 # ---------------------------------------------------------------------------
 # Tier 2: Instruction fidelity (the regression-catcher)
