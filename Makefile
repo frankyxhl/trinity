@@ -129,7 +129,7 @@ release-prep:   ## Stage release-metadata commit + local tag (TRN-1004): no push
 		git diff --cached --quiet .agents/skills/trinity/SKILL.md plugins/trinity/skills/trinity/SKILL.md || \
 		(echo "release-prep: Codex skill copy has uncommitted changes — run 'make build' and commit first"; exit 1)
 	@git reset HEAD
-	@git add VERSION scripts/__init__.py CHANGELOG.md SKILL.md plugins/trinity/.codex-plugin/plugin.json README.md
+	@git add VERSION scripts/__init__.py CHANGELOG.md SKILL.md skills/trinity-zc/SKILL.md plugins/trinity/.codex-plugin/plugin.json README.md
 	@git commit -m "Release v$(CURRENT_VERSION)"
 	@git tag "v$(CURRENT_VERSION)"
 	@echo ""

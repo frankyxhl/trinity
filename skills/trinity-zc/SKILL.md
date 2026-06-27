@@ -134,7 +134,7 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 
 **4. Build the command.** Read `cli` from merged config; expand `~` and `$HOME`. If resume pointer != NEW and the provider supports resume, append the resume flag:
 - droid-backed (glm/minimax): `<cli> -s "$SESSION_ID"`
-- deepseek wrapper: `<cli> -r` (session resume is wrapper-managed)
+- deepseek wrapper: `<cli> --resume "$SESSION_ID"` — **pass the saved `$SESSION_ID`**; a bare `-r`/`--resume` with no id makes the underlying `claude` resume the latest/wrong conversation instead of the stored pointer (the deepseek bin forwards args verbatim to `claude`; see `providers/deepseek.md`).
 - codex: `<cli>` (codex resume is experimental/session-scoped; omit unless explicitly requested)
 - others: no resume arg
 

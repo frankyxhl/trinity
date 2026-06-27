@@ -294,6 +294,31 @@ class TestDispatchInstructionGuards:
             "`make bump` must rewrite skills/trinity-zc/SKILL.md too"
         )
 
+    def test_deepseek_resume_passes_session_id(self):
+        """The deepseek resume line must carry $SESSION_ID; a bare -r/--resume
+        would resume the latest/wrong claude conversation (the wrapper forwards
+        args verbatim to claude)."""
+        assert '--resume "$SESSION_ID"' in SKILL_MD.read_text(), (
+            "deepseek resume must pass the saved $SESSION_ID, not a bare flag"
+        )
+
+    def test_release_path_keeps_trinity_zc_in_sync(self):
+        """make bump must rewrite, and release-prep must stage, trinity-zc's
+        SKILL.md — otherwise a release ships a stale REQUIRED_VERSION gate."""
+        makefile = (ROOT / "Makefile").read_text().splitlines()
+        bump = [
+            ln
+            for ln in makefile
+            if "REQUIRED_VERSION" in ln and "skills/trinity-zc/SKILL.md" in ln
+        ]
+        staged = [
+            ln
+            for ln in makefile
+            if "git add" in ln and "skills/trinity-zc/SKILL.md" in ln
+        ]
+        assert bump, "make bump does not rewrite skills/trinity-zc/SKILL.md"
+        assert staged, "release-prep git add does not stage skills/trinity-zc/SKILL.md"
+
 
 # ---------------------------------------------------------------------------
 # Tier 2: Instruction fidelity (the regression-catcher)
