@@ -162,7 +162,7 @@ check "minimax CLI signature"    grep -q 'droid exec --auto medium --model custo
 # fails if the templates revert to the racy path.
 for p in glm minimax; do
   check "$p uses droid exec -o json" grep -qE 'droid exec --auto medium --model custom:[A-Za-z0-9.-]+ -o json' "providers/$p.md"
-  check "$p session_id from json"    grep -q 'session_id' "providers/$p.md"
+  check "$p session_id from json"    grep -q "d.get('session_id'" "providers/$p.md"
   check "$p no droid search"         bash -c "! grep -q 'droid search' providers/$p.md"
 done
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
