@@ -22,5 +22,9 @@
     {"src": "providers/bin/openrouter", "dest": ".claude/skills/trinity/bin/openrouter", "mode": "755"},
     {"src": "providers/bin/claude-code", "dest": ".claude/skills/trinity/bin/claude-code", "mode": "755"},
     {"src": "providers/registry.json", "dest": ".claude/skills/trinity/providers/registry.json"}
+  ],
+  "conditional_comment": "Installed only when the named runtime dir already exists under ~ (auto-detected). Used for the ZCode-runtime peer skill trinity-zc, which lives in ~/.agents/ and must not create ~/.agents on machines that do not use that runtime.",
+  "conditional_files": [
+    {"src": "skills/trinity-zc/SKILL.md", "dest": ".agents/skills/trinity-zc/SKILL.md", "condition_dir": ".agents"}
   ]
 }
