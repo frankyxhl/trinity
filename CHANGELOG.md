@@ -15,6 +15,15 @@
   (regenerated via `make build`); the test helper `_claude_slug` no longer
   mirrors the bug; a new literal-anchor test pins the real macOS + Linux
   slugs independent of the helper. Closes #262.
+- droid-based providers (`glm`, `minimax`) now derive the new session id from
+  `droid exec -o json`'s own `session_id` field (the process's own stdout)
+  instead of `droid search "<phrase>" --json | sessions[0]`. `droid search` is
+  a content search not isolated by model/instance, so two droid providers
+  dispatched in parallel with similar prompts cross-linked session ids in
+  `.claude/trinity.json` and subsequent resumes cross-pollinated context.
+  Response text is now read from the same JSON's `result` field. A static
+  guard in `tests/test_build_providers.sh` fails the build if the templates
+  revert to `droid search`. Closes #263.
 
 ## [3.3.0] - 2026-06-19
 
