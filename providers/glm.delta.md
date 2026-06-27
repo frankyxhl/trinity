@@ -27,7 +27,7 @@ process's own output — deterministic and concurrency-safe (the id is never
 derived from a shared content-search store that two parallel providers
 can race on):
 ```bash
-RESULT_JSON=$(droid exec --auto medium --model custom:GLM-5.2 -o json "<prompt>" 2>&1)
+RESULT_JSON=$(droid exec --auto medium --model custom:GLM-5.2 -o json "<prompt>" 2>/dev/null)
 # JSON envelope: {"type":"result","result":"<text>","session_id":"<uuid>","usage":{...}}
 # session_id + response from the process's own stdout; on a droid failure
 # (non-JSON output) SESSION_ID=UNKNOWN and RESPONSE=raw output.
