@@ -307,8 +307,10 @@ Run provider discovery. Show:
 ### `heartbeat [<instance>]`
 
 If instance given, check only it; else check all `running` sessions. For each:
-1. `wc -c <output_file>` → current bytes; compare to stored `bytes`. A missing file or `wc` error counts as 0 bytes (the redirect normally creates the file at launch, but tolerate the race).
-2. Δ > 0 → `🔄 alive (+N bytes)`; total bytes == 0 and elapsed < `max_at` → `🔄 running (no output yet)`; Δ == 0 with prior output and elapsed > 60s → `⚠️ possibly stalled`.
+1. `wc -c <output_file>` → current bytes; compare to stored `bytes`. The step-5 `>"$OUTPUT_FILE"` redirect creates the file the instant the provider launches, so distinguish *missing* from *empty*:
+   - file **missing** and elapsed > a short startup grace (~5s) → `❌ failed to launch` — the shell never reached the redirect or the recorded path is wrong; surface it now, do NOT wait for `max_at`.
+   - file missing but still within the ~5s launch grace → treat as starting (the launch race).
+2. Δ > 0 → `🔄 alive (+N bytes)`; file present but 0 bytes and elapsed < `max_at` → `🔄 running (no output yet)`; Δ == 0 with prior output and elapsed > 60s → `⚠️ possibly stalled`.
 3. Update `bytes` = current, `last_checked` = now (atomic flock write).
 4. Apply timeout thresholds.
 
@@ -343,7 +345,7 @@ smoke() {
   # Check the timeout rc BEFORE the grep: a provider that prints trinity-ok and
   # then hangs returns 142 and must report TIMEOUT, not a false PASS.
   if [ $rc -eq 142 ] || [ $rc -eq 14 ]; then echo "⏰ TIMEOUT (30s)"   # 142 = 128+SIGALRM(14) under bash cmd-subst; 14 = bare perl SIGALRM
-  elif echo "$out" | grep -qi "trinity-ok"; then echo "✅ PASS"
+  elif [ $rc -eq 0 ] && echo "$out" | grep -qi "trinity-ok"; then echo "✅ PASS"   # require rc 0 AND the marker — a wrapper that prints trinity-ok then exits nonzero is NOT healthy
   else echo "❌ FAIL"; echo "$out" | tail -4 | sed 's/^/      | /'; fi
 }
 ```

@@ -331,6 +331,21 @@ class TestDispatchInstructionGuards:
             "a print-then-hang provider would be a false PASS"
         )
 
+    def test_doctor_smoke_pass_requires_zero_rc(self):
+        """PASS must require rc 0 AND the marker — a provider that prints
+        trinity-ok then exits nonzero is not healthy."""
+        smoke = _extract_doctor_smoke()
+        assert '[ $rc -eq 0 ] && echo "$out" | grep -qi "trinity-ok"' in smoke, (
+            "doctor PASS branch does not require rc 0 alongside the marker"
+        )
+
+    def test_heartbeat_fails_fast_on_missing_output(self):
+        """A missing output file past the launch grace must surface as a launch
+        failure, not be counted as 0 bytes and hidden until max_at."""
+        assert "failed to launch" in SKILL_MD.read_text(), (
+            "heartbeat no longer fails fast on a missing output file"
+        )
+
     def test_doctor_smoke_sanitizes_env(self):
         """smoke() must strip *_BASE_URL/OTEL_*/TRINITY_* before probing, like
         step 5 dispatch — else doctor tests a different endpoint than dispatch."""
