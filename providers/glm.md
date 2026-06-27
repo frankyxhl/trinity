@@ -48,19 +48,19 @@ DROID_ERR=$(cat "$_ERR" 2>/dev/null); rm -f "$_ERR"
 # session_id + response from the process's own stdout (concurrency-safe); on a
 # droid failure (non-JSON stdout) SESSION_ID=UNKNOWN and RESPONSE carries the
 # stderr diagnostics so the failure is not silently swallowed.
-PARSED=$(printf '%s' "$RESULT_JSON" | DROID_ERR="$DROID_ERR" python3 -c "
-import json, sys, os
+eval "$(printf '%s' "$RESULT_JSON" | DROID_ERR="$DROID_ERR" python3 -c "
+import json, sys, os, shlex
 raw = sys.stdin.read()
 try:
     d = json.loads(raw)
-    print(d.get('session_id', 'UNKNOWN'))
-    sys.stdout.write(d.get('result', ''))
+    sid = d.get('session_id', 'UNKNOWN')
+    resp = d.get('result', '')
 except Exception:
-    print('UNKNOWN')
-    sys.stdout.write(os.environ.get('DROID_ERR', '').strip() or raw or '(no droid output)')
-")
-SESSION_ID=${PARSED%%$'\n'*}
-RESPONSE=${PARSED#*$'\n'}
+    sid = 'UNKNOWN'
+    resp = os.environ.get('DROID_ERR', '').strip() or raw or '(no droid output)'
+print('SESSION_ID=' + shlex.quote(sid))
+print('RESPONSE=' + shlex.quote(resp))
+")"
 ```
 
 ### Resume session (existing session found)
