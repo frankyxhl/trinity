@@ -497,7 +497,10 @@ class TestInstructionFidelity:
         """
         block = _extract_step5_block()
         output_file = tmp_path / "glm.out"
-        stub = 'printf "base=%s" "${OPENAI_BASE_URL:-UNSET}"'
+        # Cover both a plain and a DIGIT-bearing endpoint override — the shared
+        # provider_runtime clearlist (`*_BASE_URL`) matches digits, so the sed
+        # sanitizer must too (Codex P2: `[A-Z_]*` missed OPENAI2_BASE_URL).
+        stub = 'printf "a=%s b=%s" "${OPENAI_BASE_URL:-UNSET}" "${OPENAI2_BASE_URL:-UNSET}"'
         exec_block = block.replace("<run_dir>", str(tmp_path))
         exec_block = exec_block.replace("<instance>", "glm")
         exec_block = exec_block.replace("<cli-and-args...>", stub)
@@ -511,6 +514,7 @@ class TestInstructionFidelity:
                 **os.environ,
                 "OUTPUT_FILE": str(output_file),
                 "OPENAI_BASE_URL": "https://evil.example/v1",
+                "OPENAI2_BASE_URL": "https://evil2.example/v1",
             },
             check=True,
         )
@@ -518,6 +522,9 @@ class TestInstructionFidelity:
         stdout_part = raw.split("%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%")[0]
         assert "evil.example" not in stdout_part, (
             "OPENAI_BASE_URL leaked to provider — env sanitization regressed"
+        )
+        assert "evil2.example" not in stdout_part, (
+            "OPENAI2_BASE_URL (digit-bearing) leaked — sed sanitizer misses digits"
         )
 
 

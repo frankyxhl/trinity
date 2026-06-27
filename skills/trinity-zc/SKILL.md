@@ -152,7 +152,7 @@ export OUTPUT_FILE
 # strip *_BASE_URL, *_API_BASE, *_API_HOST, OTEL_*, TRINITY_DISABLE_DISPATCH, TRINITY_MCP_TOKEN.
 # Use env+sed discovery (portable across bash 3.2+/zsh) rather than ${!pat@} indirect
 # expansion, which is bash 4+ only and fails on macOS default /bin/bash.
-for v in $(env | sed -n 's/^\([A-Z_]*BASE_URL\)=.*/\1/p; s/^\([A-Z_]*API_BASE\)=.*/\1/p; s/^\([A-Z_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
+for v in $(env | sed -n 's/^\([A-Za-z0-9_]*BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
 # Run the provider in the FOREGROUND of this already-backgrounded shell.
 # Stream stdout straight to OUTPUT_FILE so the §Heartbeat byte-delta check sees
@@ -335,7 +335,7 @@ smoke() {
   # a subshell so doctor probes the same endpoint real dispatch uses, not a
   # polluted shell's, and the unset never leaks to the next provider.
   out=$(
-    for v in $(env | sed -n 's/^\([A-Z_]*BASE_URL\)=.*/\1/p; s/^\([A-Z_]*API_BASE\)=.*/\1/p; s/^\([A-Z_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
+    for v in $(env | sed -n 's/^\([A-Za-z0-9_]*BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
     unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
     perl -e 'alarm shift; exec @ARGV' 30 "$@" 2>&1
   ); rc=$?
