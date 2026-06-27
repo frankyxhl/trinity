@@ -53,7 +53,7 @@ run_claude_code() {
 EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(low|medium|high|xhigh|max)' | head -1 | cut -d= -f2)
 
 # Session directory (scoped to project)
-PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g; s|^-||')
+PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g')
 SESSION_DIR="$HOME/.claude-trinity-claude-code/projects/${PROJECT_SLUG}"
 ```
 

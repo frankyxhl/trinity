@@ -28,9 +28,10 @@ Encoding differs by provider (matches per-wrapper conventions in
 ``providers/<name>.md``):
     glm                              -> replace "/" with "-"; KEEP leading dash
                                         (matches ~/.factory/sessions/-Users-frank-...)
-    claude-code/deepseek/openrouter  -> replace "/" with "-"; STRIP leading dash
+    claude-code/deepseek/openrouter  -> replace "/" with "-"; KEEP leading dash
                                         (PROJECT_SLUG=$(echo "$PROJECT_DIR"
-                                        | sed 's|/|-|g; s|^-||'))
+                                        | sed 's|/|-|g'); matches the claude CLI's
+                                        ~/.claude-*/projects/-Users-frank-... layout)
 
 Exit codes:
     0  path printed; file exists on disk.
@@ -92,19 +93,19 @@ def _encode_project_path(project_dir: str) -> str:
 
 
 def _encode_project_slug(project_dir: str) -> str:
-    """Claude-family encoding (`PROJECT_SLUG`): replace `/` with `-` AND strip
-    the leading dash. Matches the per-wrapper convention in
-    ``providers/claude-code.md:69-71``, ``providers/deepseek.md:53-55``,
-    ``providers/openrouter.md:53-55``:
+    """Claude-family encoding (`PROJECT_SLUG`): replace `/` with `-`, KEEPING
+    the leading dash. Matches the claude CLI's actual on-disk layout under
+    ``~/.claude-*/projects/`` (e.g. ``-Users-frank-Projects-trinity``), per
+    the per-wrapper convention in ``providers/<name>.md``:
 
-        PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g; s|^-||')
+        PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g')
 
-    Distinct from `_encode_project_path` (used by glm) which keeps the leading
-    dash to match `~/.factory/sessions/-Users-frank-...` layout.
+    Post CHG-3045 this is identical to ``_encode_project_path`` (both keep the
+    leading dash). Kept as a separate function pending a follow-up collapse
+    CHG; do NOT re-introduce a strip here — the claude CLI does not strip.
     """
     abs_path = os.path.abspath(project_dir)
-    encoded = abs_path.replace("/", "-")
-    return encoded.lstrip("-")
+    return abs_path.replace("/", "-")
 
 
 def _resolve_glm(session_id: str, project_dir: str) -> Path:
@@ -129,7 +130,7 @@ def _resolve_claude_family(session_id: str, project_dir: str, provider: str) -> 
 
     Each wrapper has its own ``CLAUDE_CONFIG_DIR``; the resolver dispatches
     on `provider` to pick the right root. Encoding uses the wrapper's
-    `PROJECT_SLUG` convention (strip leading dash).
+    `PROJECT_SLUG` convention (keep leading dash — matches claude CLI layout).
     """
     root = _CLAUDE_FAMILY_ROOTS[provider]  # KeyError → caller bug
     slug = _encode_project_slug(project_dir)
