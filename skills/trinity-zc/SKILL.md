@@ -28,6 +28,7 @@ trinity-zc is an honest adaptation: it reaches the same provider backends direct
 | Session resume pointers | **Reused** — `~/.claude/skills/trinity/scripts/session.py` (`read`/`write`/`clear`/`heartbeat` CLI) |
 | Review synthesis (`synthesis.md`) | **Reused** — `_review.write_synthesis()` via `python3 -c` |
 | Structured review parsing (TRN-3022) | **Reused** — `review_schema.parse_structured_review()` |
+| Provider live probe (`doctor`) | **Reused** — `_doctor._probe_provider` (own process group + `killpg` on timeout; rc-based health) |
 | Background dispatch execution | **Self-built** — `Bash(run_in_background=true)` (harness isolates the process; no `setsid` needed — it doesn't exist on macOS) |
 | Dispatch state machine | **Self-built** — `.claude/trinity-zc.json` (separate file, see §State Store) |
 | Heartbeat / timeout | **Self-built** — output-file byte count + time comparison |
@@ -376,32 +377,38 @@ Read the finished provider's `output_file`. If `task_type == review`, parse TRN-
 
 ### `doctor`
 
-Smoke-test EVERY usable provider using trinity's own convention (`SKILL.md:356`): run `<cli> "Reply with exactly: trinity-ok"` with a 30s timeout (macOS lacks `timeout`; use a perl-alarm wrapper) and verify `trinity-ok` appears in output.
+Smoke-test EVERY usable provider by **reusing trinity's own live probe**, `_doctor._probe_provider`, rather than a hand-rolled bash wrapper. That function (`scripts/_doctor.py`) already does the things a shell wrapper gets wrong: it sanitizes the env via `build_provider_env`, runs the provider in its **own session/process group** (`start_new_session=True`) so a timeout can `os.killpg` the *whole* group — descendants that inherited the pipe would otherwise hang the probe long past the timeout — and judges health by **process exit code**, not by grepping stdout for a marker (so a claude-wrapper that replies via its session transcript is not falsely failed). Do NOT reimplement this in `perl`/`bash`: the earlier `setsid`/`perl-alarm` smoke leaked process groups and grepped stdout, exactly the bugs `_probe_provider` avoids.
 
 ```bash
-smoke() {
-  local name="$1"; shift
-  local out rc
-  # Sanitize the env (mirror step 5 / provider_runtime.build_provider_env) inside
-  # a subshell so doctor probes the same endpoint real dispatch uses, not a
-  # polluted shell's, and the unset never leaks to the next provider.
-  out=$(
-    for v in $(env | sed -n 's/^\([A-Za-z0-9_]*_BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*_API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*_API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
-    unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
-    perl -e 'alarm shift; exec @ARGV' 30 "$@" 2>&1
-  ); rc=$?
-  printf "%-12s exit=%-3d " "$name" "$rc"
-  # Check the timeout rc BEFORE the grep: a provider that prints trinity-ok and
-  # then hangs returns 142 and must report TIMEOUT, not a false PASS.
-  if [ $rc -eq 142 ] || [ $rc -eq 14 ]; then echo "⏰ TIMEOUT (30s)"   # 142 = 128+SIGALRM(14) under bash cmd-subst; 14 = bare perl SIGALRM
-  elif [ $rc -eq 0 ] && echo "$out" | grep -qi "trinity-ok"; then echo "✅ PASS"   # require rc 0 AND the marker — a wrapper that prints trinity-ok then exits nonzero is NOT healthy
-  else echo "❌ FAIL"; echo "$out" | tail -4 | sed 's/^/      | /'; fi
-}
+python3 - <<'PY'
+import sys, os, json
+sys.path.insert(0, os.path.expanduser("~/.claude/skills/trinity/scripts"))
+import _doctor
+def load(p):
+    try:
+        with open(p) as f: return json.load(f)
+    except FileNotFoundError: return {}
+g = load(os.path.expanduser("~/.claude/trinity.json"))
+proj = load(os.path.join(os.getcwd(), ".claude/trinity.json"))
+providers = {**g.get("providers", {}), **proj.get("providers", {})}   # merged discovery (project wins)
+root = os.getcwd()
+def usable(name):  # mirror §Provider Discovery: config entry AND an agent file
+    return any(os.path.exists(os.path.expanduser(p)) for p in (
+        f"~/.claude/agents/trinity-{name}.md", os.path.join(root, f".claude/agents/trinity-{name}.md")))
+for name, cfg in providers.items():
+    if not usable(name):
+        continue
+    res = _doctor._probe_provider(name, cfg, root)   # None = static check already failed (skip)
+    if res is None:
+        print(f"{name:12} ⏭️  SKIP (cli unresolved / not executable)")
+    elif res.get("status") == "pass":
+        print(f"{name:12} ✅ PASS")
+    else:
+        print(f"{name:12} ❌ {res.get('cause','error').upper()}: {res.get('detail','')}")
+PY
 ```
 
-Note on the timeout status: when `perl ... exec @ARGV` is killed by SIGALRM, bash's command-substitution exit status is `128 + 14 = 142`, not `14`. Check both so the timeout branch is actually reached.
-
-Report a per-provider table. Only **usable** providers (a merged-config entry AND an agent file — see §Provider Discovery) are tested; a provider absent from the merged config or missing its agent file is simply not discovered, so it is not probed (this is config-dependent per machine, not a hard-coded retirement). Flag any probed provider that returns non-`trinity-ok` output with its stderr tail.
+`_probe_provider` returns `{"status":"pass"}`, or `{"status":"fail","cause":"auth|quota|timeout|error","detail":...}`, or `None` when a static check (cli resolution / executable) already disqualifies the provider. Only **usable** providers (a merged-config entry AND an agent file — see §Provider Discovery) are probed; a provider absent from the merged config or missing its agent file is simply not discovered (config-dependent per machine, not a hard-coded retirement). The probe timeout is trinity's `_LIVE_PROBE_TIMEOUT` (read live from the `codex` module), so trinity-zc and trinity stay in lock-step.
 
 ### `help`
 

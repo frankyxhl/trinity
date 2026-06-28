@@ -396,24 +396,35 @@ class TestDispatchInstructionGuards:
         assert bump, "make bump does not rewrite skills/trinity-zc/SKILL.md"
         assert staged, "release-prep git add does not stage skills/trinity-zc/SKILL.md"
 
-    def test_doctor_smoke_checks_timeout_before_pass(self):
-        """smoke() must test the timeout rc before the trinity-ok grep, so a
-        provider that prints then hangs reports TIMEOUT, not a false PASS."""
-        smoke = _extract_doctor_smoke()
-        timeout_pos = smoke.find("142")
-        pass_pos = smoke.find('grep -qi "trinity-ok"')
-        assert timeout_pos != -1 and pass_pos != -1
-        assert timeout_pos < pass_pos, (
-            "doctor smoke greps trinity-ok before the timeout rc check — "
-            "a print-then-hang provider would be a false PASS"
+    def test_doctor_reuses_probe_provider(self):
+        """doctor must REUSE trinity's `_doctor._probe_provider` (own process
+        group + killpg on timeout, rc-based health) rather than a hand-rolled
+        bash/perl smoke — connector P2 'Kill doctor probes as a process group'
+        and the recurring stdout-vs-JSONL false positives."""
+        text = SKILL_MD.read_text()
+        doctor = text[text.index("### `doctor`") :]
+        doctor = doctor[: doctor.index("### `help`")]
+        assert "_doctor._probe_provider(" in doctor, (
+            "doctor no longer reuses _probe_provider — a hand-rolled smoke would "
+            "reintroduce the process-group/JSONL bugs"
+        )
+        # The fragile primitives the reuse exists to avoid must be gone.
+        assert "perl -e 'alarm" not in doctor, (
+            "doctor still uses the perl-alarm wrapper (only signals the exec'd "
+            "leader; a forked grandchild holding the pipe hangs the probe)"
+        )
+        assert 'grep -qi "trinity-ok"' not in doctor, (
+            "doctor still greps stdout for a marker — use rc-based _probe_provider"
         )
 
-    def test_doctor_smoke_pass_requires_zero_rc(self):
-        """PASS must require rc 0 AND the marker — a provider that prints
-        trinity-ok then exits nonzero is not healthy."""
-        smoke = _extract_doctor_smoke()
-        assert '[ $rc -eq 0 ] && echo "$out" | grep -qi "trinity-ok"' in smoke, (
-            "doctor PASS branch does not require rc 0 alongside the marker"
+    def test_doctor_probe_provider_handles_process_group(self):
+        """The reused _probe_provider must run the probe in its own session and
+        killpg on timeout (the actual mechanism that fixes the hang)."""
+        src = (ROOT / "scripts" / "_doctor.py").read_text()
+        probe = src[src.index("def _probe_provider(") :]
+        probe = probe[: probe.index("\ndef ", 1)]
+        assert "start_new_session=True" in probe and "killpg" in probe, (
+            "_probe_provider lost its process-group timeout handling"
         )
 
     def test_heartbeat_fails_fast_on_missing_output(self):
@@ -428,12 +439,16 @@ class TestDispatchInstructionGuards:
             "streaming wrapper — a missing file must fail fast, not report running"
         )
 
-    def test_doctor_smoke_sanitizes_env(self):
-        """smoke() must strip *_BASE_URL/OTEL_*/TRINITY_* before probing, like
-        step 5 dispatch — else doctor tests a different endpoint than dispatch."""
-        smoke = _extract_doctor_smoke()
-        assert "BASE_URL" in smoke and "TRINITY_DISABLE_DISPATCH" in smoke, (
-            "doctor smoke does not sanitize the provider environment"
+    def test_doctor_sanitizes_env_via_reused_probe(self):
+        """doctor must probe with the same sanitized env dispatch uses. Reuse of
+        _probe_provider gets this for free: it calls build_provider_env (the
+        Python sanitizer), so doctor and dispatch hit the same endpoint."""
+        probe_src = (ROOT / "scripts" / "_doctor.py").read_text()
+        probe = probe_src[probe_src.index("def _probe_provider(") :]
+        probe = probe[: probe.index("\ndef ", 1)]
+        assert "build_provider_env()" in probe, (
+            "_probe_provider no longer sanitizes via build_provider_env — doctor "
+            "would probe a different endpoint than dispatch"
         )
 
     def test_step5_reuses_sanitized_output_path(self):
@@ -813,68 +828,56 @@ class TestInstructionFidelity:
         )
 
 
-def _extract_doctor_smoke() -> str:
-    """Extract the smoke() function from SKILL.md's doctor section."""
-    text = SKILL_MD.read_text()
-    m = re.search(r"smoke\(\) \{.*?\n\}", text, re.DOTALL)
-    assert m, "no smoke() function in SKILL.md doctor section"
-    return m.group(0)
-
-
 class TestDoctorTimeoutDetection:
-    """AC: the doctor smoke() must classify a SIGALRM-timeout correctly.
+    """AC: the reused _probe_provider must kill the whole process group on
+    timeout, so a provider that forks a child holding the captured pipe cannot
+    hang the probe past the timeout (connector P2 'Kill doctor probes as a
+    process group')."""
 
-    The perl-alarm wrapper dies on SIGALRM; under bash command-substitution the
-    exit status is 128+14=142, not 14. The smoke() timeout branch must match 142
-    (this is the Codex-review P2 finding — the original `[ $rc -eq 14 ]` never
-    fired, hiding every timeout as a FAIL).
-    """
+    def test_probe_kills_pipe_holding_grandchild_on_timeout(self, tmp_path):
+        """Executed: a provider that forks a child inheriting stdout and then
+        sleeps must be force-killed (group) at the timeout — the probe returns
+        cause=timeout quickly AND the grandchild is dead, not orphaned."""
+        import importlib
 
-    def test_timeout_exit_status_is_142(self):
-        """Confirm the perl-alarm wrapper actually yields 142, not 14."""
-        rc = subprocess.run(
-            [
-                "bash",
-                "-c",
-                "out=$(perl -e 'alarm shift; exec @ARGV' 1 sleep 3); echo $?",
-            ],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        assert rc == "142", f"perl-alarm timeout rc is {rc}, expected 142"
+        codex = importlib.import_module("codex")
+        _doctor = importlib.import_module("_doctor")
 
-    def test_smoke_function_classifies_timeout_as_timeout_not_fail(self, tmp_path):
-        """The smoke() timeout branch must reference rc 142 (not just 14).
-
-        Fast: checks the extracted smoke() contains the 142 check, rather than
-        waiting 30s for a real timeout (the end-to-end variant is `slow`).
-        """
-        smoke_fn = _extract_doctor_smoke()
-        assert "142" in smoke_fn, (
-            "smoke() timeout branch does not check rc 142 (SIGALRM under bash); "
-            "this is the Codex-review P2 regression — timeouts fall through to FAIL"
+        gpid = tmp_path / "grandchild.pid"
+        provider = tmp_path / "hangprov"
+        # exec sleep so SIG to the group reaches it; record its pid for the orphan
+        # check. The leader backgrounds it and waits, holding the pipe open.
+        provider.write_text(
+            "#!/bin/bash\nbash -c 'echo $$ > \"%s\"; exec sleep 60' &\nwait\n" % gpid
         )
+        provider.chmod(0o755)
 
-    @pytest.mark.slow
-    def test_smoke_timeout_end_to_end(self, tmp_path):
-        """Slow: run smoke() against a 35s-sleep provider to verify the TIMEOUT
-        line is printed (not FAIL) end-to-end. ~30s wall-clock."""
-        smoke_fn = _extract_doctor_smoke()
-        script = textwrap.dedent(f"""\
-            {smoke_fn}
-            smoke hung_provider sleep 35
-        """)
-        result = subprocess.run(
-            ["bash", "-c", script],
-            capture_output=True,
-            text=True,
-            cwd=tmp_path,
-            timeout=60,
-        )
-        assert "TIMEOUT" in result.stdout, (
-            f"smoke misclassified timeout:\n{result.stdout}"
-        )
-        assert "FAIL" not in result.stdout
+        prev = codex._LIVE_PROBE_TIMEOUT
+        codex._LIVE_PROBE_TIMEOUT = 2
+        try:
+            start = time.monotonic()
+            res = _doctor._probe_provider(
+                "hangprov", {"cli": str(provider)}, str(tmp_path)
+            )
+            elapsed = time.monotonic() - start
+        finally:
+            codex._LIVE_PROBE_TIMEOUT = prev
+
+        assert res and res.get("cause") == "timeout", f"expected timeout, got {res}"
+        assert elapsed < 15, f"probe hung {elapsed:.1f}s past its 2s timeout"
+        # The grandchild that held the pipe must be dead (group-killed), not orphaned.
+        if gpid.exists():
+            pid = gpid.read_text().strip()
+            if pid:
+                gone = False
+                for _ in range(50):
+                    if subprocess.run(["kill", "-0", pid]).returncode != 0:
+                        gone = True
+                        break
+                    time.sleep(0.1)
+                if pid:
+                    subprocess.run(["kill", "-KILL", pid], capture_output=True)
+                assert gone, "pipe-holding grandchild orphaned (group not killed)"
 
 
 class TestSynthesisReuse:
