@@ -298,6 +298,25 @@ class TestDispatchInstructionGuards:
             "report unknown despite being loaded by discovery"
         )
 
+    def test_required_preset_providers_are_not_silently_dropped(self):
+        """An unusable REQUIRED preset provider must be surfaced as a failed
+        participant, not filtered out — else /trinity-zc review can PASS while
+        silently missing a required reviewer (connector P2 'Do not filter
+        required preset providers'; mirrors codex.py::resolve_preset_providers,
+        which adds every required provider unconditionally)."""
+        text = SKILL_MD.read_text()
+        assert "filtered out at dispatch" not in text, (
+            "Presets prose still says required providers are filtered out — "
+            "trinity keeps them and surfaces the absence"
+        )
+        assert "Do NOT silently drop a required provider" in text, (
+            "Presets prose lost the required-provider quorum guarantee"
+        )
+        assert "failed participant" in text, (
+            "synthesis preconditions no longer require recording an undispatched "
+            "required provider as a failed participant"
+        )
+
     def test_claude_code_resume_is_honored(self):
         """claude-code has registry supports_resume:true/resume_arg:--resume, so
         the resume matrix must resume it (not bucket it into 'no resume arg')."""

@@ -104,7 +104,7 @@ defaults = {**g.get("defaults",{}), **proj.get("defaults",{})}
 
 ## Presets
 
-Expand a preset keyword to its provider list (from merged config `presets.<name>.providers`; built-in defaults below if absent). Optional providers are included only when discovery marks them usable.
+Expand a preset keyword to its provider list (from merged config `presets.<name>.providers`; built-in defaults below if absent). **Required** providers are always included (mirrors `scripts/codex.py::resolve_preset_providers`, which adds every required provider unconditionally); **optional** providers (`presets.<name>.optional_providers`) are included only when discovery marks them usable.
 
 | Preset | Required | Optional |
 |--------|----------|----------|
@@ -112,7 +112,7 @@ Expand a preset keyword to its provider list (from merged config `presets.<name>
 | `fast-review` | glm, deepseek | — |
 | `deep-review` | glm, gemini, deepseek | codex, claude-code |
 
-(Mirrors trinity's own SKILL.md preset defaults so a stock install dispatches the same panel. These are fallbacks **only when the merged config has no live `presets`** — always prefer live presets. Required providers that discovery marks unusable on this machine, e.g. a retired `gemini`, are filtered out at dispatch; optional providers are included only when usable.)
+(Mirrors trinity's own SKILL.md preset defaults so a stock install dispatches the same panel. These are fallbacks **only when the merged config has no live `presets`** — always prefer live presets. **Do NOT silently drop a required provider that is unusable on this machine** (e.g. a missing `gemini`): trinity keeps every required provider and lets the absence surface as a failed/misconfigured participant, so a review never synthesizes a PASS while quietly missing a required reviewer. Report the unusable required provider (`❌ missing agent file`/`missing config`) as part of the dispatch result rather than reducing the quorum. Only **optional** providers are skipped when unusable.)
 
 ## Dispatch Protocol
 
@@ -330,6 +330,7 @@ print(synth_path)
 ```
 
 Pre-conditions the reused function expects:
+- A **required** preset provider that could not be dispatched (unusable: missing agent file/config, or a launch failure) must still appear in the results list as a **failed participant** (`returncode != 0`), never omitted. Dropping it would let `write_synthesis` compute a PASS from the remaining providers while silently missing a required reviewer — exactly the quorum hole §Presets warns against. Only **optional** providers may be absent from the results.
 - Each `review_dir/raw/<provider>.txt` must be populated in sentinel format (stdout + `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` + stderr) **before** the call. Dispatch (step 5) writes `$RUN_DIR/<instance>.out`; the `cp` above stages it under the `raw/` name. A missing `raw/<provider>.txt` makes write_synthesis treat an rc=0 provider as PASS with no findings.
 - For TRN-3022 parsing to succeed, the provider's prompt must instruct it to emit a trailing fenced ```` ```json ```` block with `{decision, weighted_score, blocking, advisories, confidence?}`. trinity's `_review_schema_addendum` provides this text. **This is appended at dispatch time — §Dispatch Protocol step 4 ("Build the prompt") — NOT here:** by the time synthesis runs the providers have already finished, so a prompt dispatched without the addendum can no longer be fixed and synthesis will read free-form output as a legacy PASS.
 
