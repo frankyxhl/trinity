@@ -825,6 +825,7 @@ class TestExecutedContracts:
                     text,
                 )
             }
+
         zc = parse(SKILL_MD.read_text())
         root = parse((ROOT / "SKILL.md").read_text())
         assert zc, "no timeout table parsed from trinity-zc SKILL.md"
