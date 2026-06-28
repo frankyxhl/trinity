@@ -272,6 +272,56 @@ class TestDispatchInstructionGuards:
             "discovery snippet drops preset_aliases — custom aliases will not resolve"
         )
 
+    def test_discovery_carries_defaults(self):
+        """The discovery snippet must carry merged `defaults` so a config-set
+        defaults.timeout overrides the built-in table instead of being dropped."""
+        text = SKILL_MD.read_text()
+        assert 'defaults = {**g.get("defaults"' in text, (
+            "discovery snippet drops defaults — config-set timeout overrides ignored"
+        )
+
+    def test_timeout_section_honors_config_defaults(self):
+        """The §Timeout prose must state the table is a fallback and that a
+        merged defaults.timeout override wins for its task_type."""
+        text = SKILL_MD.read_text()
+        assert "defaults.timeout" in text and "fallback" in text, (
+            "§Timeout no longer documents the defaults.timeout override path"
+        )
+
+    def test_dispatch_parser_honors_config_aliases(self):
+        """Dispatch step 2 must resolve aliases from the merged preset_aliases
+        map, not only the hard-coded built-ins (r/fr/dr)."""
+        text = SKILL_MD.read_text()
+        assert "any key in the merged `preset_aliases` map" in text, (
+            "dispatch parser ignores config preset_aliases — custom aliases "
+            "report unknown despite being loaded by discovery"
+        )
+
+    def test_claude_code_resume_is_honored(self):
+        """claude-code has registry supports_resume:true/resume_arg:--resume, so
+        the resume matrix must resume it (not bucket it into 'no resume arg')."""
+        text = SKILL_MD.read_text()
+        assert "deepseek **and** claude-code" in text, (
+            "claude-code resume dropped — falls into the no-resume bucket despite "
+            "registry supports_resume:true"
+        )
+
+    def test_fallback_kill_targets_per_run_marker(self):
+        """The timeout/clear/error fallback must grep a per-run KILL_MARKER, never
+        a bare '<provider-cli-token>' that could kill another project's job."""
+        text = SKILL_MD.read_text()
+        assert 'KILL_MARKER="trinity-zc-kill:$(basename "$RUN_DIR")"' in text, (
+            "step 5 no longer tags the wrapper with a per-run KILL_MARKER"
+        )
+        assert "'<provider-cli-token>'" not in text, (
+            "a fallback still greps the bare provider CLI token — can kill an "
+            "unrelated process sharing that token"
+        )
+        block = _extract_step5_block()
+        assert '\' "$KILL_MARKER" <cli-and-args...>' in block, (
+            "the wrapper's $0 is not the KILL_MARKER, so pgrep -f cannot target it"
+        )
+
     def test_step4_appends_task_prompt(self):
         """Step 4 must instruct that the task prompt is the final argument;
         omitting it launches the provider with no task."""
@@ -777,6 +827,7 @@ class TestExecutedContracts:
                     "providers": {"glm": {"cli": "g"}, "codex": {"cli": "c"}},
                     "presets": {"review": {"providers": ["glm"]}},
                     "preset_aliases": {"r": "review"},
+                    "defaults": {"timeout": {"review": {"max_at": 999}}, "keep": 1},
                 }
             )
         )
@@ -786,6 +837,7 @@ class TestExecutedContracts:
                     "providers": {"glm": {"cli": "PROJ"}},
                     "presets": {"custom": {"providers": ["codex"]}},
                     "preset_aliases": {"c": "custom"},
+                    "defaults": {"timeout": {"review": {"max_at": 111}}},
                 }
             )
         )
@@ -793,7 +845,7 @@ class TestExecutedContracts:
         epilogue = (
             "\nimport json as _j\n"
             'print(_j.dumps({"providers": providers, "presets": presets, '
-            '"preset_aliases": preset_aliases}))\n'
+            '"preset_aliases": preset_aliases, "defaults": defaults}))\n'
         )
         r = subprocess.run(
             [sys.executable, "-c", block + epilogue],
@@ -811,6 +863,11 @@ class TestExecutedContracts:
         )
         assert res["preset_aliases"] == {"r": "review", "c": "custom"}, (
             "preset_aliases must be carried and merged"
+        )
+        # defaults shallow-merge: project's defaults.timeout wins; global's other
+        # keys survive (shallow merge replaces top-level keys, not deep-merges).
+        assert res["defaults"]["timeout"]["review"]["max_at"] == 111, (
+            "project defaults.timeout must win over global"
         )
 
     def test_timeout_table_matches_trinity(self):

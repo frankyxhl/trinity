@@ -95,6 +95,10 @@ presets = {**g.get("presets",{}), **proj.get("presets",{})}
 # aliases resolve in the dispatch parser; without this, `/trinity-zc <alias>`
 # falls back to only the hard-coded built-ins (r/fr/dr).
 preset_aliases = {**g.get("preset_aliases",{}), **proj.get("preset_aliases",{})}
+# Carry defaults through (shallow-merge, mirrors scripts/config.py) so a
+# config-set `defaults.timeout` overrides the built-in §Timeout table instead of
+# being silently ignored.
+defaults = {**g.get("defaults",{}), **proj.get("defaults",{})}
 ```
 
 ## Presets
@@ -113,7 +117,7 @@ Expand a preset keyword to its provider list (from merged config `presets.<name>
 
 Parse tokens left-to-right:
 1. Built-in subcommand first: `status`, `clear`, `heartbeat`, `result`, `doctor`, `help`.
-2. Preset/alias name (`review`/`fast-review`/`deep-review`/`r`/`fr`/`dr`) → expand to providers, dispatch the SAME task to each.
+2. Preset/alias name → expand to providers, dispatch the SAME task to each. Recognize, in order: built-in preset names (`review`/`fast-review`/`deep-review`), built-in aliases (`r`→`review`, `fr`→`fast-review`, `dr`→`deep-review`), **and any key in the merged `preset_aliases` map loaded by discovery** (a config alias whose value names a preset). The built-ins are defaults only — a config `preset_aliases` entry with the same key wins. A token matching none of these is not a preset; fall through to provider syntax.
 3. Provider syntax: `provider`, `provider:instance`, or `provider*N`.
 
 ### For EACH (provider, task) pair:
@@ -134,9 +138,9 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 
 **4. Build the command.** Read `cli` from merged config; expand `~` and `$HOME`. If resume pointer != NEW and the provider supports resume, append the resume flag:
 - droid-backed (glm/minimax): `<cli> -s "$SESSION_ID"`
-- deepseek wrapper: `<cli> --resume "$SESSION_ID"` — **pass the saved `$SESSION_ID`**; a bare `-r`/`--resume` with no id makes the underlying `claude` resume the latest/wrong conversation instead of the stored pointer (the deepseek bin forwards args verbatim to `claude`; see `providers/deepseek.md`).
+- claude-wrapper (deepseek **and** claude-code): `<cli> --resume "$SESSION_ID"` — **pass the saved `$SESSION_ID`**; a bare `-r`/`--resume` with no id makes the underlying `claude` resume the latest/wrong conversation instead of the stored pointer (the bin forwards args verbatim to `claude`; see `providers/deepseek.md`, `providers/claude-code.md`). Both registry entries set `supports_resume:true, resume_arg:"--resume"`, so both resume here. Flag order is safe: the cli ends in `-p`, and `claude -p --resume "$ID" "<task>"` parses correctly — `-p` does not consume `--resume` (verified live: a bogus id returns "No conversation found", i.e. `--resume` was parsed, not swallowed).
 - codex: `<cli>` (codex resume is experimental/session-scoped; omit unless explicitly requested)
-- others: no resume arg
+- any provider with registry `supports_resume:false` (e.g. openrouter): no resume arg
 
 **The task prompt is the final argument** (mirrors `provider_runtime.run_provider`, which appends the prompt handoff last, and the `providers/*.md` final-`<prompt>` convention). The full arg vector is therefore `<cli> [resume-flag] "<task>"`, and that is exactly the `<cli-and-args...>` placeholder substituted into step 5. **Omitting the prompt launches the provider with no task and yields an empty or unrelated result.**
 
@@ -154,6 +158,15 @@ export OUTPUT_FILE
 # expansion, which is bash 4+ only and fails on macOS default /bin/bash.
 for v in $(env | sed -n 's/^\([A-Za-z0-9_]*BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
+# KILL_MARKER is a per-run unique tag (= the run-dir basename, e.g.
+# trinity-zc.a1b2c3d4). It is passed as the wrapper's $0, so it shows up in the
+# process command line (pgrep -f matches argv) but is NOT part of "$@"
+# (positional params start at $1 = the cli). The §Timeout/§clear fallback greps
+# this exact marker, so it kills only THIS run's wrapper — never an unrelated
+# process that merely shares the provider CLI token (another project's
+# `codex`/`droid`). It is reconstructable later from the stored output_file as
+# trinity-zc-kill:$(basename "$(dirname "$output_file")").
+KILL_MARKER="trinity-zc-kill:$(basename "$RUN_DIR")"
 # Run the provider in the FOREGROUND of this already-backgrounded shell.
 # Stream stdout straight to OUTPUT_FILE so the §Heartbeat byte-delta check sees
 # real progress mid-run (the file is created the moment the provider starts);
@@ -164,12 +177,12 @@ bash -c '
   printf "\n%%%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%%%\n" >> "$OUTPUT_FILE"
   cat "$OUTPUT_FILE.err" >> "$OUTPUT_FILE" 2>/dev/null; rm -f "$OUTPUT_FILE.err"
   echo "$RC" > "$OUTPUT_FILE.rc"
-' _ <cli-and-args...>
+' "$KILL_MARKER" <cli-and-args...>
 ```
 
 Note on the sentinel escaping: the literal sentinel is `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` (it contains double-percent signs). Inside a `printf` format string, every literal `%` must be written as `%%`, so the sentinel appears as `%%%%...%%%%` in the format — four percents at each end produce the two literal percents the sentinel requires. Getting this wrong produces a file the synthesis parser cannot split.
 
-Because the provider runs in the foreground of the harness-backgrounded shell, the harness tracks the provider's lifetime directly — there is no separate wrapper PID to record, and no `$!` to capture. Process cleanup on timeout is handled by the harness killing the backgrounded Bash (which cascades to its foreground child).
+Because the provider runs in the foreground of the harness-backgrounded shell, the harness tracks the provider's lifetime directly — there is no separate wrapper PID to record, and no `$!` to capture. Process cleanup on timeout is handled by the harness killing the backgrounded Bash (which cascades to its foreground child). For the rare fallback where the runtime exposes no cancel handle, the `KILL_MARKER` (the wrapper's `$0`, = the run-dir basename) is the precise targeting handle: `pgrep -f "$KILL_MARKER"` matches only this run's wrapper, never an unrelated process that shares the provider CLI token.
 
 **Heartbeat visibility:** because stdout is streamed straight into `OUTPUT_FILE` (the `"$@" >"$OUTPUT_FILE"` redirect creates it the instant the provider starts and grows it as the provider writes), the byte-delta heartbeat (§Heartbeat) observes real progress mid-run — a healthy long-running review is never misread as `failed to start`. The sentinel + stderr are appended only after the provider exits, so the completion handler still reads the full `stdout + SENTINEL + stderr` format. One residual edge: a provider that has started but not yet emitted any stdout leaves a 0-byte `OUTPUT_FILE`; treat "0 bytes + elapsed < the task-type `max_at`" as `🔄 running (no output yet)`, not `failed` (see §Heartbeat).
 
@@ -250,7 +263,12 @@ From task keywords (mirrors trinity): `review`/`审查` → `review`; `tdd`/`tes
 | prp | 5 min | 8 min |
 | general | 10 min | 20 min |
 
-On each heartbeat/status check, compare `now - start_time`. At `warn_at` report `⚠️ possibly slow`. At `max_at` report `🚨 timed out` and kill the dispatched process. Because step 5 runs the provider in the foreground of the harness-backgrounded Bash (no separate wrapper PID is recorded), the kill path depends on the harness: the orchestrator signals "stop/cancel this background task" to the harness, which terminates the backgrounded Bash process group, cascading to the foreground provider. If the runtime exposes a task/cancel handle (e.g. a background-task id returned by the Bash tool), use that. As a fallback, discover the provider PID by matching the CLI in the process table (`pgrep -f '<provider-cli-token>'`) and `kill -TERM` it, then `kill -9` after 5s if still alive. Do NOT reference `$OUTPUT_FILE.pid` (no such file is written since the P1 double-backgrounding fix) and do NOT use `pkill -g` (its group semantics differ on BSD/macOS).
+This table is the **fallback**. If discovery's merged `defaults.timeout` defines a
+per-task-type override (e.g. `{"review": {"warn_at": 480, "max_at": 720}}`, seconds),
+use it for that task_type and fall back to the table only for unset types — mirrors
+trinity reading thresholds from merged config rather than a frozen constant.
+
+On each heartbeat/status check, compare `now - start_time`. At `warn_at` report `⚠️ possibly slow`. At `max_at` report `🚨 timed out` and kill the dispatched process. Because step 5 runs the provider in the foreground of the harness-backgrounded Bash (no separate wrapper PID is recorded), the kill path depends on the harness: the orchestrator signals "stop/cancel this background task" to the harness, which terminates the backgrounded Bash process group, cascading to the foreground provider. If the runtime exposes a task/cancel handle (e.g. a background-task id returned by the Bash tool), use that. As a fallback, target the per-run `KILL_MARKER` from step 5, reconstructed from the stored `output_file`: `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` finds the wrapper PID, then `kill -TERM`, wait 5s, `kill -9` if still alive. Match the marker, **never** a generic `<provider-cli-token>` — the bare token (`codex`/`droid`) can match another project's job and kill it. Do NOT reference `$OUTPUT_FILE.pid` (no such file is written since the P1 double-backgrounding fix) and do NOT use `pkill -g` (its group semantics differ on BSD/macOS).
 
 ## Review Synthesis (reused from trinity)
 
@@ -319,7 +337,7 @@ If instance given, check only it; else check all `running` sessions. For each:
 - `clear glm:auth` → delete that key.
 - `clear glm` → delete `glm` and all `glm:*`.
 - `clear all` → write `{"sessions": {}}`.
-Kill any still-running provider first (same path as §Timeout: signal the harness to cancel the backgrounded Bash, or `pgrep -f '<provider-cli-token>'` then `kill -TERM`/`kill -9`; no PID/PGID is recorded and `pkill -g` is unreliable on macOS). Confirm before deleting.
+Kill any still-running provider first (same path as §Timeout: signal the harness to cancel the backgrounded Bash, or `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` then `kill -TERM`/`kill -9`; match the per-run marker, not a bare CLI token; no PID/PGID is recorded and `pkill -g` is unreliable on macOS). Confirm before deleting.
 
 ### `result <instance>`
 
@@ -365,7 +383,7 @@ Print this SKILL.md's Syntax + architecture-summary sections.
 - Missing agent file / config → report which, point to `trinity install`.
 - Empty task → `Task cannot be empty`.
 - `output_file` missing at heartbeat: step 5 streams via `>"$OUTPUT_FILE"`, which creates the file the instant the provider launches. So elapsed < ~5s startup grace → `🟡 starting`; **missing past the grace → `❌ failed to launch`** (bad output path, or the shell never reached the redirect) — surface it immediately, do NOT hold until the task timeout. A present-but-0-byte file within `max_at` is `🔄 running (no output yet)` (see §Heartbeat).
-- Background process cleanup on timeout/abort: signal the harness to cancel the backgrounded Bash (which cascades to the foreground provider). Fallback: `pgrep -f '<provider-cli-token>'` to find the PID, then `kill -TERM`, wait 5s, `kill -9`. No `$OUTPUT_FILE.pid` is written (P1 fix removed double-backgrounding); no `setsid`/`pkill -g` (absent/unreliable on macOS).
+- Background process cleanup on timeout/abort: signal the harness to cancel the backgrounded Bash (which cascades to the foreground provider). Fallback: `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` (the per-run `KILL_MARKER`, never a bare CLI token that could match another project's job) to find the PID, then `kill -TERM`, wait 5s, `kill -9`. No `$OUTPUT_FILE.pid` is written (P1 fix removed double-backgrounding); no `setsid`/`pkill -g` (absent/unreliable on macOS).
 
 ## Out of scope (v1)
 
