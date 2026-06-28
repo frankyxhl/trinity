@@ -142,7 +142,14 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 - codex: `<cli>` (codex resume is experimental/session-scoped; omit unless explicitly requested)
 - any provider with registry `supports_resume:false` (e.g. openrouter): no resume arg
 
-**The task prompt is the final argument** (mirrors `provider_runtime.run_provider`, which appends the prompt handoff last, and the `providers/*.md` final-`<prompt>` convention). The full arg vector is therefore `<cli> [resume-flag] "<task>"`, and that is exactly the `<cli-and-args...>` placeholder substituted into step 5. **Omitting the prompt launches the provider with no task and yields an empty or unrelated result.**
+**Build the prompt — review task_types MUST append the schema addendum.** For `task_type == review` (preset dispatch, or a task whose keywords infer review), the dispatched prompt MUST be `<task>` **plus trinity's structured-output addendum**. Skip this and the provider emits free-form findings with no trailing fenced JSON; `_review.write_synthesis` then sees an rc=0 raw output with no structured block and takes its **legacy PASS path** (`scripts/_review.py`), silently synthesizing PASS with zero findings — a real FIX/BLOCK verdict is lost. Append it BEFORE the prompt becomes the final argument (the addendum is empty for non-review task_types, so this is safe to apply unconditionally):
+
+```bash
+ADDENDUM=$(python3 -c "import sys; sys.path.insert(0,'$HOME/.claude/skills/trinity/scripts'); import review_schema; print(review_schema._review_schema_addendum('$TASK_TYPE'), end='')")
+PROMPT="$TASK$ADDENDUM"   # non-review TASK_TYPE → ADDENDUM is "" → PROMPT == TASK
+```
+
+**The prompt (`$PROMPT` above, task + any addendum) is the final argument** (mirrors `provider_runtime.run_provider`, which appends the prompt handoff last, and the `providers/*.md` final-`<prompt>` convention). The full arg vector is therefore `<cli> [resume-flag] "$PROMPT"`, and that is exactly the `<cli-and-args...>` placeholder substituted into step 5. **Omitting the prompt launches the provider with no task and yields an empty or unrelated result; omitting the addendum on a review yields a silent false PASS.**
 
 **5. Spawn via Bash background.** Use `Bash(run_in_background=true)`. The harness's background mode already provides process isolation — do NOT add a trailing `&` inside the block: that double-backgrounds the provider (the harness-tracked shell exits immediately after launch while the provider runs on as an untracked orphan, so the completion notification fires on launch rather than on provider completion). Likewise do NOT wrap in `setsid` (it does not exist on macOS/BSD). Pass `OUTPUT_FILE` via environment, **sanitize the environment before invoking the provider**, capture both streams with a sentinel separator, and record the return code:
 
@@ -299,7 +306,7 @@ print(synth_path)
 
 Pre-conditions the reused function expects:
 - Each `review_dir/raw/<provider>.txt` must be populated in sentinel format (stdout + `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` + stderr) **before** the call. Dispatch (step 5) writes `$RUN_DIR/<instance>.out`; the `cp` above stages it under the `raw/` name. A missing `raw/<provider>.txt` makes write_synthesis treat an rc=0 provider as PASS with no findings.
-- For TRN-3022 parsing to succeed, the provider's prompt must instruct it to emit a trailing fenced ```` ```json ```` block with `{decision, weighted_score, blocking, advisories, confidence?}`. trinity's `_review_schema_addendum` provides this text; append it to review prompts.
+- For TRN-3022 parsing to succeed, the provider's prompt must instruct it to emit a trailing fenced ```` ```json ```` block with `{decision, weighted_score, blocking, advisories, confidence?}`. trinity's `_review_schema_addendum` provides this text. **This is appended at dispatch time — §Dispatch Protocol step 4 ("Build the prompt") — NOT here:** by the time synthesis runs the providers have already finished, so a prompt dispatched without the addendum can no longer be fixed and synthesis will read free-form output as a legacy PASS.
 
 Review-dir layout (matches trinity): `.trinity/reviews/<YYYYMMDD-HHMMSS-slug>/{raw,logs,prompt.md,metadata.json,synthesis.md}`.
 

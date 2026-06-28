@@ -326,9 +326,35 @@ class TestDispatchInstructionGuards:
         """Step 4 must instruct that the task prompt is the final argument;
         omitting it launches the provider with no task."""
         text = SKILL_MD.read_text()
-        assert "task prompt is the final argument" in text, (
+        assert "is the final argument" in text, (
             "step 4 no longer states the task prompt is the final dispatch arg"
         )
+
+    def test_review_dispatch_appends_schema_addendum(self):
+        """Review task_types must append _review_schema_addendum at DISPATCH time
+        (step 4), not only as a synthesis precondition — else providers emit
+        free-form output and write_synthesis takes the rc-0 legacy PASS path."""
+        text = SKILL_MD.read_text()
+        assert "review_schema._review_schema_addendum(" in text, (
+            "step 4 does not fetch the structured-output addendum at dispatch"
+        )
+        assert 'PROMPT="$TASK$ADDENDUM"' in text, (
+            "step 4 does not build the dispatched prompt from task + addendum"
+        )
+        # The build must precede the 'final argument' statement (ordering matters:
+        # the addendum is useless if appended after providers run).
+        assert text.index("review_schema._review_schema_addendum(") < text.index(
+            "is the final argument"
+        ), "addendum fetch appears after the final-argument step — wrong order"
+
+    def test_review_schema_addendum_helper_is_callable(self):
+        """The exact helper the dispatch snippet calls must exist and return the
+        structured-output text for 'review' and empty for non-review types."""
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import review_schema
+
+        assert "Structured Output" in review_schema._review_schema_addendum("review")
+        assert review_schema._review_schema_addendum("general") == ""
 
     def test_required_version_tracks_shipped_scripts(self):
         """The startup REQUIRED_VERSION gate must equal the shipped version
