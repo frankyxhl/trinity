@@ -765,18 +765,22 @@ class TestInstructionFidelity:
                 proc.kill()
 
     def test_step5_block_sanitizes_dangerous_env(self, tmp_path):
-        """The step-5 block must strip *_BASE_URL before invoking the provider.
+        """The step-5 block must strip *_BASE_URL before invoking the provider,
+        but ONLY the underscore-delimited pattern that provider_runtime strips.
 
-        This is the P2 env-sanitization fix: a dangerous endpoint var set in
-        the caller env must NOT reach the provider. The stub provider echoes
-        the var; it must come back empty.
+        - OPENAI_BASE_URL / OPENAI2_BASE_URL (incl. digits) must be stripped.
+        - DATABASE_URL must be PRESERVED: it ends in 'BASE_URL' but NOT in
+          '_BASE_URL', and the Python clearlist (`*_BASE_URL`, fnmatch) keeps it.
+          A too-greedy sed (`[A-Za-z0-9_]*BASE_URL`) wrongly strips it — connector
+          P2 'Match only underscored endpoint overrides'.
         """
         block = _extract_step5_block()
         output_file = tmp_path / "glm.out"
-        # Cover both a plain and a DIGIT-bearing endpoint override — the shared
-        # provider_runtime clearlist (`*_BASE_URL`) matches digits, so the sed
-        # sanitizer must too (Codex P2: `[A-Z_]*` missed OPENAI2_BASE_URL).
-        stub = 'printf "a=%s b=%s" "${OPENAI_BASE_URL:-UNSET}" "${OPENAI2_BASE_URL:-UNSET}"'
+        stub = (
+            'printf "a=%s b=%s db=%s" '
+            '"${OPENAI_BASE_URL:-UNSET}" "${OPENAI2_BASE_URL:-UNSET}" '
+            '"${DATABASE_URL:-UNSET}"'
+        )
         exec_block = block.replace("<run_dir>", str(tmp_path))
         exec_block = exec_block.replace("<instance>", "glm")
         exec_block = exec_block.replace("<cli-and-args...>", stub)
@@ -791,6 +795,7 @@ class TestInstructionFidelity:
                 "OUTPUT_FILE": str(output_file),
                 "OPENAI_BASE_URL": "https://evil.example/v1",
                 "OPENAI2_BASE_URL": "https://evil2.example/v1",
+                "DATABASE_URL": "postgres://keep.example/db",
             },
             check=True,
         )
@@ -801,6 +806,10 @@ class TestInstructionFidelity:
         )
         assert "evil2.example" not in stdout_part, (
             "OPENAI2_BASE_URL (digit-bearing) leaked — sed sanitizer misses digits"
+        )
+        assert "keep.example" in stdout_part, (
+            "DATABASE_URL was stripped — sed matches 'BASE_URL' without the "
+            "required underscore; provider_runtime (*_BASE_URL) keeps it"
         )
 
 

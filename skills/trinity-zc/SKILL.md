@@ -163,7 +163,10 @@ export OUTPUT_FILE
 # strip *_BASE_URL, *_API_BASE, *_API_HOST, OTEL_*, TRINITY_DISABLE_DISPATCH, TRINITY_MCP_TOKEN.
 # Use env+sed discovery (portable across bash 3.2+/zsh) rather than ${!pat@} indirect
 # expansion, which is bash 4+ only and fails on macOS default /bin/bash.
-for v in $(env | sed -n 's/^\([A-Za-z0-9_]*BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+# NOTE: the leading `_` in `_BASE_URL`/`_API_BASE`/`_API_HOST` is REQUIRED — it
+# mirrors the Python glob `*_BASE_URL` (fnmatch). Without it the regex also matches
+# DATABASE_URL / FIREBASE_URL and strips vars provider_runtime would have kept.
+for v in $(env | sed -n 's/^\([A-Za-z0-9_]*_BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*_API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*_API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
 # KILL_MARKER is a per-run unique tag (= the run-dir basename, e.g.
 # trinity-zc.a1b2c3d4). It is passed as the wrapper's $0, so it shows up in the
@@ -383,7 +386,7 @@ smoke() {
   # a subshell so doctor probes the same endpoint real dispatch uses, not a
   # polluted shell's, and the unset never leaks to the next provider.
   out=$(
-    for v in $(env | sed -n 's/^\([A-Za-z0-9_]*BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+    for v in $(env | sed -n 's/^\([A-Za-z0-9_]*_BASE_URL\)=.*/\1/p; s/^\([A-Za-z0-9_]*_API_BASE\)=.*/\1/p; s/^\([A-Za-z0-9_]*_API_HOST\)=.*/\1/p; s/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
     unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
     perl -e 'alarm shift; exec @ARGV' 30 "$@" 2>&1
   ); rc=$?
