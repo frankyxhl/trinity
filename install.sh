@@ -89,6 +89,39 @@ while IFS='|' read -r src full_dest mode; do
     fi
 done <<< "${MANIFEST_COMMANDS}"
 
+# Conditional files: runtime-peer skills installed only when that runtime's
+# directory already exists under ~ (auto-detected). Used for the ZCode peer
+# skill trinity-zc → ~/.agents/; never creates ~/.agents on machines without it.
+CURRENT_FILE=""
+CONDITIONAL_COMMANDS=$(python3 -c "
+import json, sys
+
+with open('${MANIFEST_PATH}') as f:
+    manifest = json.load(f)
+
+for entry in manifest.get('conditional_files', []):
+    src = entry['src']
+    full_dest = '${HOME}/' + entry['dest']
+    mode = entry.get('mode', '')
+    cond = entry['condition_dir']
+    sys.stdout.write(src + '|' + full_dest + '|' + mode + '|' + cond + '\n')
+")
+
+while IFS='|' read -r src full_dest mode cond; do
+    [ -z "${src}" ] && continue
+    if [ -d "${HOME}/${cond}" ]; then
+        mkdir -p "$(dirname "${full_dest}")"
+        _download "${src}" "${full_dest}"
+        if [ -n "${mode}" ]; then
+            chmod +x "${full_dest}"
+        fi
+        echo "trinity-install: installed ${full_dest} (detected ~/${cond})"
+    else
+        echo "trinity-install: skipped ${full_dest} (~/${cond} not present)"
+    fi
+done <<< "${CONDITIONAL_COMMANDS}"
+CURRENT_FILE=""
+
 rm -f "${MANIFEST_PATH}"
 
 # Validate the downloaded registry is parseable JSON before invoking

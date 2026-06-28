@@ -156,6 +156,15 @@ check "codex CLI signature"      grep -q 'codex exec' providers/codex.md
 check "gemini CLI signature"     grep -q 'gemini --model' providers/gemini.md
 check "glm CLI signature"        grep -q 'droid exec --auto medium --model custom:GLM-5.2' providers/glm.md
 check "minimax CLI signature"    grep -q 'droid exec --auto medium --model custom:MiniMax-M3' providers/minimax.md
+# CHG-3046: droid-family session id must come from `droid exec -o json` (the
+# process's own stdout), NOT a `droid search` content lookup that two parallel
+# droid providers can race on (issue #263). Static guard — make verify-built
+# fails if the templates revert to the racy path.
+for p in glm minimax; do
+  check "$p uses droid exec -o json" grep -qE 'droid exec --auto medium --model custom:[A-Za-z0-9.-]+ -o json' "providers/$p.md"
+  check "$p session_id from json"    grep -q "d.get('session_id'" "providers/$p.md"
+  check "$p no droid search"         bash -c "! grep -q 'droid search' providers/$p.md"
+done
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
 check "deepseek run function"    grep -q 'run_deepseek()' providers/deepseek.md
 check "claude-code run function" grep -q 'run_claude_code()' providers/claude-code.md

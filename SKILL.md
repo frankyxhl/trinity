@@ -73,7 +73,7 @@ The command reads `<project>/.claude/trinity.json`, looks up the pointer for the
 | `openrouter` | `~/.claude-openrouter/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `gemini` | not yet supported (exits 3 with explicit deferral message) |
 
-Path encoding: absolute project path with `/` replaced by `-`. The `glm` resolver KEEPS the leading dash (matches `~/.factory/sessions/-Users-frank-...`); the claude-CLI wrappers (`claude-code` / `deepseek` / `openrouter`) STRIP the leading dash (matches `PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g; s|^-||')` per `providers/<name>.md`).
+Path encoding: absolute project path with `/` replaced by `-`. **All resolvers KEEP the leading dash** — `glm` (matches `~/.factory/sessions/-Users-frank-...`) and the claude-CLI wrappers (`claude-code` / `deepseek` / `openrouter`, matches `PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g')` per `providers/<name>.md` and the claude CLI's `~/.claude-*/projects/-Users-frank-...` layout).
 
 The claude-CLI wrappers themselves are installed at `~/.claude/skills/trinity/bin/<name>` (e.g. `~/.claude/skills/trinity/bin/claude-code`, `~/.claude/skills/trinity/bin/deepseek`, `~/.claude/skills/trinity/bin/openrouter`) — these are the CLI binaries. Their per-wrapper transcript stores listed above are *separate* from the wrapper bin directory.
 
