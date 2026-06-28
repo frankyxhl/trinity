@@ -598,19 +598,29 @@ class TestInstructionFidelity:
 
     def test_step5_block_traps_term_to_child(self):
         """Static guard: the wrapper must background the provider, capture its
-        PID, `wait` on it, and trap TERM/INT to forward the signal — otherwise a
-        fallback kill hits only the wrapper shell and orphans the provider
-        (connector P2 'Kill the provider child, not just the marker shell')."""
+        PID, `wait` on it, and trap TERM/INT to a reap() that TERMs→KILLs the
+        child and finishes only once it is dead — otherwise a fallback kill hits
+        only the wrapper shell and orphans the provider, or a TERM-ignoring
+        provider lingers and keeps writing past the sentinel (connector P2s
+        'Kill the provider child...' and 'Reap the provider after forwarding TERM')."""
         block = _extract_step5_block()
-        # The trap must defer $CHILD expansion to fire time (\$CHILD), not bind it
-        # empty at trap-definition time when CHILD is still unset.
-        assert 'trap "kill -TERM \\"\\$CHILD\\" 2>/dev/null" TERM INT' in block, (
-            "step-5 wrapper lost its TERM/INT trap (or expands $CHILD too early) — "
-            "killing the marker shell would orphan the provider child"
+        # reap() must escalate TERM -> KILL against the child.
+        assert "reap()" in block and "kill -KILL" in block, (
+            "step-5 wrapper lost reap()/KILL escalation — a TERM-ignoring "
+            "provider would never be force-killed"
+        )
+        # The trap must invoke reap with $CHILD deferred to fire time (\$CHILD),
+        # not bound empty at trap-definition time when CHILD is still unset.
+        assert 'trap "reap \\"\\$CHILD\\"" TERM INT' in block, (
+            "step-5 wrapper lost its TERM/INT trap (or expands $CHILD too early)"
         )
         assert "CHILD=$!" in block and 'wait "$CHILD"' in block, (
-            "step-5 wrapper no longer backgrounds the provider + waits on $CHILD; "
-            "the trap has no child PID to target"
+            "step-5 wrapper no longer backgrounds the provider + waits on $CHILD"
+        )
+        # Must confirm the child is actually gone before writing the sentinel/.rc.
+        assert 'while kill -0 "$CHILD"' in block, (
+            "step-5 wrapper writes the sentinel without confirming the child died "
+            "— a slow/TERM-trapping provider could append after the sentinel"
         )
 
     def test_step5_trap_reaps_child_on_term(self, tmp_path):
@@ -682,6 +692,75 @@ class TestInstructionFidelity:
                     subprocess.run(["kill", "-KILL", pid], capture_output=True)
             try:
                 proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+    def test_step5_reap_escalates_to_kill_on_term_ignoring_provider(self, tmp_path):
+        """Executed: a provider that IGNORES TERM must still be force-killed by
+        reap()'s KILL escalation and reaped before the wrapper finishes — the
+        connector P2 'Reap the provider after forwarding TERM' (a TERM-trapping
+        provider would otherwise linger/orphan and write past the sentinel)."""
+        block = _extract_step5_block()
+        output_file = tmp_path / "glm.out"
+        childpid = tmp_path / "child.pid"
+        # SIG_IGN survives exec, so this becomes a `sleep` that ignores TERM.
+        stub = "bash -c 'trap \"\" TERM; echo $$ > %s; exec sleep 60'" % childpid
+        exec_block = block.replace("<run_dir>", str(tmp_path))
+        exec_block = exec_block.replace("<instance>", "glm")
+        exec_block = exec_block.replace("<cli-and-args...>", stub)
+        exec_block = f"RUN_DIR={tmp_path}\n" + exec_block
+        proc = subprocess.Popen(
+            ["bash", "-c", exec_block],
+            cwd=tmp_path,
+            env={**os.environ, "OUTPUT_FILE": str(output_file)},
+        )
+
+        def child_alive() -> bool:
+            if not childpid.exists():
+                return False
+            pid = childpid.read_text().strip()
+            return bool(pid) and subprocess.run(["kill", "-0", pid]).returncode == 0
+
+        try:
+            wrapper_pid = None
+            for _ in range(150):  # up to ~15s
+                if child_alive():
+                    cpid = childpid.read_text().strip()
+                    ppid = subprocess.run(
+                        ["ps", "-o", "ppid=", "-p", cpid],
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+                    if ppid:
+                        wrapper_pid = ppid
+                        break
+                time.sleep(0.1)
+            assert wrapper_pid, "provider child never started under a wrapper"
+
+            # Confirm the child really ignores TERM (else the test proves nothing).
+            cpid = childpid.read_text().strip()
+            subprocess.run(["kill", "-TERM", cpid])
+            time.sleep(1)
+            assert child_alive(), "stub did not actually ignore TERM; test invalid"
+
+            # Now TERM the wrapper: reap() must escalate to KILL within its grace.
+            subprocess.run(["kill", "-TERM", wrapper_pid])
+            reaped = False
+            for _ in range(200):  # up to ~20s (reap grace is ~5s)
+                if not child_alive():
+                    reaped = True
+                    break
+                time.sleep(0.1)
+            assert reaped, (
+                "TERM-ignoring provider survived — reap() did not escalate to KILL"
+            )
+        finally:
+            if childpid.exists():
+                pid = childpid.read_text().strip()
+                if pid:
+                    subprocess.run(["kill", "-KILL", pid], capture_output=True)
+            try:
+                proc.wait(timeout=8)
             except subprocess.TimeoutExpired:
                 proc.kill()
 
