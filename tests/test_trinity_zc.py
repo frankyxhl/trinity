@@ -317,6 +317,32 @@ class TestDispatchInstructionGuards:
             "required provider as a failed participant"
         )
 
+    def test_builtin_preset_fallback_is_per_name_not_whole_map(self):
+        """A built-in preset (review/fast-review/deep-review) absent from the
+        merged map must still fall back to its built-in default even when the
+        map has OTHER custom presets — gating fallback on 'map empty' breaks the
+        advertised commands once a project adds any preset (connector P2 'Fall
+        back per preset instead of only on an empty map')."""
+        text = SKILL_MD.read_text()
+        assert "only when the merged config has no live `presets`" not in text, (
+            "preset fallback still gated on the whole map being empty"
+        )
+        assert "Resolve **per preset name**" in text, (
+            "preset fallback no longer documents per-name resolution"
+        )
+
+    def test_preset_task_type_wins_over_keyword_inference(self):
+        """A preset's declared task_type must win over keyword inference, so a
+        custom tdd/general preset is not forced into review handling + schema
+        addendum (connector P2 'Honor each preset's task_type')."""
+        text = SKILL_MD.read_text()
+        assert "declared `task_type` wins" in text, (
+            "task-type inference no longer prefers the preset's declared task_type"
+        )
+        assert "comes from the resolved preset's declared `task_type`" in text, (
+            "step 4 still assumes every preset dispatch is a review"
+        )
+
     def test_claude_code_resume_is_honored(self):
         """claude-code has registry supports_resume:true/resume_arg:--resume, so
         the resume matrix must resume it (not bucket it into 'no resume arg')."""

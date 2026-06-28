@@ -112,7 +112,7 @@ Expand a preset keyword to its provider list (from merged config `presets.<name>
 | `fast-review` | glm, deepseek | — |
 | `deep-review` | glm, gemini, deepseek | codex, claude-code |
 
-(Mirrors trinity's own SKILL.md preset defaults so a stock install dispatches the same panel. These are fallbacks **only when the merged config has no live `presets`** — always prefer live presets. **Do NOT silently drop a required provider that is unusable on this machine** (e.g. a missing `gemini`): trinity keeps every required provider and lets the absence surface as a failed/misconfigured participant, so a review never synthesizes a PASS while quietly missing a required reviewer. Report the unusable required provider (`❌ missing agent file`/`missing config`) as part of the dispatch result rather than reducing the quorum. Only **optional** providers are skipped when unusable.)
+(Mirrors trinity's own SKILL.md preset defaults so a stock install — which ships providers but often **no** `presets` — still dispatches the panel. Resolve **per preset name**, NOT on whether the map is empty: prefer a live same-named entry in the merged `presets`; if a requested *built-in* preset (`review`/`fast-review`/`deep-review`) is absent from the merged map, use its built-in default row here — even when the map already contains other (custom) presets. A non-built-in name absent from the map is an unknown preset. Gating the fallback on "map is empty" would break the advertised `review`/`fast-review`/`deep-review` the moment a project adds any custom preset. **Do NOT silently drop a required provider that is unusable on this machine** (e.g. a missing `gemini`): trinity keeps every required provider and lets the absence surface as a failed/misconfigured participant, so a review never synthesizes a PASS while quietly missing a required reviewer. Report the unusable required provider (`❌ missing agent file`/`missing config`) as part of the dispatch result rather than reducing the quorum. Only **optional** providers are skipped when unusable.)
 
 ## Dispatch Protocol
 
@@ -143,7 +143,7 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 - codex: `<cli>` (codex resume is experimental/session-scoped; omit unless explicitly requested)
 - any provider with registry `supports_resume:false` (e.g. openrouter): no resume arg
 
-**Build the prompt — review task_types MUST append the schema addendum.** For `task_type == review` (preset dispatch, or a task whose keywords infer review), the dispatched prompt MUST be `<task>` **plus trinity's structured-output addendum**. Skip this and the provider emits free-form findings with no trailing fenced JSON; `_review.write_synthesis` then sees an rc=0 raw output with no structured block and takes its **legacy PASS path** (`scripts/_review.py`), silently synthesizing PASS with zero findings — a real FIX/BLOCK verdict is lost. Append it BEFORE the prompt becomes the final argument (the addendum is empty for non-review task_types, so this is safe to apply unconditionally):
+**Build the prompt — review task_types MUST append the schema addendum.** `$TASK_TYPE` comes from the resolved preset's declared `task_type` when dispatch is via a preset, else from keyword inference (see §Task-type inference) — do NOT assume every preset is a review. For `task_type == review` the dispatched prompt MUST be `<task>` **plus trinity's structured-output addendum**. Skip this and the provider emits free-form findings with no trailing fenced JSON; `_review.write_synthesis` then sees an rc=0 raw output with no structured block and takes its **legacy PASS path** (`scripts/_review.py`), silently synthesizing PASS with zero findings — a real FIX/BLOCK verdict is lost. Append it BEFORE the prompt becomes the final argument (the addendum is empty for non-review task_types, so this is safe to apply unconditionally):
 
 ```bash
 ADDENDUM=$(python3 -c "import sys; sys.path.insert(0,'$HOME/.claude/skills/trinity/scripts'); import review_schema; print(review_schema._review_schema_addendum('$TASK_TYPE'), end='')")
@@ -284,7 +284,7 @@ with os.fdopen(fd, "r+") as f:
 
 ## Task-type inference
 
-From task keywords (mirrors trinity): `review`/`审查` → `review`; `tdd`/`test`/`测试` → `tdd`; `prp`/`proposal` → `prp`; else `general`. Sets the timeout threshold.
+A preset's **declared `task_type` wins** over keyword inference. When dispatch came from a preset, take `TASK_TYPE` from the resolved preset metadata (`presets.<name>.task_type`, validated by `scripts/codex.py::resolve_preset_providers` to one of `tdd`/`review`/`prp`/`general`); the three built-in presets (`review`/`fast-review`/`deep-review`) imply `task_type=review`. Only when no preset task_type is set (e.g. an ad-hoc `provider "task"` dispatch) infer from task keywords (mirrors trinity): `review`/`审查` → `review`; `tdd`/`test`/`测试` → `tdd`; `prp`/`proposal` → `prp`; else `general`. `TASK_TYPE` sets both the timeout threshold AND whether the review schema addendum is appended (step 4) — so a custom `task_type: "tdd"`/`"general"` preset is NOT forced into review handling.
 
 ## Timeout thresholds (per task_type)
 
