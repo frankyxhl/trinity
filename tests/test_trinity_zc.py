@@ -865,18 +865,31 @@ class TestDoctorTimeoutDetection:
 
         assert res and res.get("cause") == "timeout", f"expected timeout, got {res}"
         assert elapsed < 15, f"probe hung {elapsed:.1f}s past its 2s timeout"
-        # The grandchild that held the pipe must be dead (group-killed), not orphaned.
+
+        # The grandchild that held the pipe must be dead (group-killed), not
+        # orphaned. On Linux a killpg'd child can briefly remain a ZOMBIE until
+        # PID 1 reaps it — `kill -0` still succeeds for a zombie, so treat a Z
+        # (or vanished) state as dead (mirrors test_doctor_preflight's check; a
+        # zombie runs no provider work).
+        def _gone_or_zombie(pid):
+            if subprocess.run(["kill", "-0", pid]).returncode != 0:
+                return True
+            ps = subprocess.run(
+                ["ps", "-o", "stat=", "-p", pid], capture_output=True, text=True
+            )
+            stat = ps.stdout.strip()
+            return stat == "" or stat.startswith("Z")
+
         if gpid.exists():
             pid = gpid.read_text().strip()
             if pid:
                 gone = False
                 for _ in range(50):
-                    if subprocess.run(["kill", "-0", pid]).returncode != 0:
+                    if _gone_or_zombie(pid):
                         gone = True
                         break
                     time.sleep(0.1)
-                if pid:
-                    subprocess.run(["kill", "-KILL", pid], capture_output=True)
+                subprocess.run(["kill", "-KILL", pid], capture_output=True)
                 assert gone, "pipe-holding grandchild orphaned (group not killed)"
 
 
