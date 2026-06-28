@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -534,8 +535,10 @@ class TestInstructionFidelity:
         exec_block = exec_block.replace("<instance>", instance)
         exec_block = exec_block.replace("<cli-and-args...>", stub_provider)
 
-        # Run it. The block runs the provider in the foreground (no `&` since
-        # the P1 fix); the harness backgrounds at a higher level. No wait needed.
+        # Run it. The block backgrounds the provider as a child of the wrapper
+        # and `wait`s on it under a TERM trap; the harness backgrounds the whole
+        # wrapper at a higher level. The wrapper blocks in `wait`, so running it
+        # synchronously here still completes when the stub provider exits.
         full = f"set -e\n{exec_block}\n"
         result = subprocess.run(
             ["bash", "-c", full],
@@ -567,9 +570,9 @@ class TestInstructionFidelity:
     def test_step5_block_writes_rc_file(self, tmp_path):
         """The step-5 block must record the returncode (.rc).
 
-        No .pid is expected: the provider runs in the foreground of the
-        harness-backgrounded shell, so the harness tracks it directly
-        (no double-backgrounding — the P1 fix removed the trailing &).
+        No .pid is expected: the provider PID is held in the wrapper's `$CHILD`
+        shell variable and targeted by the TERM trap; no PID file is written to
+        disk, and the wrapper still `wait`s (no double-backgrounding orphan).
         """
         block = _extract_step5_block()
         output_file = tmp_path / "glm.out"
@@ -588,10 +591,99 @@ class TestInstructionFidelity:
         assert result.returncode == 0, f"block failed: {result.stderr}"
         assert (tmp_path / "glm.out.rc").exists(), "no .rc file written"
         assert (tmp_path / "glm.out.rc").read_text().strip() == "0"
-        # No .pid file should exist (double-backgrounding removed).
+        # No .pid file should exist (the trap targets the in-shell $CHILD).
         assert not (tmp_path / "glm.out.pid").exists(), (
             "unexpected .pid file (P1 fix regressed)"
         )
+
+    def test_step5_block_traps_term_to_child(self):
+        """Static guard: the wrapper must background the provider, capture its
+        PID, `wait` on it, and trap TERM/INT to forward the signal — otherwise a
+        fallback kill hits only the wrapper shell and orphans the provider
+        (connector P2 'Kill the provider child, not just the marker shell')."""
+        block = _extract_step5_block()
+        # The trap must defer $CHILD expansion to fire time (\$CHILD), not bind it
+        # empty at trap-definition time when CHILD is still unset.
+        assert 'trap "kill -TERM \\"\\$CHILD\\" 2>/dev/null" TERM INT' in block, (
+            "step-5 wrapper lost its TERM/INT trap (or expands $CHILD too early) — "
+            "killing the marker shell would orphan the provider child"
+        )
+        assert "CHILD=$!" in block and 'wait "$CHILD"' in block, (
+            "step-5 wrapper no longer backgrounds the provider + waits on $CHILD; "
+            "the trap has no child PID to target"
+        )
+
+    def test_step5_trap_reaps_child_on_term(self, tmp_path):
+        """Executed end-to-end: TERM to the marker wrapper must reap the provider
+        child via the trap, not leave it running. This is the exact regression the
+        connector flagged — a foreground child survives a wrapper-only kill."""
+        block = _extract_step5_block()
+        output_file = tmp_path / "glm.out"
+        childpid = tmp_path / "child.pid"
+        # Stub provider: record its own PID, then become a long sleep. The pid
+        # file lets us detect liveness without pgrep/comm-truncation pitfalls.
+        stub = "bash -c 'echo $$ > %s; exec sleep 60'" % childpid
+        exec_block = block.replace("<run_dir>", str(tmp_path))
+        exec_block = exec_block.replace("<instance>", "glm")
+        exec_block = exec_block.replace("<cli-and-args...>", stub)
+        # RUN_DIR is set in step 3 (not in the extracted step-5 block); define it
+        # so KILL_MARKER is populated (the wrapper $0).
+        exec_block = f"RUN_DIR={tmp_path}\n" + exec_block
+        proc = subprocess.Popen(
+            ["bash", "-c", exec_block],
+            cwd=tmp_path,
+            env={**os.environ, "OUTPUT_FILE": str(output_file)},
+        )
+
+        def child_alive() -> bool:
+            if not childpid.exists():
+                return False
+            pid = childpid.read_text().strip()
+            if not pid:
+                return False
+            return subprocess.run(["kill", "-0", pid]).returncode == 0
+
+        try:
+            # The wrapper is the child's PARENT — robust whether or not bash
+            # exec-optimizes the final command (which would make the wrapper share
+            # the Popen pid). pgrep-by-marker can't tell the wrapper from the outer
+            # shell whose argv merely contains the marker literal; ppid can.
+            wrapper_pid = None
+            for _ in range(150):  # up to ~15s
+                if child_alive():
+                    cpid = childpid.read_text().strip()
+                    ppid = subprocess.run(
+                        ["ps", "-o", "ppid=", "-p", cpid],
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+                    if ppid:
+                        wrapper_pid = ppid
+                        break
+                time.sleep(0.1)
+            assert wrapper_pid, "provider child never started under a wrapper"
+
+            subprocess.run(["kill", "-TERM", wrapper_pid])
+
+            reaped = False
+            for _ in range(150):  # up to ~15s
+                if not child_alive():
+                    reaped = True
+                    break
+                time.sleep(0.1)
+            assert reaped, (
+                "provider child still alive after TERM to the marker wrapper — "
+                "the trap did not forward the signal (orphan bug)"
+            )
+        finally:
+            if childpid.exists():
+                pid = childpid.read_text().strip()
+                if pid:
+                    subprocess.run(["kill", "-KILL", pid], capture_output=True)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
     def test_step5_block_sanitizes_dangerous_env(self, tmp_path):
         """The step-5 block must strip *_BASE_URL before invoking the provider.

@@ -151,7 +151,7 @@ PROMPT="$TASK$ADDENDUM"   # non-review TASK_TYPE → ADDENDUM is "" → PROMPT =
 
 **The prompt (`$PROMPT` above, task + any addendum) is the final argument** (mirrors `provider_runtime.run_provider`, which appends the prompt handoff last, and the `providers/*.md` final-`<prompt>` convention). The full arg vector is therefore `<cli> [resume-flag] "$PROMPT"`, and that is exactly the `<cli-and-args...>` placeholder substituted into step 5. **Omitting the prompt launches the provider with no task and yields an empty or unrelated result; omitting the addendum on a review yields a silent false PASS.**
 
-**5. Spawn via Bash background.** Use `Bash(run_in_background=true)`. The harness's background mode already provides process isolation — do NOT add a trailing `&` inside the block: that double-backgrounds the provider (the harness-tracked shell exits immediately after launch while the provider runs on as an untracked orphan, so the completion notification fires on launch rather than on provider completion). Likewise do NOT wrap in `setsid` (it does not exist on macOS/BSD). Pass `OUTPUT_FILE` via environment, **sanitize the environment before invoking the provider**, capture both streams with a sentinel separator, and record the return code:
+**5. Spawn via Bash background.** Use `Bash(run_in_background=true)`. The harness's background mode already provides process isolation — do NOT add a trailing `&` to the **whole** invocation, and do NOT background the provider without an immediate `wait`: either makes the harness-tracked shell exit at launch while the provider runs on as an untracked orphan, so the completion notification fires on launch rather than on provider completion. (Backgrounding the provider *inside* the wrapper and `wait`ing on it — below — is different and required: the wrapper stays blocked in `wait` until the provider exits, so the harness still tracks real completion.) Likewise do NOT wrap in `setsid` (it does not exist on macOS/BSD). Pass `OUTPUT_FILE` via environment, **sanitize the environment before invoking the provider**, capture both streams with a sentinel separator, and record the return code:
 
 ```bash
 # OUTPUT_FILE is the sanitized path allocated in step 3 (RUN_DIR + the
@@ -174,13 +174,28 @@ unset TRINITY_DISABLE_DISPATCH TRINITY_MCP_TOKEN
 # `codex`/`droid`). It is reconstructable later from the stored output_file as
 # trinity-zc-kill:$(basename "$(dirname "$output_file")").
 KILL_MARKER="trinity-zc-kill:$(basename "$RUN_DIR")"
-# Run the provider in the FOREGROUND of this already-backgrounded shell.
+# Run the provider as a BACKGROUND child of this wrapper and `wait` on it, under a
+# TERM/INT trap that forwards the signal to that child. Two reasons:
+#   (a) the wrapper stays blocked in `wait` until the provider exits, so the
+#       harness keeps tracking it and the completion notification fires on REAL
+#       exit, not launch (the child is backgrounded relative to the wrapper, not
+#       relative to the harness — this preserves the P1 double-backgrounding fix).
+#   (b) the fallback kill targets the wrapper PID (what `pgrep -f "$KILL_MARKER"`
+#       finds), but signalling a non-interactive bash that is blocked in `wait`
+#       does NOT reliably reach a *foreground* child — it would survive as an
+#       orphan. The trap fixes that: TERM to the wrapper fires the trap, which
+#       TERMs the actual provider child. (Verified: without the trap the child
+#       outlives a killed wrapper; with it the child is reaped and `wait` returns
+#       143 = 128+SIGTERM.)
 # Stream stdout straight to OUTPUT_FILE so the §Heartbeat byte-delta check sees
 # real progress mid-run (the file is created the moment the provider starts);
 # capture stderr aside, then append the sentinel + stderr after exit so the
 # completion handler still reads `stdout + SENTINEL + stderr` for parsing.
 bash -c '
-  "$@" >"$OUTPUT_FILE" 2>"$OUTPUT_FILE.err" </dev/null; RC=$?   # </dev/null: claude-wrapper providers (deepseek/openrouter/claude-code) otherwise wait 3s for stdin and warn
+  trap "kill -TERM \"\$CHILD\" 2>/dev/null" TERM INT   # \$CHILD: expand at FIRE time, not trap-definition time (CHILD is set below)
+  "$@" >"$OUTPUT_FILE" 2>"$OUTPUT_FILE.err" </dev/null &   # </dev/null: claude-wrapper providers (deepseek/openrouter/claude-code) otherwise wait 3s for stdin and warn
+  CHILD=$!
+  wait "$CHILD"; RC=$?                                     # 143 (128+SIGTERM) if the trap killed the provider on timeout/clear
   printf "\n%%%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%%%\n" >> "$OUTPUT_FILE"
   cat "$OUTPUT_FILE.err" >> "$OUTPUT_FILE" 2>/dev/null; rm -f "$OUTPUT_FILE.err"
   echo "$RC" > "$OUTPUT_FILE.rc"
@@ -189,7 +204,7 @@ bash -c '
 
 Note on the sentinel escaping: the literal sentinel is `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` (it contains double-percent signs). Inside a `printf` format string, every literal `%` must be written as `%%`, so the sentinel appears as `%%%%...%%%%` in the format — four percents at each end produce the two literal percents the sentinel requires. Getting this wrong produces a file the synthesis parser cannot split.
 
-Because the provider runs in the foreground of the harness-backgrounded shell, the harness tracks the provider's lifetime directly — there is no separate wrapper PID to record, and no `$!` to capture. Process cleanup on timeout is handled by the harness killing the backgrounded Bash (which cascades to its foreground child). For the rare fallback where the runtime exposes no cancel handle, the `KILL_MARKER` (the wrapper's `$0`, = the run-dir basename) is the precise targeting handle: `pgrep -f "$KILL_MARKER"` matches only this run's wrapper, never an unrelated process that shares the provider CLI token.
+The provider is a background child of the wrapper, but the wrapper blocks in `wait`, so the harness tracks the wrapper for the provider's whole lifetime and the completion notification still fires on real exit. No `$OUTPUT_FILE.pid` file is written — the in-wrapper `$CHILD` (the provider PID) is held in shell scope and the trap targets it directly. Process cleanup on timeout: the harness killing the backgrounded Bash cascades to the child via the trap. For the rare fallback where the runtime exposes no cancel handle, the `KILL_MARKER` (the wrapper's `$0`, = the run-dir basename) is the precise targeting handle: `pgrep -f "$KILL_MARKER"` matches only this run's wrapper, then `kill -TERM` on it fires the wrapper's trap, which TERMs the actual provider child — so killing the marker shell reliably reaps the provider, not just the shell. (Send `TERM`, not `KILL`, so the trap can run; escalate to `KILL` only after the grace period.)
 
 **Heartbeat visibility:** because stdout is streamed straight into `OUTPUT_FILE` (the `"$@" >"$OUTPUT_FILE"` redirect creates it the instant the provider starts and grows it as the provider writes), the byte-delta heartbeat (§Heartbeat) observes real progress mid-run — a healthy long-running review is never misread as `failed to start`. The sentinel + stderr are appended only after the provider exits, so the completion handler still reads the full `stdout + SENTINEL + stderr` format. One residual edge: a provider that has started but not yet emitted any stdout leaves a 0-byte `OUTPUT_FILE`; treat "0 bytes + elapsed < the task-type `max_at`" as `🔄 running (no output yet)`, not `failed` (see §Heartbeat).
 
@@ -275,7 +290,7 @@ per-task-type override (e.g. `{"review": {"warn_at": 480, "max_at": 720}}`, seco
 use it for that task_type and fall back to the table only for unset types — mirrors
 trinity reading thresholds from merged config rather than a frozen constant.
 
-On each heartbeat/status check, compare `now - start_time`. At `warn_at` report `⚠️ possibly slow`. At `max_at` report `🚨 timed out` and kill the dispatched process. Because step 5 runs the provider in the foreground of the harness-backgrounded Bash (no separate wrapper PID is recorded), the kill path depends on the harness: the orchestrator signals "stop/cancel this background task" to the harness, which terminates the backgrounded Bash process group, cascading to the foreground provider. If the runtime exposes a task/cancel handle (e.g. a background-task id returned by the Bash tool), use that. As a fallback, target the per-run `KILL_MARKER` from step 5, reconstructed from the stored `output_file`: `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` finds the wrapper PID, then `kill -TERM`, wait 5s, `kill -9` if still alive. Match the marker, **never** a generic `<provider-cli-token>` — the bare token (`codex`/`droid`) can match another project's job and kill it. Do NOT reference `$OUTPUT_FILE.pid` (no such file is written since the P1 double-backgrounding fix) and do NOT use `pkill -g` (its group semantics differ on BSD/macOS).
+On each heartbeat/status check, compare `now - start_time`. At `warn_at` report `⚠️ possibly slow`. At `max_at` report `🚨 timed out` and kill the dispatched process. Step 5 runs the provider as a `wait`-ed background child of the harness-backgrounded Bash under a TERM trap (no separate PID file is recorded), so the kill path depends on the harness: the orchestrator signals "stop/cancel this background task", which terminates the backgrounded Bash process group, cascading to the child. If the runtime exposes a task/cancel handle (e.g. a background-task id returned by the Bash tool), use that. As a fallback, target the per-run `KILL_MARKER` from step 5, reconstructed from the stored `output_file`: `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` finds the wrapper PID, then `kill -TERM` it — the wrapper's trap forwards TERM to the actual provider child, so the provider is reaped, not just the marker shell. Wait 5s, then `kill -9` the wrapper only if still alive (KILL can't trigger the trap, but by then TERM has already cascaded). Match the marker, **never** a generic `<provider-cli-token>` — the bare token (`codex`/`droid`) can match another project's job and kill it. Do NOT reference `$OUTPUT_FILE.pid` (no such file is written) and do NOT use `pkill -g` (its group semantics differ on BSD/macOS).
 
 ## Review Synthesis (reused from trinity)
 
@@ -344,7 +359,7 @@ If instance given, check only it; else check all `running` sessions. For each:
 - `clear glm:auth` → delete that key.
 - `clear glm` → delete `glm` and all `glm:*`.
 - `clear all` → write `{"sessions": {}}`.
-Kill any still-running provider first (same path as §Timeout: signal the harness to cancel the backgrounded Bash, or `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` then `kill -TERM`/`kill -9`; match the per-run marker, not a bare CLI token; no PID/PGID is recorded and `pkill -g` is unreliable on macOS). Confirm before deleting.
+Kill any still-running provider first (same path as §Timeout: signal the harness to cancel the backgrounded Bash, or `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` then `kill -TERM` the wrapper — its trap forwards TERM to the provider child — and `kill -9` only if still alive after the grace; match the per-run marker, not a bare CLI token; no PID/PGID file is recorded and `pkill -g` is unreliable on macOS). Confirm before deleting.
 
 ### `result <instance>`
 
@@ -390,7 +405,7 @@ Print this SKILL.md's Syntax + architecture-summary sections.
 - Missing agent file / config → report which, point to `trinity install`.
 - Empty task → `Task cannot be empty`.
 - `output_file` missing at heartbeat: step 5 streams via `>"$OUTPUT_FILE"`, which creates the file the instant the provider launches. So elapsed < ~5s startup grace → `🟡 starting`; **missing past the grace → `❌ failed to launch`** (bad output path, or the shell never reached the redirect) — surface it immediately, do NOT hold until the task timeout. A present-but-0-byte file within `max_at` is `🔄 running (no output yet)` (see §Heartbeat).
-- Background process cleanup on timeout/abort: signal the harness to cancel the backgrounded Bash (which cascades to the foreground provider). Fallback: `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` (the per-run `KILL_MARKER`, never a bare CLI token that could match another project's job) to find the PID, then `kill -TERM`, wait 5s, `kill -9`. No `$OUTPUT_FILE.pid` is written (P1 fix removed double-backgrounding); no `setsid`/`pkill -g` (absent/unreliable on macOS).
+- Background process cleanup on timeout/abort: signal the harness to cancel the backgrounded Bash (which cascades to the child). Fallback: `pgrep -f "trinity-zc-kill:$(basename "$(dirname "$output_file")")"` (the per-run `KILL_MARKER`, never a bare CLI token that could match another project's job) to find the wrapper PID, then `kill -TERM` (the wrapper's trap forwards TERM to the provider child, so it is reaped rather than orphaned), wait 5s, `kill -9` only if still alive. No `$OUTPUT_FILE.pid` is written; no `setsid`/`pkill -g` (absent/unreliable on macOS).
 
 ## Out of scope (v1)
 
