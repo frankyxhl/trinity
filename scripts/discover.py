@@ -7,6 +7,7 @@ Usage:
     discover.py list [--global-config <path>] [--project-dir <dir>]
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -128,37 +129,39 @@ def cmd_list(global_config, project_dir):
 
 
 def main():
-    args = sys.argv[1:]
+    argv = sys.argv[1:]
 
-    if not args:
+    if not argv:
         print(__doc__, file=sys.stderr)
         sys.exit(1)
 
-    if args[0] == "--version":
+    # Parser built inside main() so expanduser()/getcwd() defaults bind
+    # per-invocation (honors patched HOME in subprocess tests). Mirrors
+    # scripts/codex.py:build_parser + main() ordering.
+    parser = argparse.ArgumentParser(prog="discover.py", allow_abbrev=False)
+    parser.add_argument("--version", action="store_true")
+    subparsers = parser.add_subparsers(dest="command")
+
+    list_parser = subparsers.add_parser("list", allow_abbrev=False)
+    list_parser.add_argument(
+        "--global-config",
+        default=os.path.expanduser("~/.claude/trinity.json"),
+    )
+    list_parser.add_argument(
+        "--project-dir",
+        default=os.getcwd(),
+    )
+
+    args = parser.parse_args(argv)
+
+    # Version-check-before-dispatch invariant (CHG-3047): `--version list`
+    # must print version and exit 0 without dispatching the list subcommand.
+    if args.version:
         print(__version__)
         return
 
-    if args[0] == "list":
-        global_config = os.path.expanduser("~/.claude/trinity.json")
-        project_dir = os.getcwd()
-
-        i = 1
-        while i < len(args):
-            if args[i] == "--global-config" and i + 1 < len(args):
-                global_config = args[i + 1]
-                i += 2
-            elif args[i] == "--project-dir" and i + 1 < len(args):
-                project_dir = args[i + 1]
-                i += 2
-            else:
-                print(f"discover.py: unknown argument '{args[i]}'", file=sys.stderr)
-                sys.exit(1)
-
-        cmd_list(global_config, project_dir)
-
-    else:
-        print(f"discover.py: unknown command '{args[0]}'", file=sys.stderr)
-        sys.exit(1)
+    if args.command == "list":
+        cmd_list(args.global_config, args.project_dir)
 
 
 if __name__ == "__main__":

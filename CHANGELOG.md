@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+- `scripts/discover.py` `main()` now uses `argparse` (matching
+  `scripts/codex.py`) instead of a hand-rolled `while i < len(args)` flag
+  parser. The documented CLI surface is unchanged; usage errors now exit
+  **2** (argparse/POSIX convention) instead of 1, and `-h`/`--help` now
+  print help and exit 0 (previously rejected as unknown). Closes #240.
+
 ### Fixed
 - `session-path` resolver for claude-family providers (`deepseek`,
   `openrouter`, `claude-code`) now keeps the leading dash in the project
