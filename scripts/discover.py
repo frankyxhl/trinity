@@ -147,9 +147,14 @@ def main():
         "--global-config",
         default=os.path.expanduser("~/.claude/trinity.json"),
     )
+    # Lazy binding: --project-dir default is None and resolved to os.getcwd()
+    # only at list-dispatch time. This preserves the pre-CHG contract that
+    # `discover.py --version` returns version without touching the filesystem
+    # (a deleted-cwd caller would otherwise crash inside parse_args before
+    # the version-check-before-dispatch branch runs). TRN-3047 R1 (codex P3).
     list_parser.add_argument(
         "--project-dir",
-        default=os.getcwd(),
+        default=None,
     )
 
     args = parser.parse_args(argv)
@@ -161,7 +166,7 @@ def main():
         return
 
     if args.command == "list":
-        cmd_list(args.global_config, args.project_dir)
+        cmd_list(args.global_config, args.project_dir or os.getcwd())
 
 
 if __name__ == "__main__":

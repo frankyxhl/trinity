@@ -374,3 +374,22 @@ def test_chg3047_default_global_config_from_home(tmp_path, patch_home):
     result = json.loads(out)
     names = [e["name"] for e in result]
     assert "homeglm" in names
+
+
+def test_chg3047_version_with_deleted_cwd(tmp_path):
+    """--version succeeds even when the process cwd no longer exists."""
+    doomed = tmp_path / "doomed"
+    doomed.mkdir()
+    code = (
+        "import os, subprocess, sys; "
+        "os.chdir(sys.argv[1]); "
+        "os.rmdir(sys.argv[1]); "
+        "sys.exit(subprocess.run([sys.executable, sys.argv[2], '--version']).returncode)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(doomed), str(SCRIPT)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == EXPECTED_VERSION
