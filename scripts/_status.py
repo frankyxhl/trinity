@@ -282,11 +282,11 @@ def cmd_status(args):
 
     # Sort key: (timestamp_prefix, mtime). The fixed-width
     # %Y%m%d-%H%M%S prefix gives chronological order across distinct
-    # seconds; mtime breaks ties for same-second creates where the
-    # slug or numeric collision suffix (`-10` vs `-2`) doesn't preserve
-    # creation order. `make_review_dir()` (scripts/codex.py:914) only
-    # stamps to seconds and appends `<slug>[-<index>]`, so two reviews
-    # made in the same second can have lex order != creation order.
+    # seconds; mtime breaks ties for same-second creates. Since TRN-3051
+    # `make_review_dir()` (scripts/_review.py) uses tempfile.mkdtemp, every
+    # dir name carries `<stamp>-<slug>-<8 random chars>`; the random tail
+    # never lex-orders by creation time, so the mtime tiebreak is still
+    # load-bearing for two reviews made in the same second.
     def _sort_key(d):
         try:
             mtime = d.stat().st_mtime
