@@ -1,17 +1,15 @@
 """Shared version loader for trinity scripts.
 
-Reads __version__ from scripts/__init__.py via importlib so each script
-can be invoked directly (python scripts/foo.py) without requiring
-package-import context.
+Textual parse — never executes __init__.py, so this stays safe even if
+__init__.py grows imports. Depends on the double-quoted single-line format
+written by `make bump` (Makefile perl substitution); ruff format does not
+normalize string quotes, so the bump script is the sole format authority.
 """
 
-import importlib.util
-import os
+import re
+from pathlib import Path
 
 
 def load_version():
-    init_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "__init__.py")
-    spec = importlib.util.spec_from_file_location("_scripts_init", init_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.__version__
+    init_text = (Path(__file__).parent / "__init__.py").read_text()
+    return re.search(r'^__version__ = "([^"]+)"$', init_text, re.M).group(1)

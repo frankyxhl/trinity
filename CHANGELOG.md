@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Changed
+- `scripts/_version.py` shrunk from an 18-line importlib spec/exec dance
+  to a ~13-line textual parse (~7 functional lines + docstring). Issue #237
+  originally asked to delete `_version.py` and repoint 5 callers to a
+  dual-mode `from . import __version__` / `from __init__ import __version__`;
+  plan-review panel R1 (TRN-3049) rejected that implementation
+  (`from __init__` fallback registers `scripts/__init__.py` in
+  `sys.modules["__init__"]`, executes it under two module names, and
+  distributes the import-dance risk across 5 files). Superseded by this
+  API-preserving shrink: `load_version()` is unchanged, so the 5 script
+  callers, both test `EXPECTED_VERSION` loaders, `install-manifest.json`,
+  and `tests/test_install_sh.sh` are all untouched — zero caller/test churn.
+  `__init__.py` is now never executed by `_version.py` (textual read via
+  `re.search`), eliminating the side-effect-execution risk; the module
+  docstring records the double-quoted format dependency maintained by
+  `make bump` (Makefile perl substitution). Closes #237.
 - `scripts/_doctor.py` `_make_health_result` drops its dead `auth=None`
   parameter (TRN-3050). The result dict still carries the `"auth"` key
   hardcoded to `None` — consumers (`result.get("auth")` in
