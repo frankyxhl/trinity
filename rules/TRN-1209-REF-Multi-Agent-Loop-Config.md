@@ -1,10 +1,10 @@
 # REF-1209: Multi-Agent Loop Project Configuration
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-06-15
+**Last updated:** 2026-07-04
 **Last reviewed:** 2026-05-24
 **Status:** Active
-**Related:** TRN-1008 (Multi-Agent Review Loop — trinity overlay that consumes these bindings), COR-1622 (parameter schema authored from), COR-1617 (umbrella SOP), COR-1618 (consent gate), COR-1619 (worker dispatch), COR-1620 (loop primitives), COR-1621 (triage), COR-1615 (bot loop)
+**Related:** TRN-1008 (Multi-Agent Review Loop — trinity overlay that consumes these bindings), COR-1622 (parameter schema authored from), COR-1617 (umbrella SOP), COR-1618 (consent gate), COR-1619 (worker dispatch), COR-1620 (loop primitives), COR-1621 (triage), COR-1615 (bot loop), COR-1628 (Sandboxed Worker CLI Dispatch)
 **Instantiates:** COR-1622
 
 ---
@@ -66,7 +66,7 @@ COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Wit
 | Key | Trinity value | Notes |
 |-----|---------------|-------|
 | `<worker-agent>` | Role-routed: implementation → `<implementation-worker-agent>`; test-code → `<test-code-worker-agent>` | Generic COR-1619 placeholder. TRN-1008 §5 resolves it by surface kind instead of a single provider. |
-| `<implementation-worker-agent>` | `trinity-glm via droid exec` | Default implementation worker. Owns production code, provider files, scripts, docs/prose, generated-source updates, and build-output changes unless the task is test-only. |
+| `<implementation-worker-agent>` | `trinity-glm via droid exec` | Default implementation worker. Owns production code, provider files, scripts, docs/prose, generated-source updates, and build-output changes unless the task is test-only. COR-1628's sandboxed one-shot `codex exec` lane (bundled in fx-alfred ≥ 1.25.0; 40+ dispatches on the alfred reference loop) is an available alternative lane — switching the default requires a TRN CHG. |
 | `<test-code-worker-agent>` | `trinity-deepseek` | Default test-code worker. Owns tests, fixtures, test helpers, expected-output snapshots, and test-only documentation. |
 | `<worker-min-loc>` | `0` | **Trinity overrides the schema default of 30.** Trinity's TRN-1008 §5 dispatches to role-routed workers as the DEFAULT with an explicit exceptions list (git ops, single-section docs, sequential bot grep-and-replace batch, investigations) governing the orchestrator-direct path. Setting `<worker-min-loc>` = `0` makes COR-1619's LoC-threshold branch always fall through to the structural-question branches (signature change / multi-file / test count), matching trinity's "worker by default" stance. The exceptions list itself is not LoC-bounded and is encoded directly in TRN-1008 §5 — that prose is the authoritative dispatch rule for trinity, not COR-1619's tree. Adopters that want the standard 30-LoC threshold continue to use the schema default. |
 
@@ -112,6 +112,31 @@ These bindings drive trinity-specific overlays in TRN-1008 that COR-1617 does no
 
 ---
 
+## R-Round Fixes for Enumerable-Dimension Findings
+
+Adopted from the alfred reference loop (FXA-2276, generalized 2026-07-04 via
+alfred#318); operates inside TRN-1008 §8's Review Completion Gate. **Trigger**:
+a review finding (bot, panel, or human) whose scope condition varies along one
+or more enumerable dimensions — any axis whose values form a small closed set
+(actor × timing window, ID origin × outcome, output mode × input class,
+platform × capability). If the finding's wording names a category ("when X is
+also Y", "only for Z-mode"), the rule applies. The fix round MUST:
+
+1. **Enumerate the full matrix before implementing** — every value of every
+   participating dimension, written out explicitly (into the worker task brief
+   when the change dispatches per §5), not held in the orchestrator's head.
+2. **Fix all cells in that single round.** Adjacent cells are presumed
+   defective until shown otherwise: a passing regression test for the cell in
+   the same round, or an explicit `n/a` row with one-line reasoning.
+3. **Land one regression test per applicable cell** in the same round.
+
+Evidence: alfred PR #290 (timing matrix) and PR #307 (provenance matrix,
+R3/R4/R5 one-cell-per-round drip) — both chains collapse to one round under
+this rule. Full worked matrices live in alfred's FXA-2276 §"R-round fixes for
+enumerable-dimension findings".
+
+---
+
 ## Validation
 
 Run before every orchestrator session:
@@ -139,3 +164,4 @@ If `<intake-quality-mode>` ever changes (e.g. from `2FA` to `1FA`), every previo
 | 2026-05-18 | TRN-3042: split panel bindings into 3-provider plan-review tier (`glm` + `deepseek` + `minimax`) and 2-provider code-review tier (`glm` + `deepseek`); split worker routing into implementation=`trinity-glm` and test-code=`trinity-deepseek`. | Codex |
 | 2026-05-24 | TRN-3044: clarify bot-actor API login matching and current-head anchoring for the Review Completion Gate. | Claude Code |
 | 2026-06-15 | Added machine-readable `Instantiates: COR-1622` binding after COR disposition reconciliation. | Codex |
+| 2026-07-04 | trinity#282: adopt FXA-2276's enumerable-dimension R-round matrix rule; note COR-1628 as an available implementation lane. | Claude Code |
