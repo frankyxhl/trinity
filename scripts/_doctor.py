@@ -76,9 +76,9 @@ def _make_health_result(
         # TRN-3021 additions:
         "warnings": list(warnings),
         "cli": cli,
-        # The "auth" key is part of the TRN-3021 result shape (consumers
-        # read result.get("auth") at line ~336 and cmd_doctor overwrites
-        # it at line ~607 for wrapper providers). Value hardcoded to None
+        # The "auth" key is part of the TRN-3021 result shape (read via
+        # result.get("auth") in _format_provider_block; cmd_doctor
+        # overwrites it for wrapper providers). Value hardcoded to None
         # here; cmd_doctor's wrapper-auth check is the only writer. The
         # former auth parameter (TRN-3050) was dead — no caller passed a
         # non-None value.

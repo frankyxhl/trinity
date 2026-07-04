@@ -5,8 +5,8 @@
 ### Changed
 - `scripts/_doctor.py` `_make_health_result` drops its dead `auth=None`
   parameter (TRN-3050). The result dict still carries the `"auth"` key
-  hardcoded to `None` — consumers (`result.get("auth")` at line ~336) and
-  the `cmd_doctor` wrapper-auth overwrite (`h["auth"] = auth` at line ~607)
+  hardcoded to `None` — consumers (`result.get("auth")` in
+  `_format_provider_block`) and the `cmd_doctor` wrapper-auth overwrite
   are unaffected. The single call site that passed `auth=None` explicitly
   drops the kwarg. Behavior-preserving; pinned by existing result-shape
   tests. Separately, `detect_env_pollution`'s `base_env=` parameter is
