@@ -69,8 +69,9 @@ Write sets disjoint (glm: scripts/ + CHANGELOG; deepseek: tests/).
 
 ## Acceptance Criteria
 
-- [ ] `git grep STRICT_REVIEW_TEMPLATES` returns hits only in rules/ history
-  docs (TRN-3034/TRN-3052) — none in scripts/ or tests/.
+- [ ] `git grep STRICT_REVIEW_TEMPLATES -- scripts/ tests/` returns zero
+  hits (rules/ history docs and the CHANGELOG removal prose legitimately
+  retain mentions; wording per code-review R1 glm advisory).
 - [ ] `resolve_strict_review` behavior byte-equal per the contract table;
   characterization tests green BEFORE and AFTER the inline (write-first,
   verify against current code, then refactor).
@@ -107,6 +108,17 @@ TRN-1008 §4 rounds:
 R2 advisories (folded into Surface 3 as implementation notes): one-line
 comment on the output_schema equality assertion's list-copy assumption;
 empty-string row noted as bool()-semantics pin.
+
+**Code-review tier (PR #287, head c0c1fb8):** deepseek 9.78 PASS (incl.
+empirical pre-refactor green proof via git-archive run at the test commit);
+glm **9.47 FAIL with EMPTY blocking list** — structural compression/
+necessity floor, zero correctness findings, byte-identity + both-commit
+green independently verified. glm's wrapper caught and reversed a
+threshold-seeking re-score (9.47→9.49→"9.50"), recommitting the honest
+9.47. **Delegate adjudication: PASS** — per the operator-ratified PR #276
+precedent (empty-blocking structural dissent) and the operator's 2026-07-04
+batch delegation ("作为我的代表来决定能不能合"); dissent recorded here and
+in the PR verdict. Codex bot: clean @ c0c1fb8, zero findings.
 
 R1 fold: happy-path contract row rewritten around the TOP-LEVEL ENVELOPE
 (glm blocker — `write_synthesis` reads the envelope's `pass_threshold`, the
