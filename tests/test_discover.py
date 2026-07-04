@@ -1,5 +1,6 @@
 """Tests for trinity/scripts/discover.py"""
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -292,3 +293,103 @@ def test_version_returns_parseable_semver():
     parts = out.split(".")
     assert len(parts) == 3
     assert all(p.isdigit() for p in parts)
+
+
+# --- CHG-3047 argparse contract ---
+
+_spec = importlib.util.spec_from_file_location(
+    "_version", SCRIPT.parent / "_version.py"
+)
+_vmod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_vmod)
+EXPECTED_VERSION = _vmod.load_version()
+
+CHG_3047_ERROR_CASES = [
+    (["--bogus"], "--bogus"),
+    (["list", "--bogus"], "--bogus"),
+    (["list", "--version"], "--version"),
+    (["bogus-cmd"], "bogus-cmd"),
+    (["list", "--global-config"], "--global-config"),
+    (["list", "--global", "/x"], "--global"),
+]
+
+
+@pytest.mark.parametrize("argv,offending_token", CHG_3047_ERROR_CASES)
+def test_chg3047_argparse_error_exit2(argv, offending_token):
+    """Argparse exits 2 with error on stderr mentioning the bad token."""
+    rc, out, err = run(argv)
+    assert rc == 2, f"expected exit 2, got {rc}"
+    assert err != "", "expected stderr output"
+    assert offending_token in err, f"expected '{offending_token}' in stderr: {err}"
+
+
+def test_chg3047_top_level_help():
+    """-h prints help to stdout, exit 0."""
+    rc, out, err = run(["-h"])
+    assert rc == 0
+    assert "usage" in out.lower()
+
+
+def test_chg3047_list_help():
+    """list -h prints subcommand help to stdout, exit 0."""
+    rc, out, err = run(["list", "-h"])
+    assert rc == 0
+    assert "usage" in out.lower()
+
+
+def test_chg3047_version_exact():
+    """--version prints semver exactly, no stray usage line."""
+    rc, out, err = run(["--version"])
+    assert rc == 0
+    assert out == EXPECTED_VERSION
+
+
+def test_chg3047_version_before_dispatch():
+    """--version list short-circuits before subcommand dispatch."""
+    rc, out, err = run(["--version", "list"])
+    assert rc == 0
+    assert out == EXPECTED_VERSION
+    assert "[" not in out  # proves no JSON / list dispatch
+
+
+def test_chg3047_no_args_docstring():
+    """No args prints docstring to stderr, exit 1."""
+    rc, out, err = run([])
+    assert rc == 1
+    assert "Usage:" in err
+    assert "discover.py" in err
+
+
+def test_chg3047_default_global_config_from_home(tmp_path, patch_home):
+    """Default --global-config resolves under patched HOME, not real HOME."""
+    write_config(
+        patch_home / ".claude" / "trinity.json",
+        {"providers": {"homeglm": {"cli": "x"}}},
+    )
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    # No --global-config flag — exercises expanduser default
+    rc, out, err = run(["list", "--project-dir", str(project_dir)])
+    assert rc == 0
+    result = json.loads(out)
+    names = [e["name"] for e in result]
+    assert "homeglm" in names
+
+
+def test_chg3047_version_with_deleted_cwd(tmp_path):
+    """--version succeeds even when the process cwd no longer exists."""
+    doomed = tmp_path / "doomed"
+    doomed.mkdir()
+    code = (
+        "import os, subprocess, sys; "
+        "os.chdir(sys.argv[1]); "
+        "os.rmdir(sys.argv[1]); "
+        "sys.exit(subprocess.run([sys.executable, sys.argv[2], '--version']).returncode)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(doomed), str(SCRIPT)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == EXPECTED_VERSION

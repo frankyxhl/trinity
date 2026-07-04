@@ -1,76 +1,79 @@
 # REF-0000: Document Index
 
 **Applies to:** TRN project
-**Last updated:** 2026-06-14
-**Last reviewed:** 2026-06-14
+**Last updated:** 2026-07-04
+**Last reviewed:** 2026-07-04
 **Status:** Active
 
 ---
 
-| ACID | Type | Title |
-|------|------|-------|
-| 1000 | SOP | Workflow Routing PRJ |
-| 1001 | SOP | Test |
-| 1002 | SOP | Lint |
-| 1003 | SOP | Version Bump |
-| 1004 | SOP | Release |
-| 1005 | SOP | Install |
-| 1006 | SOP | Provider Model IDs |
-| 1007 | SOP | PR Readiness |
-| 1008 | SOP | Multi Agent Review Loop |
-| 1009 | SOP | Issue Filing |
-| 1200 | SOP | Session Retrospective |
-| 1209 | REF | Multi Agent Loop Config |
-| 1800 | REF | Evolution Philosophy |
-| 1801 | SOP | Evolve Trinity |
-| 2001 | CHG | Release Infrastructure |
-| 2003 | CHG | Remote Install Script |
-| 2004 | CHG | Provider Files Refactor |
-| 2005 | CHG | Codex GPT 5.5 Pin |
-| 2006 | CHG | Release On Tag Workflow |
-| 2007 | CHG | One Click Release |
-| 2009 | CHG | Remove Zsh Dependency |
-| 2011 | CHG | Codex Review Adapter |
-| 2012 | CHG | Claude Code Provider |
-| 2013 | CHG | Trinity Review Presets |
-| 2014 | CHG | Provider Health Checks and DeepSeek Review Config |
-| 2015 | CHG | PR Base Head Review Mode |
-| 2016 | CHG | COR 1602 Strict Review Mode |
-| 2017 | CHG | PR Update Helper |
-| 2018 | CHG | Review Status Observability |
-| 2019 | CHG | Fast Review Parallelism and Progress |
-| 2020 | PRP | Improve Tests |
-| 2021 | PLN | Improve Tests Execution Contract |
-| 2022 | CHG | Wire Install Sh Test Into Make Test |
-| 2023 | CHG | Add Coverage Tooling |
-| 2024 | CHG | Add Pytest BDD Scenario Layer |
-| 2025 | CHG | Switch Install Sh Test To File Url |
-| 2026 | CHG | Scope Coverage Shim To Make Coverage |
-| 2028 | CHG | Add Trinity Status Latest Command |
-| 3000 | REF | Code Agent Wrapping Architectures |
-| 3020 | CHG | Consolidate Provider Config |
-| 3021 | CHG | Expand Doctor Preflight |
-| 3022 | CHG | Normalize Review Result Schema |
-| 3023 | CHG | Sanitize Provider Environment At Spawn Time |
-| 3024 | PRP | Loopback MCP Bridge (Withdrawn) |
-| 3027 | CHG | SOP 1006 Registry Amendment |
-| 3028 | CHG | Richer Synthesis Summary |
-| 3029 | CHG | GraphQL Scan And Blueprint Gate |
-| 3030 | CHG | Self Driving Loop |
-| 3031 | CHG | Merge Watch Cancel Cap |
-| 3032 | CHG | Fast Review Tier |
-| 3033 | CHG | Orchestrator Discipline |
-| 3034 | CHG | Decouple Strict COR Threshold |
-| 3035 | CHG | Trinity Minimax Provider |
-| 3036 | CHG | Mergeable Gate |
-| 3037 | CHG | Wake Prompt Refs |
-| 3038 | CHG | CLARIFY Edit Race |
-| 3039 | CHG | Align With Promoted PKG |
-| 3040 | CHG | Trinity Session Path |
-| 3041 | CHG | Share Fcntl Import Guard |
-| 3042 | CHG | Plan Review Minimax And Worker Role Split |
-| 3043 | CHG | Deduplicate Codex Skill Copies |
-| 3044 | CHG | Review Completion Gate |
+| ACID | Type | Title | Status |
+|------|------|-------|--------|
+| 1000 | SOP | Workflow Routing PRJ | Active |
+| 1001 | SOP | Test | Active |
+| 1002 | SOP | Lint | Active |
+| 1003 | SOP | Version Bump | Active |
+| 1004 | SOP | Release | Active |
+| 1005 | SOP | Install | Active |
+| 1006 | SOP | Provider Model IDs | Active |
+| 1007 | SOP | PR Readiness | Active |
+| 1008 | SOP | Multi Agent Review Loop | Active |
+| 1009 | SOP | Issue Filing | Active |
+| 1200 | SOP | Session Retrospective | Active |
+| 1209 | REF | Multi Agent Loop Config | Active |
+| 1800 | REF | Evolution Philosophy | Active |
+| 1801 | SOP | Evolve Trinity | Active |
+| 2001 | CHG | Release Infrastructure | In Progress |
+| 2003 | CHG | Remote Install Script | In Progress |
+| 2004 | CHG | Provider Files Refactor | Approved |
+| 2005 | CHG | Codex GPT 5.5 Pin | In Progress |
+| 2006 | CHG | Release On Tag Workflow | In Progress |
+| 2007 | CHG | One Click Release | In Progress |
+| 2009 | CHG | Remove Zsh Dependency | In Progress |
+| 2011 | CHG | Codex Review Adapter | Completed |
+| 2012 | CHG | Claude Code Provider | Completed |
+| 2013 | CHG | Trinity Review Presets | Completed |
+| 2014 | CHG | Provider Health Checks and DeepSeek Review Config | Completed |
+| 2015 | CHG | PR Base Head Review Mode | Completed |
+| 2016 | CHG | COR 1602 Strict Review Mode | Completed |
+| 2017 | CHG | PR Update Helper | Completed |
+| 2018 | CHG | Review Status Observability | Approved |
+| 2019 | CHG | Fast Review Parallelism and Progress | Completed |
+| 2020 | PRP | Improve Tests | Implemented |
+| 2021 | PLN | Improve Tests Execution Contract | Completed |
+| 2022 | CHG | Wire Install Sh Test Into Make Test | Completed |
+| 2023 | CHG | Add Coverage Tooling | Completed |
+| 2024 | CHG | Add Pytest BDD Scenario Layer | Completed |
+| 2025 | CHG | Switch Install Sh Test To File Url | Completed |
+| 2026 | CHG | Scope Coverage Shim To Make Coverage | Approved |
+| 2028 | CHG | Add Trinity Status Latest Command | Approved |
+| 3000 | REF | Code Agent Wrapping Architectures | Active |
+| 3020 | CHG | Consolidate Provider Config | Approved |
+| 3021 | CHG | Expand Doctor Preflight | Approved |
+| 3022 | CHG | Normalize Review Result Schema | Approved |
+| 3023 | CHG | Sanitize Provider Environment At Spawn Time | Approved |
+| 3024 | PRP | Loopback MCP Bridge | Rejected |
+| 3027 | CHG | SOP 1006 Registry Amendment | Approved |
+| 3028 | CHG | Richer Synthesis Summary | Approved |
+| 3029 | CHG | GraphQL Scan And Blueprint Gate | Approved |
+| 3030 | CHG | Self Driving Loop | Approved |
+| 3031 | CHG | Merge Watch Cancel Cap | Approved |
+| 3032 | CHG | Fast Review Tier | Approved |
+| 3033 | CHG | Orchestrator Discipline | Approved |
+| 3034 | CHG | Decouple Strict COR Threshold | Proposed |
+| 3035 | CHG | Trinity Minimax Provider | Proposed |
+| 3036 | CHG | Mergeable Gate | Proposed |
+| 3037 | CHG | Wake Prompt Refs | Proposed |
+| 3038 | CHG | CLARIFY Edit Race | Proposed |
+| 3039 | CHG | Align With Promoted PKG | Proposed |
+| 3040 | CHG | Trinity Session Path | Proposed |
+| 3041 | CHG | Share Fcntl Import Guard | Approved |
+| 3042 | CHG | Plan Review Minimax And Worker Role Split | Proposed |
+| 3043 | CHG | Deduplicate Codex Skill Copies | Approved |
+| 3044 | CHG | Review Completion Gate | Approved |
+| 3045 | CHG | Claude Family Session Path Slug | Approved (§4 plan-review R3 PASS: glm 9.70 / deepseek 9.90 / minimax 9.65 — all ≥9.5, all blocking empty) |
+| 3046 | CHG | Droid Session Id Via Exec Json | Approved (§4 plan-review: glm 9.50 / deepseek 9.60 / minimax 9.50 R2 — all ≥9.5, all blocking empty) |
+| 3047 | CHG | Discover Argparse | Proposed |
 
 ---
 
@@ -78,4 +81,4 @@
 
 | Date | Change | By |
 |------|--------|----|
-| 2026-06-14 | Auto-generated by af index | af CLI |
+| 2026-07-04 | Auto-generated by af index | af CLI |
