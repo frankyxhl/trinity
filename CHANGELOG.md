@@ -10,6 +10,15 @@
   promise ("existing importers unaffected") is intact — no importer ever
   existed for this name. `resolve_strict_review`, `strict_review_metadata`,
   and `STRICT_REVIEW_OUTPUT_SCHEMA` remain re-exported unchanged.
+- `--latest` flag from `trinity status` (TRN-3053). Introduced by TRN-2028
+  as a forward-compat placeholder (`store_true` with zero readers of the
+  parsed value anywhere in the repo), it is now deleted. Behavior delta:
+  `trinity status --latest` previously succeeded as a silent no-op
+  (identical to bare `trinity status`); it now exits 2 with the argparse
+  "unrecognized arguments" message. Bare `trinity status` output is
+  byte-identical. Also synced: comment in `scripts/_review.py` and the
+  codex-compatibility reference doc no longer mention the flag. Closes
+  #245.
 
 ### Changed
 - CI: `test` workflow Python matrix trimmed from 3.11/3.12/3.13/3.14 to

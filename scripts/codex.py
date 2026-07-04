@@ -588,14 +588,6 @@ def build_parser():
 
     status = subparsers.add_parser("status")
     status.add_argument("--root", default=".")
-    status.add_argument(
-        "--latest",
-        action="store_true",
-        help=(
-            "Explicitly request the latest review (default behavior; reserved "
-            "for forward-compatibility with future --all / --review-dir flags)."
-        ),
-    )
 
     session_path = subparsers.add_parser(
         "session-path",

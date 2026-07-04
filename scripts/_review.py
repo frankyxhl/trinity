@@ -1005,7 +1005,7 @@ def cmd_review(args):
         _codex.progress("writing prompt")
         prompt_path.write_text(prompt)
         # TRN-2018 M1: write metadata.json with all providers queued BEFORE
-        # run_providers. This gives `trinity status --latest` a live view
+        # run_providers. This gives `trinity status` a live view
         # while providers run, instead of waiting until completion.
         # R5 fix (codex R5 P2): strict_review threaded into the initial
         # atomic write — finalize_metadata mutates only finished_at /
