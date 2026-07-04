@@ -73,7 +73,8 @@
 | 3044 | CHG | Review Completion Gate | Approved |
 | 3045 | CHG | Claude Family Session Path Slug | Approved (§4 plan-review R3 PASS: glm 9.70 / deepseek 9.90 / minimax 9.65 — all ≥9.5, all blocking empty) |
 | 3046 | CHG | Droid Session Id Via Exec Json | Approved (§4 plan-review: glm 9.50 / deepseek 9.60 / minimax 9.50 R2 — all ≥9.5, all blocking empty) |
-| 3047 | CHG | Discover Argparse | Proposed |
+| 3047 | CHG | Discover Argparse | Approved |
+| 3048 | CHG | Install Argparse | Approved |
 
 ---
 

@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Changed
+- `scripts/install.py` `main()` now uses `argparse` (matching
+  `scripts/codex.py` / `scripts/discover.py`) instead of three hand-rolled
+  `while i < len(args)` loops for `register` / `register-from-registry` /
+  `unregister`. The documented CLI surface is unchanged; `--version`
+  semantics are byte-identical (pre-parse `argv[0]` guard, kept because
+  argparse `store_true` cannot run after the subparsers' required
+  positionals error). Usage errors now exit **2** (argparse/POSIX
+  convention) instead of 1, and `-h`/`--help` is now supported at the top
+  level and on each subcommand. `--global-config` defaults lazily via
+  `is None` (issue #278 principle) so an explicit empty string passes
+  through verbatim. Two deliberate success→error changes: providers
+  literally named `-x`/`--cli` can no longer be registered, and
+  space-separated dash-token `--cli -x` values need the `--cli=-x` form.
+  One addition: flags may now precede positionals (e.g.
+  `register --cli x p`). Closes #239.
 - `scripts/discover.py` `main()` now uses `argparse` (matching
   `scripts/codex.py`) instead of a hand-rolled `while i < len(args)` flag
   parser. The documented CLI surface is unchanged; usage errors now exit

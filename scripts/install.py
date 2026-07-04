@@ -9,6 +9,7 @@ Usage:
     install.py register-from-registry <registry_path> [--global-config <path>]
 """
 
+import argparse
 import json
 import os
 import re
@@ -260,94 +261,56 @@ def cmd_unregister(provider, global_config):
 
 
 def main():
-    args = sys.argv[1:]
+    argv = sys.argv[1:]
 
-    if not args:
+    if not argv:
         print(__doc__, file=sys.stderr)
         sys.exit(1)
 
-    if args[0] == "--version":
+    # Pre-parse version guard (TRN-3048 §Invariants): --version is honored
+    # only as argv[0], byte-identical to the prior manual parser. Not an
+    # argparse argument because the subparsers carry required positionals
+    # and `--cli` that would error at parse time before any post-parse
+    # version branch could run (supersedes TRN-3047's store_true pattern).
+    if argv[0] == "--version":
         print(__version__)
         return
 
-    if args[0] == "register":
-        if len(args) < 2:
-            print(
-                "install.py register <provider> --cli <cli_command> [--global-config <path>]",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    # Parser built inside main() so no defaults bind at import time (per
+    # TRN-3048 §Invariants). Mirrors scripts/codex.py:build_parser +
+    # scripts/discover.py:main ordering.
+    parser = argparse.ArgumentParser(prog="install.py", allow_abbrev=False)
+    subparsers = parser.add_subparsers(dest="command")
 
-        provider = args[1]
-        cli_command = None
-        global_config = os.path.expanduser("~/.claude/trinity.json")
+    register_parser = subparsers.add_parser("register", allow_abbrev=False)
+    register_parser.add_argument("provider")
+    register_parser.add_argument("--cli", required=True)
+    register_parser.add_argument("--global-config", default=None)
 
-        i = 2
-        while i < len(args):
-            if args[i] == "--cli" and i + 1 < len(args):
-                cli_command = args[i + 1]
-                i += 2
-            elif args[i] == "--global-config" and i + 1 < len(args):
-                global_config = args[i + 1]
-                i += 2
-            else:
-                print(f"install.py: unknown argument '{args[i]}'", file=sys.stderr)
-                sys.exit(1)
+    registry_parser = subparsers.add_parser(
+        "register-from-registry", allow_abbrev=False
+    )
+    registry_parser.add_argument("registry_path")
+    registry_parser.add_argument("--global-config", default=None)
 
-        if cli_command is None:
-            print("install.py register: --cli is required", file=sys.stderr)
-            sys.exit(1)
+    unregister_parser = subparsers.add_parser("unregister", allow_abbrev=False)
+    unregister_parser.add_argument("provider")
+    unregister_parser.add_argument("--global-config", default=None)
 
-        cmd_register(provider, cli_command, global_config)
+    args = parser.parse_args(argv)
 
-    elif args[0] == "register-from-registry":
-        if len(args) < 2:
-            print(
-                "install.py register-from-registry <registry_path> "
-                "[--global-config <path>]",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    # Lazy defaults (issue #278 principle, TRN-3048 §Invariants): `is None`
+    # (NOT falsy-or) so an explicit empty string passes through verbatim —
+    # `register p --global-config ""` reaches atomic_update unchanged.
+    if args.global_config is None:
+        args.global_config = os.path.expanduser("~/.claude/trinity.json")
 
-        registry_path = args[1]
-        global_config = os.path.expanduser("~/.claude/trinity.json")
-
-        i = 2
-        while i < len(args):
-            if args[i] == "--global-config" and i + 1 < len(args):
-                global_config = args[i + 1]
-                i += 2
-            else:
-                print(f"install.py: unknown argument '{args[i]}'", file=sys.stderr)
-                sys.exit(1)
-
-        cmd_register_from_registry(registry_path, global_config)
-
-    elif args[0] == "unregister":
-        if len(args) < 2:
-            print(
-                "install.py unregister <provider> [--global-config <path>]",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        provider = args[1]
-        global_config = os.path.expanduser("~/.claude/trinity.json")
-
-        i = 2
-        while i < len(args):
-            if args[i] == "--global-config" and i + 1 < len(args):
-                global_config = args[i + 1]
-                i += 2
-            else:
-                print(f"install.py: unknown argument '{args[i]}'", file=sys.stderr)
-                sys.exit(1)
-
-        cmd_unregister(provider, global_config)
-
-    else:
-        print(f"install.py: unknown command '{args[0]}'", file=sys.stderr)
-        sys.exit(1)
+    if args.command == "register":
+        cmd_register(args.provider, args.cli, args.global_config)
+    elif args.command == "register-from-registry":
+        cmd_register_from_registry(args.registry_path, args.global_config)
+    elif args.command == "unregister":
+        cmd_unregister(args.provider, args.global_config)
 
 
 if __name__ == "__main__":
