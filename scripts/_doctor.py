@@ -57,7 +57,6 @@ def _make_health_result(
     executable=None,
     timeout=None,
     cli=None,
-    auth=None,
     timeout_warning=False,
 ):
     """Construct a provider_health result dict with all TRN-3021 keys.
@@ -77,7 +76,13 @@ def _make_health_result(
         # TRN-3021 additions:
         "warnings": list(warnings),
         "cli": cli,
-        "auth": auth,
+        # The "auth" key is part of the TRN-3021 result shape (consumers
+        # read result.get("auth") at line ~336 and cmd_doctor overwrites
+        # it at line ~607 for wrapper providers). Value hardcoded to None
+        # here; cmd_doctor's wrapper-auth check is the only writer. The
+        # former auth parameter (TRN-3050) was dead — no caller passed a
+        # non-None value.
+        "auth": None,
         "timeout_warning": timeout_warning,
         "live_probe": None,
     }
@@ -187,6 +192,13 @@ def detect_env_pollution(base_env=None):
     first 12 chars + "…" to avoid leaking corp hostnames / token-adjacent
     strings. Returns list of (key, redacted_value) sorted alphabetically
     by key for deterministic display.
+
+    `base_env` is a deliberate test-injection seam (TRN-3050 disposition of
+    issue #244): production always calls with the default None → os.environ,
+    but tests at tests/test_doctor_preflight.py:66/72/78/91/97/106 inject
+    literal dicts to keep coverage hermetic. Removing it would force
+    os.environ monkeypatching — strictly worse. Kept per the issue's own
+    "justified + kept if a test genuinely needs it" AC clause.
     """
     if base_env is None:
         base_env = os.environ
@@ -274,7 +286,6 @@ def provider_health(provider, provider_config, root):
         executable=executable,
         timeout=timeout,
         cli=cli,
-        auth=None,
         timeout_warning=timeout_warning,
     )
 

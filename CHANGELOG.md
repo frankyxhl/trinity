@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Changed
+- `scripts/_doctor.py` `_make_health_result` drops its dead `auth=None`
+  parameter (TRN-3050). The result dict still carries the `"auth"` key
+  hardcoded to `None` — consumers (`result.get("auth")` at line ~336) and
+  the `cmd_doctor` wrapper-auth overwrite (`h["auth"] = auth` at line ~607)
+  are unaffected. The single call site that passed `auth=None` explicitly
+  drops the kwarg. Behavior-preserving; pinned by existing result-shape
+  tests. Separately, `detect_env_pollution`'s `base_env=` parameter is
+  **deliberately kept**: it is a load-bearing test-injection seam (six
+  literal-dict call sites in `tests/test_doctor_preflight.py`), kept per
+  issue #244's own "justified + kept if a test genuinely needs it" AC
+  clause; a docstring comment records the disposition. Closes #244.
 - `scripts/install.py` `main()` now uses `argparse` (matching
   `scripts/codex.py` / `scripts/discover.py`) instead of three hand-rolled
   `while i < len(args)` loops for `register` / `register-from-registry` /
