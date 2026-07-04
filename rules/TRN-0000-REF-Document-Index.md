@@ -75,6 +75,7 @@
 | 3046 | CHG | Droid Session Id Via Exec Json | Approved (§4 plan-review: glm 9.50 / deepseek 9.60 / minimax 9.50 R2 — all ≥9.5, all blocking empty) |
 | 3047 | CHG | Discover Argparse | Approved |
 | 3048 | CHG | Install Argparse | Approved |
+| 3049 | CHG | Delete Version Helper | Approved |
 | 3050 | CHG | Doctor Dead Param | Approved |
 
 ---
