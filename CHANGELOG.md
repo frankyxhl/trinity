@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Removed
+- `--latest` flag from `trinity status` (TRN-3053). Introduced by TRN-2028
+  as a forward-compat placeholder (`store_true` with zero readers of the
+  parsed value anywhere in the repo), it is now deleted. Behavior delta:
+  `trinity status --latest` previously succeeded as a silent no-op
+  (identical to bare `trinity status`); it now exits 2 with the argparse
+  "unrecognized arguments" message. Bare `trinity status` output is
+  byte-identical. Also synced: comment in `scripts/_review.py` and the
+  codex-compatibility reference doc no longer mention the flag. Closes
+  #245.
+
 ### Changed
 - `scripts/_review.py` `make_review_dir` rewritten to use
   `tempfile.mkdtemp` (TRN-3051). The 100-iteration `FileExistsError` retry
