@@ -1,0 +1,54 @@
+"""Contract tests for make_review_dir (TRN-3051: mkdtemp-based).
+
+Pins the four behavior deltas of the tempfile.mkdtemp rewrite:
+  - Dir name always ends in an 8-char random suffix (mkdtemp contract).
+  - Parent dir mode 0700 (mkdtemp); subdirs raw/ / logs/ keep umask defaults.
+  - Two same-second calls yield distinct dirs (atomic, no collision loop).
+  - Parent path resolves via expanduser (preserved).
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import stat
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+import _review  # noqa: E402
+
+
+def test_review_dir_name_has_random_suffix(tmp_path):
+    d = _review.make_review_dir(str(tmp_path), "src")
+    assert re.fullmatch(r"\d{8}-\d{6}-src-[a-z0-9_]{8}", d.name), d.name
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX perms")
+def test_review_dir_permission_asymmetry(tmp_path):
+    # Pin the umask so subdir modes are deterministic regardless of the
+    # runner's umask (codex P2, PR #286: under 077 the subdirs are 0700 too).
+    old_umask = os.umask(0o022)
+    try:
+        d = _review.make_review_dir(str(tmp_path), "src")
+        # mkdtemp contract: parent directory is 0700 regardless of umask
+        assert stat.S_IMODE(d.stat().st_mode) == 0o700, oct(
+            stat.S_IMODE(d.stat().st_mode)
+        )
+        # Subdirs keep plain-mkdir umask defaults: 0755 under the 022 set above
+        assert stat.S_IMODE((d / "raw").stat().st_mode) == 0o755
+        assert stat.S_IMODE((d / "logs").stat().st_mode) == 0o755
+    finally:
+        os.umask(old_umask)
+
+
+def test_review_dir_unique_subdirs_and_parent(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    a = _review.make_review_dir("~/reviews", "src")
+    b = _review.make_review_dir("~/reviews", "src")
+    assert a != b
+    assert (a / "raw").is_dir() and (a / "logs").is_dir()
+    assert a.parent == Path("~/reviews").expanduser() == tmp_path / "reviews"

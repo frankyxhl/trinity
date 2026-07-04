@@ -17,6 +17,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 try:
@@ -566,17 +567,19 @@ def make_review_dir(out_dir, scope):
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     base = Path(out_dir).expanduser()
     slug = slugify(scope)
-    for index in range(100):
-        suffix = f"{stamp}-{slug}" if index == 0 else f"{stamp}-{slug}-{index}"
-        review_dir = base / suffix
-        try:
-            review_dir.mkdir(parents=True, exist_ok=False)
-        except FileExistsError:
-            continue
-        (review_dir / "raw").mkdir()
-        (review_dir / "logs").mkdir()
-        return review_dir
-    raise SystemExit("trinity-codex: unable to create unique review directory")
+    # tempfile.mkdtemp gives us atomic, collision-free dir creation in one
+    # syscall (TRN-3051); the prior 100-iteration FileExistsError loop was
+    # pure over-engineering. mkdtemp always appends an 8-char random suffix
+    # to `prefix`, so the dir name is `{stamp}-{slug}-{8chars}`. The dir is
+    # created 0700 by mkdtemp's contract; subdirs raw/ and logs/ below
+    # inherit umask defaults (functionally moot — the 0700 parent gates
+    # traversal). Requires `base` to exist; mkdir it explicitly (mkdtemp
+    # raises if `dir=` is missing).
+    base.mkdir(parents=True, exist_ok=True)
+    review_dir = Path(tempfile.mkdtemp(prefix=f"{stamp}-{slug}-", dir=base))
+    (review_dir / "raw").mkdir()
+    (review_dir / "logs").mkdir()
+    return review_dir
 
 
 def review_parallelism(config, providers):

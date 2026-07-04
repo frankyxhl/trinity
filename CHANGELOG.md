@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Changed
+- `scripts/_review.py` `make_review_dir` rewritten to use
+  `tempfile.mkdtemp` (TRN-3051). The 100-iteration `FileExistsError` retry
+  loop + exhaustion `SystemExit` are gone; one atomic `mkdtemp` call with
+  `prefix=f"{stamp}-{slug}-"` does the job. Two declared behavior deltas:
+  (a) every dir name now ends in `-<8 random chars>` (mkdtemp's
+  `_RandomNameSequence` suffix; previously the suffix appeared only on
+  same-second collisions via the `-<index>` fallback), and (b) the parent
+  review dir is created with mode **0700** (mkdtemp's contract; previously
+  umask-derived, typically 0755). Subdirs `raw/` and `logs/` keep umask
+  defaults via plain `mkdir()`. `_status.py` latest-review ordering is
+  unaffected (sort key is `(name[:15], mtime)`; the 15-char stamp leads,
+  so the random tail never enters the key; mtime tiebreak still
+  load-bearing for same-second creates). `skills/trinity-zc/SKILL.md`
+  review-dir layout line updated to reflect the always-present `-<rand8>`
+  tail. Closes #241.
 - `scripts/_version.py` shrunk from an 18-line importlib spec/exec dance
   to a ~13-line textual parse (~7 functional lines + docstring). Issue #237
   originally asked to delete `_version.py` and repoint 5 callers to a

@@ -334,7 +334,7 @@ Pre-conditions the reused function expects:
 - Each `review_dir/raw/<provider>.txt` must be populated in sentinel format (stdout + `%%TRINITY-RAW-STDERR-BOUNDARY-9c3d2a1f7e%%` + stderr) **before** the call. Dispatch (step 5) writes `$RUN_DIR/<instance>.out`; the `cp` above stages it under the `raw/` name. A missing `raw/<provider>.txt` makes write_synthesis treat an rc=0 provider as PASS with no findings.
 - For TRN-3022 parsing to succeed, the provider's prompt must instruct it to emit a trailing fenced ```` ```json ```` block with `{decision, weighted_score, blocking, advisories, confidence?}`. trinity's `_review_schema_addendum` provides this text. **This is appended at dispatch time — §Dispatch Protocol step 4 ("Build the prompt") — NOT here:** by the time synthesis runs the providers have already finished, so a prompt dispatched without the addendum can no longer be fixed and synthesis will read free-form output as a legacy PASS.
 
-Review-dir layout (matches trinity): `.trinity/reviews/<YYYYMMDD-HHMMSS-slug>/{raw,logs,prompt.md,metadata.json,synthesis.md}`.
+Review-dir layout (matches trinity): `.trinity/reviews/<YYYYMMDD-HHMMSS-slug>-<rand8>/{raw,logs,prompt.md,metadata.json,synthesis.md}` (the `-<rand8>` tail is `tempfile.mkdtemp`'s 8-char random suffix, always present since TRN-3051).
 
 ## Subcommands
 
