@@ -109,7 +109,7 @@ No test or caller pins the old error text or exit-1 codes (verified:
 | # | Surface | Change | Worker |
 |---|---------|--------|--------|
 | 1 | `scripts/install.py` | `import argparse`; `main()` rewritten: empty-argv guard, **pre-parse version guard** (`argv[0] == "--version"`), top-level parser (`prog="install.py"`, `allow_abbrev=False`, no `--version` argument), three subparsers each with their positional + flags per the Preserved table, lazy `--global-config` default resolved via `is None` at dispatch, dispatch via `args.command`. Three manual loops deleted. Est. −75/+35 lines. | trinity-glm |
-| 2 | `tests/test_install.py` | New contract tests. ONE `pytest.mark.parametrize` exit-2 test enumerating **14 rows** (R2 count fix; missing-flag-value is covered via one representative subcommand — `register` — by deliberate choice): top-level `--bogus`; `bogus-cmd`; unknown flag on each of the 3 subcommands; missing positional on each of the 3 subcommands; `register p` missing `--cli`; `register p --global-config` missing value; `register p --cl x` abbreviation; `register -x --cli y` dash positional; `register p --cli -x` dash-token value; `unregister p extra` trailing positional — each asserting exit 2 + stderr + offending token. Individual tests: `-h` and `register -h` → help stdout exit 0; `--version` exact-match (dynamic version load); `--version register` → version exit 0 AND no config file created under patched HOME (behavioral short-circuit proof, R1 minimax/deepseek — replaces the non-probative HOME-unset mechanism, since `expanduser` falls back to passwd and never crashes); `register --cli x p` flag-before-positional → exit 0, provider `p` registered (behavior-addition pin); `--global-config ""` empty-string passthrough; no-args docstring exit 1. CAUTION (R1 glm C1/C2): `test_install.py` has NO autouse `patch_home` fixture — every test touching the default path must patch `HOME` explicitly (direct `subprocess.run(..., env=...)`; the line-13 run helper inherits `os.environ`). Est. ~65 LoC via parametrization. | trinity-deepseek |
+| 2 | `tests/test_install.py` | New contract tests. ONE `pytest.mark.parametrize` exit-2 test enumerating **15 rows** (implementation split the dash-token row into both variants, `--cli -x` AND `--cli --global-config`; missing-flag-value is covered via one representative subcommand — `register` — by deliberate choice): top-level `--bogus`; `bogus-cmd`; unknown flag on each of the 3 subcommands; missing positional on each of the 3 subcommands; `register p` missing `--cli`; `register p --global-config` missing value; `register p --cl x` abbreviation; `register -x --cli y` dash positional; `register p --cli -x` dash-token value; `unregister p extra` trailing positional — each asserting exit 2 + stderr + offending token. Individual tests: `-h` and `register -h` → help stdout exit 0; `--version` exact-match (dynamic version load); `--version register` → version exit 0 AND no config file created under patched HOME (behavioral short-circuit proof, R1 minimax/deepseek — replaces the non-probative HOME-unset mechanism, since `expanduser` falls back to passwd and never crashes); `register --cli x p` flag-before-positional → exit 0, provider `p` registered (behavior-addition pin); `--global-config ""` empty-string passthrough; no-args docstring exit 1. CAUTION (R1 glm C1/C2): `test_install.py` has NO autouse `patch_home` fixture — every test touching the default path must patch `HOME` explicitly (direct `subprocess.run(..., env=...)`; the line-13 run helper inherits `os.environ`). Est. ~65 LoC via parametrization. | trinity-deepseek |
 | 3 | `CHANGELOG.md` | `[Unreleased] ### Changed` entry referencing #239. | trinity-glm |
 | 4 | `rules/TRN-0000-REF-Document-Index.md` | Regenerated via `af index --root .`. | orchestrator |
 
@@ -125,7 +125,7 @@ Write sets are disjoint per TRN-1008 §5 (glm: scripts/ + CHANGELOG; deepseek: t
   dispatch via `is None` (issue #278 principle; empty string passes through);
   parser build reads neither filesystem nor environment.
 - [ ] Documented CLI surface preserved; existing tests pass **unmodified**.
-- [ ] New tests pin every Changed-table row (13-row parametrized exit-2 set,
+- [ ] New tests pin every Changed-table row (15-row parametrized exit-2 set,
   help exit-0, flag-before-positional addition), both version paths incl.
   the no-config-write short-circuit proof, empty-string passthrough, and
   no-args exit 1.
@@ -171,8 +171,14 @@ wrapper per COR-1621 — the B3 row and `--cli=-x` workaround are correct.
 Cosmetic R2 advisories folded post-gate: §What version-mechanism wording,
 14-row count fix + one-representative note, `-h`-omits-`--version` caveat.
 minimax surfaced a LATENT codex.py bug (`--version <subcommand>` with
-required args exits 2) — filed as a separate tracking issue, out of scope
-here.
+required args exits 2) — filed as #279, out of scope here.
+
+Code-review tier (PR #280, head 67d7703): glm 9.66 PASS / deepseek 9.60
+PASS, 0 blocking. Codex bot: +1 on PR body, ZERO inline findings (the
+lazy-defaults invariant pre-empted the PR #276 getcwd bug class). Post-gate
+cosmetic fixes: parametrize count reconciled to 15 across Surface 2 + AC;
+row-10 abbreviation token hardened from passenger `"--cl"` to stable
+`"required"` (deepseek discrimination analysis).
 
 R1 folds: pre-parse version guard replaces store_true mechanism (deepseek
 blocker + glm B5, convergent root cause); Changed table +5 rows (glm B1-B4 +

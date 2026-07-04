@@ -190,7 +190,10 @@ CHG_3048_ERROR_CASES = [
     (["unregister"], "required"),  # missing positional
     (["register", "p"], "--cli"),  # missing required --cli
     (["register", "p", "--global-config"], "--global-config"),  # flag missing its value
-    (["register", "p", "--cl", "x"], "--cl"),  # abbreviation rejected
+    # abbreviation rejected; token is "required" (stable argparse phrasing) —
+    # "--cl" only matched as a substring of "--cli" in the error, adding no
+    # independent discrimination (PR #280 code-review, deepseek)
+    (["register", "p", "--cl", "x"], "required"),
     (["register", "-x", "--cli", "y"], "required"),  # dash-prefixed positional
     (["register", "p", "--cli", "-x"], "--cli"),  # dash-token flag value
     (["register", "p", "--cli", "--global-config"], "--cli"),  # flag-as-value
