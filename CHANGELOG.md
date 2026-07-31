@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Changed
+- codex provider: bump pinned model `gpt-5.5` → `gpt-5.6-sol` (GPT-5.6
+  family released 2026-07-09) in `providers/registry.json`,
+  `providers/codex.md`, `providers/codex.delta.md`, `README.md`,
+  `SKILL.md`, and the sample cli string in
+  `tests/test_provider_registry.py`. Note the id is `gpt-5.6-sol` — bare
+  `gpt-5.6` is rejected with a 400 on ChatGPT-account Codex. Live-verified
+  via `codex exec -m gpt-5.6-sol` on 2026-07-31.
+- deepseek provider: default `ANTHROPIC_MODEL` switched from
+  `deepseek-v4-pro[1m]` to `deepseek-v4-flash` in `providers/bin/deepseek`
+  (docs synced in `providers/deepseek.md` / `deepseek.delta.md`). The
+  V4-Flash-0731 official build's agent benchmarks exceed V4-Pro-Preview
+  at a fraction of the price, and the official endpoint runs 1M context
+  by default — the `[1m]` suffix is no longer needed (the API normalizes
+  it away; verified against `api.deepseek.com/anthropic` on 2026-07-31).
+  `ANTHROPIC_SMALL_FAST_MODEL` stays `deepseek-v4-flash`. Regression
+  assertion updated in `tests/test_anthropic_compat_wrappers.py`.
 - `scripts/_review.py` `make_review_dir` rewritten to use
   `tempfile.mkdtemp` (TRN-3051). The 100-iteration `FileExistsError` retry
   loop + exhaustion `SystemExit` are gone; one atomic `mkdtemp` call with

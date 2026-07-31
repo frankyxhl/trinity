@@ -110,7 +110,7 @@ A provider is **usable** only when it has both a config entry AND an agent file.
   "providers": {
     "glm":     { "cli": "droid exec --auto medium --model custom:GLM-5.2", "installed": true },
     "minimax": { "cli": "droid exec --auto medium --model custom:MiniMax-M3", "installed": true },
-    "codex":   { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
+    "codex":   { "cli": "codex exec --skip-git-repo-check -m gpt-5.6-sol", "installed": true },
     "gemini":  { "cli": "gemini -p",                        "installed": true }
   },
   "defaults": {
@@ -312,7 +312,7 @@ Run provider discovery. Display two sections:
 |----------|-----------|----------------------------------|
 | glm      | ✅ usable  | droid exec --auto medium --model custom:GLM-5.2 |
 | minimax  | ✅ usable  | droid exec --auto medium --model custom:MiniMax-M3 |
-| codex    | ✅ usable  | codex exec --skip-git-repo-check -m gpt-5.5 |
+| codex    | ✅ usable  | codex exec --skip-git-repo-check -m gpt-5.6-sol |
 | gemini   | ⚠️ missing | (agent file not found)           |
 ```
 

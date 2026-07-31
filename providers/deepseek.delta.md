@@ -5,7 +5,7 @@ description: |
   with DeepSeek's Anthropic-compatible endpoint via the bin script installed
   by trinity (providers/bin/deepseek). API key from $DEEPSEEK_API_KEY or
   ~/.secrets/deepseek_api_key (mode 600 or 400).
-  Default model: deepseek-v4-pro. Supports session resume via --resume.
+  Default model: deepseek-v4-flash. Supports session resume via --resume.
 
   Invoked via Agent tool with subagent_type="general-purpose".
   Claude passes: provider instance name, project dir, and task description.

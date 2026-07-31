@@ -179,7 +179,7 @@ Then create `~/.claude/trinity.json`:
 ```json
 {
   "providers": {
-    "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.5", "installed": true },
+    "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-5.6-sol", "installed": true },
     "gemini":     { "cli": "gemini -p",                        "installed": true },
     "glm":        { "cli": "droid exec --auto medium --model custom:GLM-5.2", "installed": true },
     "minimax":    { "cli": "droid exec --auto medium --model custom:MiniMax-M3", "installed": true },
