@@ -9,7 +9,12 @@
   `SKILL.md`, and the sample cli string in
   `tests/test_provider_registry.py`. Note the id is `gpt-5.6-sol` — bare
   `gpt-5.6` is rejected with a 400 on ChatGPT-account Codex. Live-verified
-  via `codex exec -m gpt-5.6-sol` on 2026-07-31.
+  via `codex exec -m gpt-5.6-sol` on 2026-07-31. **Requires codex-cli ≥
+  0.144.0** (GPT-5.6 availability — same documentation-only precedent as
+  the TRN-2005 `≥ 0.125` note for gpt-5.5); older CLIs reject the model.
+  Upgrade codex-cli before reinstalling Trinity. Minimum documented next
+  to the effort-flag note in `providers/codex.md` / `codex.delta.md`
+  (codex bot P2 on PR #307).
 - deepseek provider: default `ANTHROPIC_MODEL` switched from
   `deepseek-v4-pro[1m]` to `deepseek-v4-flash` in `providers/bin/deepseek`
   (docs synced in `providers/deepseek.md` / `deepseek.delta.md`). The

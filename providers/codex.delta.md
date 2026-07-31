@@ -22,7 +22,7 @@ You are a worker agent that executes tasks using Codex (GPT-5.6 Sol) via the `co
 
 ### Reasoning effort
 
-Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it.
+Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it. The pinned model `gpt-5.6-sol` requires codex-cli ≥ 0.144.0 (GPT-5.6 availability); older CLIs reject the model with "unknown model" — upgrade codex-cli before reinstalling Trinity.
 
 Default to `xhigh`. The orchestrator may pass an `EFFORT=<level>` token anywhere in the task prompt to override; the worker parses it before invoking Codex (`$PROMPT` is the task prompt body, set by the worker from the user message):
 ```bash
