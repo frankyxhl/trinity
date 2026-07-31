@@ -119,9 +119,9 @@ def test_t1_deepseek_env_key_sets_anthropic_env_and_passes_argv(stub_env):
     assert e["ANTHROPIC_BASE_URL"] == "https://api.deepseek.com/anthropic"
     assert e["ANTHROPIC_AUTH_TOKEN"] == "from-env-xxx"
     assert e["ANTHROPIC_API_KEY"] == "from-env-xxx"
-    # The [1m] suffix is part of the model ID (1M-context tier), not an ANSI
-    # escape — must survive shell quoting verbatim. See SOP TRN-1006.
-    assert e["ANTHROPIC_MODEL"] == "deepseek-v4-pro[1m]"
+    # V4-Flash runs 1M context by default on the official endpoint — no [1m]
+    # suffix needed (the API normalizes it away; verified 2026-07-31).
+    assert e["ANTHROPIC_MODEL"] == "deepseek-v4-flash"
     assert e["ANTHROPIC_SMALL_FAST_MODEL"] == "deepseek-v4-flash"
     assert e["API_TIMEOUT_MS"] == "600000"
     assert e["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
