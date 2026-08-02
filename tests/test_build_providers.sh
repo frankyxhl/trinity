@@ -61,6 +61,42 @@ assert_no_frontmatter() {
   ! head -1 "$f" | grep -q '^---$'
 }
 
+assert_shared_claude_slug_helper_guard() {
+  local f="$1"
+  python3 - "$f" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+helper = 'python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"'
+helper_pos = text.find(helper)
+if helper_pos < 0:
+    raise SystemExit("installed shared slug helper invocation missing")
+
+line_start = text.rfind("\n", 0, helper_pos) + 1
+line_end = text.find("\n", helper_pos)
+helper_line = text[line_start:line_end]
+if "if ! PROJECT_SLUG=$(" not in helper_line or not helper_line.rstrip().endswith("); then"):
+    raise SystemExit("shared helper command substitution lacks an explicit failure guard")
+
+guard_end = text.find("\nfi", helper_pos)
+if guard_end < 0:
+    raise SystemExit("shared helper failure guard is unterminated")
+guard = text[helper_pos:guard_end]
+if ">&2" not in guard or "exit 1" not in guard:
+    raise SystemExit("shared helper failure guard lacks stderr diagnostic or exit 1")
+
+session_dir_pos = text.find("SESSION_DIR=", helper_pos)
+scan_pos = text.find('for f in "${SESSION_DIR}"', helper_pos)
+if session_dir_pos < 0 or helper_pos > session_dir_pos:
+    raise SystemExit("shared helper must run before SESSION_DIR assignment")
+if scan_pos < 0 or helper_pos > scan_pos:
+    raise SystemExit("shared helper must run before transcript scanning")
+if "sed 's|/|-|g'" in text:
+    raise SystemExit("legacy slash-only Claude slug encoder remains")
+PY
+}
+
 # Tests -----------------------------------------------------------------------
 
 echo "=== test_build_providers.sh ==="
@@ -168,6 +204,14 @@ done
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
 check "deepseek run function"    grep -q 'run_deepseek()' providers/deepseek.md
 check "claude-code run function" grep -q 'run_claude_code()' providers/claude-code.md
+
+# TRN-3002: all Claude-family generated templates must share the installed
+# canonical encoder. The guard must stop execution if the helper fails, before
+# SESSION_DIR is assigned or any transcript scan can run.
+for p in "${WRAPPER[@]}"; do
+  check "$p uses guarded shared Claude slug helper" \
+    assert_shared_claude_slug_helper_guard "providers/$p.md"
+done
 
 echo "-- T7: drift sentinels (3 bundled fixes stay applied)"
 # Fix #1 — codex reasoning effort: model_reasoning_effort, default xhigh, override parsing

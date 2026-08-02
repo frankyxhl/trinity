@@ -37,7 +37,10 @@ run_deepseek() {
 }
 
 # Session directory (scoped to project)
-PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g')
+if ! PROJECT_SLUG=$(python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"); then
+  echo "trinity-deepseek: failed to encode project slug" >&2
+  exit 1
+fi
 SESSION_DIR="$HOME/.claude-deepseek/projects/${PROJECT_SLUG}"
 ```
 

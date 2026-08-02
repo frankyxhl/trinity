@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from unittest import mock
@@ -77,12 +79,42 @@ def _encoded(project_dir: Path) -> str:
 
 
 def _claude_slug(project_dir: Path) -> str:
-    """Claude-family `PROJECT_SLUG` encoding (`~/.claude-trinity-claude-code/`,
-    `~/.claude-deepseek/`, `~/.claude-openrouter/`): keep leading dash — matches
-    the claude CLI's actual on-disk layout. Per CHG-3045; the hardcoded anchor
-    in `test_claude_slug_matches_real_claude_cli_layout` pins this against a
-    coordinated helper/resolver re-break."""
-    return str(project_dir.resolve()).replace("/", "-")
+    """Independent dynamic fixture encoder for Claude-family transcript paths.
+
+    This mirrors Claude Code 2.1.220 UTF-16 behavior for temporary paths used
+    by end-to-end resolver tests. Literal expected vectors below remain
+    hardcoded and do not call this helper.
+    """
+    project_path = os.path.abspath(str(project_dir))
+    encoded = project_path.encode("utf-16-le", errors="surrogatepass")
+    units = [encoded[i] | (encoded[i + 1] << 8) for i in range(0, len(encoded), 2)]
+    sanitized = "".join(
+        chr(unit)
+        if ord("0") <= unit <= ord("9")
+        or ord("A") <= unit <= ord("Z")
+        or ord("a") <= unit <= ord("z")
+        else "-"
+        for unit in units
+    )
+    if len(sanitized) <= 200:
+        return sanitized
+
+    hash_value = 0
+    for unit in units:
+        hash_value = (hash_value * 31 + unit) & 0xFFFFFFFF
+    if hash_value >= 0x80000000:
+        hash_value -= 0x100000000
+
+    magnitude = abs(hash_value)
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    suffix = "0"
+    if magnitude:
+        encoded_digits = []
+        while magnitude:
+            magnitude, remainder = divmod(magnitude, 36)
+            encoded_digits.append(digits[remainder])
+        suffix = "".join(reversed(encoded_digits))
+    return sanitized[:200] + "-" + suffix
 
 
 _CLAUDE_FAMILY_ROOTS = {
@@ -90,6 +122,57 @@ _CLAUDE_FAMILY_ROOTS = {
     "deepseek": ".claude-deepseek",
     "openrouter": ".claude-openrouter",
 }
+
+
+# Literal Claude Code 2.1.220 fixtures.  The expected values and base-36 hash
+# suffixes are runtime-provenance constants, not outputs from test-side encoder
+# logic.  Repetition only keeps the 200-unit boundary vectors readable.
+_CLAUDE_2_1_220_SLUG_FIXTURES = [
+    pytest.param(
+        "/Users/frank/my_project",
+        "-Users-frank-my-project",
+        id="underscore",
+    ),
+    pytest.param(
+        "/Users/frank/my.project",
+        "-Users-frank-my-project",
+        id="dot",
+    ),
+    pytest.param(
+        "/Users/frank/my project",
+        "-Users-frank-my-project",
+        id="space",
+    ),
+    pytest.param("/a_b.c d!?", "-a-b-c-d--", id="punctuation"),
+    pytest.param("/café/東京", "-caf----", id="bmp-unicode"),
+    pytest.param("/rocket🚀/project", "-rocket---project", id="astral-unicode"),
+    pytest.param("/Users/frank", "-Users-frank", id="leading-dash"),
+    pytest.param(
+        "/" + ("a" * 199),
+        "-" + ("a" * 199),
+        id="exactly-200-utf16-units",
+    ),
+    pytest.param(
+        "/" + ("a" * 200),
+        "-" + ("a" * 199) + "-b6ymvl",
+        id="201-utf16-units",
+    ),
+    pytest.param(
+        "/long/" + ("g" * 220),
+        "-long-" + ("g" * 194) + "-2495lw",
+        id="long-positive-signed-hash",
+    ),
+    pytest.param(
+        "/long/" + ("a" * 220),
+        "-long-" + ("a" * 194) + "-kh3ffg",
+        id="long-negative-signed-hash",
+    ),
+    pytest.param(
+        "/" + ("a" * 198) + "😀z",
+        "-" + ("a" * 198) + "--92ehu0",
+        id="astral-long-path",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -196,11 +279,11 @@ def test_codex_index_malformed_line_falls_through_to_glob(tmp_path, capsys):
 @pytest.mark.parametrize("provider", ["claude-code", "deepseek", "openrouter"])
 def test_claude_family_happy_path(provider, tmp_path, capsys):
     """Each claude-CLI wrapper has its own CLAUDE_CONFIG_DIR root + uses the
-    leading-dash-kept PROJECT_SLUG. Per providers/<name>.md:
+    canonical Claude Code 2.1.220 PROJECT_SLUG. Per providers/<name>.md:
     SESSION_DIR=$HOME/.claude-trinity-claude-code/projects/${PROJECT_SLUG}
     SESSION_DIR=$HOME/.claude-deepseek/projects/${PROJECT_SLUG}
     SESSION_DIR=$HOME/.claude-openrouter/projects/${PROJECT_SLUG}
-    PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g').
+    The installed shared helper supplies PROJECT_SLUG for all three wrappers.
     """
     sp = _import_session_path()
     project = tmp_path / "proj"
@@ -246,6 +329,78 @@ def test_claude_slug_matches_real_claude_cli_layout():
         sp._encode_project_slug("/home/runner/work/trinity/trinity")
         == "-home-runner-work-trinity-trinity"
     )
+
+
+@pytest.mark.parametrize("project_dir,expected_slug", _CLAUDE_2_1_220_SLUG_FIXTURES)
+def test_claude_project_slug_matches_2_1_220_fixtures(project_dir, expected_slug):
+    sp = _import_session_path()
+
+    assert sp._encode_project_slug(project_dir) == expected_slug
+
+
+@pytest.mark.parametrize(
+    "lookup_key,root_name",
+    [
+        ("claude-code", ".claude-trinity-claude-code"),
+        ("deepseek:hbp-smoke", ".claude-deepseek"),
+        ("openrouter", ".claude-openrouter"),
+    ],
+)
+def test_claude_family_resolves_canonical_slug(
+    lookup_key, root_name, monkeypatch, capsys
+):
+    sp = _import_session_path()
+    project_dir = "/Users/frank/Projects/project_name.with space!"
+    session_id = "canonical-slug-session"
+    monkeypatch.setattr(
+        sp,
+        "_read_pointer",
+        lambda _project_dir: {"sessions": {lookup_key: {"session_id": session_id}}},
+    )
+
+    transcript = (
+        Path(os.environ["HOME"])
+        / root_name
+        / "projects"
+        / "-Users-frank-Projects-project-name-with-space-"
+        / f"{session_id}.jsonl"
+    )
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
+
+    rc = sp.cmd_session_path(project_dir, lookup_key)
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert out.out == f"{transcript}\n"
+
+
+@pytest.mark.parametrize("provider", ["glm", "minimax"])
+def test_droid_family_preserves_underscore_in_project_path(
+    provider, monkeypatch, capsys
+):
+    sp = _import_session_path()
+    project_dir = "/Users/frank/Projects/droid_project"
+    session_id = f"{provider}-underscore-session"
+    monkeypatch.setattr(
+        sp,
+        "_read_pointer",
+        lambda _project_dir: {"sessions": {provider: {"session_id": session_id}}},
+    )
+
+    transcript = (
+        Path(os.environ["HOME"])
+        / ".factory"
+        / "sessions"
+        / "-Users-frank-Projects-droid_project"
+        / f"{session_id}.jsonl"
+    )
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
+
+    rc = sp.cmd_session_path(project_dir, provider)
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert out.out == f"{transcript}\n"
 
 
 def test_gemini_stub_returns_exit_3(tmp_path, capsys):
@@ -438,6 +593,82 @@ def test_codex_wrapper_normalizes_default_suffix(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr()
     assert rc == 0, out.err
     assert out.out.strip() == str(transcript)
+
+
+def test_codex_wrapper_normalizes_deepseek_default(monkeypatch):
+    sp = _import_session_path()
+    if "codex" in sys.modules:
+        del sys.modules["codex"]
+    import codex as codex_mod
+
+    captured = []
+
+    def fake_cmd_session_path(project_dir, lookup_key):
+        captured.append((project_dir, lookup_key))
+        return 0
+
+    monkeypatch.setattr(sp, "cmd_session_path", fake_cmd_session_path)
+
+    class _Args:
+        provider_spec = "deepseek:default"
+        project = "/Users/frank/Projects/project_name"
+
+    assert codex_mod.cmd_session_path(_Args()) == 0
+    assert captured == [("/Users/frank/Projects/project_name", "deepseek")]
+
+
+def test_claude_slug_helper_runs_from_fake_installed_layout(tmp_path):
+    fake_home = tmp_path / "home"
+    installed_scripts = fake_home / ".claude" / "skills" / "trinity" / "scripts"
+    installed_scripts.mkdir(parents=True)
+    for filename in (
+        "__init__.py",
+        "_compat.py",
+        "_version.py",
+        "session.py",
+        "session_path.py",
+    ):
+        shutil.copy2(SCRIPTS_DIR / filename, installed_scripts / filename)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(installed_scripts / "session_path.py"),
+            "--encode-claude-project-slug",
+            "/Users/frank/Projects/project_name.with space!",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HOME": str(fake_home)},
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "-Users-frank-Projects-project-name-with-space-\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize(
+    "helper_args",
+    [
+        ["--encode-claude-project-slug"],
+        ["--encode-claude-project-slug", "/Users/frank/project", "extra"],
+    ],
+    ids=["missing-project-dir", "extra-argument"],
+)
+def test_claude_slug_helper_invalid_arity_contract(helper_args):
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "session_path.py"), *helper_args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert (
+        result.stderr == "session_path.py --encode-claude-project-slug <project_dir>\n"
+    )
 
 
 def test_codex_wrapper_package_import_resolves_session_path(tmp_path, capsys):
