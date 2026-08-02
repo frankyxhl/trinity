@@ -87,18 +87,24 @@
   print help and exit 0 (previously rejected as unknown). Closes #240.
 
 ### Fixed
+- Claude-family transcript lookup and provider templates now use one shared
+  Claude Code 2.1.220 project-slug encoder. `claude-code`, `deepseek`, and
+  `openrouter` replace every non-ASCII-alphanumeric UTF-16 code unit with `-`
+  and reproduce Claude's 200-unit truncation plus signed 32-bit JavaScript
+  hash suffix in lowercase base 36. This fixes valid resumes for project paths
+  containing underscores, dots, spaces, punctuation, Unicode, or more than
+  200 UTF-16 units. The installed helper has an explicit guarded-failure path
+  before transcript scanning; Droid-based GLM/MiniMax slash-only encoding is
+  unchanged. TRN-3002.
 - `session-path` resolver for claude-family providers (`deepseek`,
   `openrouter`, `claude-code`) now keeps the leading dash in the project
   slug, matching the claude CLI's actual on-disk layout
   (`~/.claude-*/projects/-Users-frank-...`). Previously the resolver stripped
   the leading dash and returned exit 3 ("transcript file not found") for
   every claude-family provider; it only appeared to work because the worker
-  agent improvised a fallback to the dashed directory. `_encode_project_slug`
-  drops `.lstrip("-")`; the `PROJECT_SLUG` sed in
-  `providers/{claude-code,deepseek,openrouter}.delta.md` drops `s|^-||`
-  (regenerated via `make build`); the test helper `_claude_slug` no longer
-  mirrors the bug; a new literal-anchor test pins the real macOS + Linux
-  slugs independent of the helper. Closes #262.
+  agent improvised a fallback to the dashed directory. Literal anchors pin
+  the real macOS and Linux leading-dash behavior independently from the
+  canonical encoder fixtures. Closes #262.
 - droid-based providers (`glm`, `minimax`) now derive the new session id from
   `droid exec -o json`'s own `session_id` field (the process's own stdout)
   instead of `droid search "<phrase>" --json | sessions[0]`. `droid search` is
