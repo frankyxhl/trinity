@@ -5,7 +5,7 @@ description: |
   with DeepSeek's Anthropic-compatible endpoint via the bin script installed
   by trinity (providers/bin/deepseek). API key from $DEEPSEEK_API_KEY or
   ~/.secrets/deepseek_api_key (mode 600 or 400).
-  Default model: deepseek-v4-pro. Supports session resume via --resume.
+  Default model: deepseek-v4-flash. Supports session resume via --resume.
 
   Invoked via Agent tool with subagent_type="general-purpose".
   Claude passes: provider instance name, project dir, and task description.
@@ -37,7 +37,10 @@ run_deepseek() {
 }
 
 # Session directory (scoped to project)
-PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g')
+if ! PROJECT_SLUG=$(python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"); then
+  echo "trinity-deepseek: failed to encode project slug" >&2
+  exit 1
+fi
 SESSION_DIR="$HOME/.claude-deepseek/projects/${PROJECT_SLUG}"
 ```
 

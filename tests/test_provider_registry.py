@@ -379,7 +379,7 @@ def test_register_from_registry_no_warning_for_builtin_models(tmp_path, capsys):
     factory settings file is absent."""
     install_py.warn_missing_custom_models(
         "codex",
-        "codex exec --skip-git-repo-check -m gpt-5.5",
+        "codex exec --skip-git-repo-check -m gpt-5.6-sol",
         str(tmp_path / "missing.json"),
     )
     assert capsys.readouterr().err == ""
