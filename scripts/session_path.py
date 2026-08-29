@@ -28,10 +28,10 @@ Encoding differs by provider (matches per-wrapper conventions in
 ``providers/<name>.md``):
     glm                              -> replace "/" with "-"; KEEP leading dash
                                         (matches ~/.factory/sessions/-Users-frank-...)
-    claude-code/deepseek/openrouter  -> replace "/" with "-"; KEEP leading dash
-                                        (PROJECT_SLUG=$(echo "$PROJECT_DIR"
-                                        | sed 's|/|-|g'); matches the claude CLI's
-                                        ~/.claude-*/projects/-Users-frank-... layout)
+    claude-code/deepseek/openrouter  -> Claude Code 2.1.220 canonical project
+                                        slug (non-ASCII-alphanumeric UTF-16 code
+                                        units become "-"; long paths add the JS
+                                        hash suffix)
 
 Exit codes:
     0  path printed; file exists on disk.
@@ -93,19 +93,39 @@ def _encode_project_path(project_dir: str) -> str:
 
 
 def _encode_project_slug(project_dir: str) -> str:
-    """Claude-family encoding (`PROJECT_SLUG`): replace `/` with `-`, KEEPING
-    the leading dash. Matches the claude CLI's actual on-disk layout under
-    ``~/.claude-*/projects/`` (e.g. ``-Users-frank-Projects-trinity``), per
-    the per-wrapper convention in ``providers/<name>.md``:
+    """Return Claude Code 2.1.220's canonical project slug.
 
-        PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g')
-
-    Post CHG-3045 this is identical to ``_encode_project_path`` (both keep the
-    leading dash). Kept as a separate function pending a follow-up collapse
-    CHG; do NOT re-introduce a strip here — the claude CLI does not strip.
+    JavaScript sanitization, length, and hashing operate on UTF-16 code units,
+    so astral characters contribute two replacement dashes and two hash steps.
+    Long paths retain the first 200 sanitized units and append the absolute
+    signed-32-bit JavaScript string hash in lowercase base 36.
     """
     abs_path = os.path.abspath(project_dir)
-    return abs_path.replace("/", "-")
+    encoded = abs_path.encode("utf-16-le", errors="surrogatepass")
+    units = [
+        encoded[index] | (encoded[index + 1] << 8)
+        for index in range(0, len(encoded), 2)
+    ]
+    slug = "".join(
+        chr(unit) if 48 <= unit <= 57 or 65 <= unit <= 90 or 97 <= unit <= 122 else "-"
+        for unit in units
+    )
+    if len(units) <= 200:
+        return slug
+
+    hash_value = 0
+    for unit in units:
+        hash_value = (hash_value * 31 + unit) & 0xFFFFFFFF
+    if hash_value & 0x80000000:
+        hash_value -= 0x100000000
+
+    magnitude = abs(hash_value)
+    suffix = ""
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    while magnitude:
+        magnitude, remainder = divmod(magnitude, 36)
+        suffix = digits[remainder] + suffix
+    return f"{slug[:200]}-{suffix or '0'}"
 
 
 def _resolve_glm(session_id: str, project_dir: str) -> Path:
@@ -129,13 +149,13 @@ def _resolve_claude_family(session_id: str, project_dir: str, provider: str) -> 
     """Resolve transcript path for claude-CLI wrapper providers.
 
     Each wrapper has its own ``CLAUDE_CONFIG_DIR``; the resolver dispatches
-    on `provider` to pick the right root. Encoding uses the wrapper's
-    `PROJECT_SLUG` convention (keep leading dash — matches claude CLI layout).
+    on `provider` to pick the right root. Encoding uses the wrapper's canonical
+    `PROJECT_SLUG` convention.
     """
     root = _CLAUDE_FAMILY_ROOTS[provider]  # KeyError → caller bug
-    slug = _encode_project_slug(project_dir)
     home = Path(os.path.expanduser("~"))
-    return home / root / "projects" / slug / f"{session_id}.jsonl"
+    projects = home / root / "projects"
+    return projects / _encode_project_slug(project_dir) / f"{session_id}.jsonl"
 
 
 def _codex_root() -> Path:
@@ -356,6 +376,15 @@ def _print_usage() -> None:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--encode-claude-project-slug":
+        if len(argv) != 2:
+            print(
+                "session_path.py --encode-claude-project-slug <project_dir>",
+                file=sys.stderr,
+            )
+            return 1
+        print(_encode_project_slug(argv[1]))
+        return 0
     if len(argv) != 2:
         _print_usage()
         return 1
