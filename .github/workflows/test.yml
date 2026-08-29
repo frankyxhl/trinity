@@ -79,7 +79,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Setup uv
         if: steps.changes.outputs.run_tests == 'true'
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: |
