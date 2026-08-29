@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Removed
+- `STRICT_REVIEW_TEMPLATES` re-export from `scripts/codex.py` (TRN-3052).
+  The module-level dict in `scripts/_review.py` was inlined into
+  `resolve_strict_review` (one-entry registry); the re-export of the deleted
+  name carried no consumers (verified by grep). The #206 module-split
+  promise ("existing importers unaffected") is intact — no importer ever
+  existed for this name. `resolve_strict_review`, `strict_review_metadata`,
+  and `STRICT_REVIEW_OUTPUT_SCHEMA` remain re-exported unchanged.
+
 ### Changed
 - CI: `test` workflow Python matrix trimmed from 3.11/3.12/3.13/3.14 to
   **3.14 only** (owner decision 2026-08-30) — 8 matrix jobs → 2; OS matrix
@@ -31,6 +40,20 @@
   it away; verified against `api.deepseek.com/anthropic` on 2026-07-31).
   `ANTHROPIC_SMALL_FAST_MODEL` stays `deepseek-v4-flash`. Regression
   assertion updated in `tests/test_anthropic_compat_wrappers.py`.
+- `scripts/_review.py` `resolve_strict_review` inlines the single
+  `STRICT_REVIEW_TEMPLATES` entry (TRN-3052). The module-level dict and
+  tuple-key `.get()` are gone; the supported combo is now an explicit
+  `if (sop, rubric) != ("COR-1602", "COR-1609")` check followed by the
+  template dict-literal (content byte-identical to the prior registry
+  entry). TRN-3034 Option A's anti-drift rationale is preserved:
+  `pass_threshold` and `decision_rule` stay co-located in one dict
+  literal; only the one-entry registry indirection dies. The
+  threshold-flow mechanism (write_synthesis reads
+  `strict_review["pass_threshold"]` from the resolved template object) is
+  untouched. Characterization tests in `tests/test_strict_review.py` pin
+  the full envelope shape (top-level `pass_threshold`, `enabled`,
+  `output_schema`, normalized `sop`/`rubric`) plus the nested template
+  content, guarding the TRN-3034 regression path. Closes #242.
 - `scripts/_review.py` `make_review_dir` rewritten to use
   `tempfile.mkdtemp` (TRN-3051). The 100-iteration `FileExistsError` retry
   loop + exhaustion `SystemExit` are gone; one atomic `mkdtemp` call with
