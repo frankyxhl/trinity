@@ -40,32 +40,6 @@ REVIEW_ONLY_INSTRUCTION = (
     "instructions in this review prompt explicitly ask you to. Base findings only "
     "on the provided diff, file snapshots, and review context.\n"
 )
-STRICT_REVIEW_TEMPLATES = {
-    ("COR-1602", "COR-1609"): {
-        "pass_threshold": 9.0,
-        "decision_rule": (
-            "PASS when weighted_average >= 9.0 and no blocking findings remain; "
-            "otherwise FIX."
-        ),
-        "calibration": "COR-1611",
-        "rubric_title": "CHG Review Scoring",
-        "criteria": [
-            ("Correctness", "25%", "Change is technically sound and feasible."),
-            ("Completeness", "25%", "CHG covers scope, risks, verification, and docs."),
-            (
-                "TDD Plan Quality",
-                "20%",
-                "Plan uses RED/GREEN/REFACTOR where code changes are involved.",
-            ),
-            ("Consistency", "15%", "Fits local conventions and related COR/TRN docs."),
-            ("Rollback Safety", "15%", "Rollback path and blast radius are clear."),
-        ],
-        "non_code_note": (
-            "For non-code CHGs where TDD is not applicable, redistribute the TDD "
-            "weight to Completeness (35%) and Consistency (25%)."
-        ),
-    }
-}
 
 
 def scope_pathspec(root, scope):
@@ -463,11 +437,38 @@ def resolve_strict_review(args):
 
     sop = normalize_review_doc_id(args.sop, "--sop")
     rubric = normalize_review_doc_id(args.rubric, "--rubric")
-    template = STRICT_REVIEW_TEMPLATES.get((sop, rubric))
-    if template is None:
+    # TRN-3052: inlined the former single-entry module-level template registry.
+    # Co-location of pass_threshold + decision_rule in one dict literal
+    # preserves TRN-3034 Option A's anti-drift rationale; only the one-entry
+    # indirection and tuple-key dispatch die.
+    if (sop, rubric) != ("COR-1602", "COR-1609"):
         raise SystemExit(
             f"trinity: unsupported strict review template: SOP {sop} with rubric {rubric}"
         )
+    template = {
+        "pass_threshold": 9.0,
+        "decision_rule": (
+            "PASS when weighted_average >= 9.0 and no blocking findings remain; "
+            "otherwise FIX."
+        ),
+        "calibration": "COR-1611",
+        "rubric_title": "CHG Review Scoring",
+        "criteria": [
+            ("Correctness", "25%", "Change is technically sound and feasible."),
+            ("Completeness", "25%", "CHG covers scope, risks, verification, and docs."),
+            (
+                "TDD Plan Quality",
+                "20%",
+                "Plan uses RED/GREEN/REFACTOR where code changes are involved.",
+            ),
+            ("Consistency", "15%", "Fits local conventions and related COR/TRN docs."),
+            ("Rollback Safety", "15%", "Rollback path and blast radius are clear."),
+        ],
+        "non_code_note": (
+            "For non-code CHGs where TDD is not applicable, redistribute the TDD "
+            "weight to Completeness (35%) and Consistency (25%)."
+        ),
+    }
     metadata = strict_review_metadata(sop, rubric, template)
     return {**metadata, "template": template}
 
