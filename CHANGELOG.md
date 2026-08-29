@@ -12,6 +12,13 @@
   and `STRICT_REVIEW_OUTPUT_SCHEMA` remain re-exported unchanged.
 
 ### Changed
+- CI: `test` workflow Python matrix trimmed from 3.11/3.12/3.13/3.14 to
+  **3.14 only** (owner decision 2026-08-30) — 8 matrix jobs → 2; OS matrix
+  (ubuntu-latest, macos-latest) unchanged. `requires-python = ">=3.11"` in
+  `pyproject.toml` is untouched. The required status checks (`ubuntu-latest`,
+  `macos-latest` aggregator gates) are not matrix entries, so branch
+  protection needed no change. Contract test
+  `tests/test_test_workflow_matrix.sh` updated to pin the new matrix.
 - codex provider: bump pinned model `gpt-5.5` → `gpt-5.6-sol` (GPT-5.6
   family released 2026-07-09) in `providers/registry.json`,
   `providers/codex.md`, `providers/codex.delta.md`, `README.md`,
