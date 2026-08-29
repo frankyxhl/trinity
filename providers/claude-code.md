@@ -67,7 +67,10 @@ run_claude_code() {
 EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(low|medium|high|xhigh|max)' | head -1 | cut -d= -f2)
 
 # Session directory (scoped to project)
-PROJECT_SLUG=$(echo "$PROJECT_DIR" | sed 's|/|-|g')
+if ! PROJECT_SLUG=$(python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"); then
+  echo "trinity-claude-code: failed to encode project slug" >&2
+  exit 1
+fi
 SESSION_DIR="$HOME/.claude-trinity-claude-code/projects/${PROJECT_SLUG}"
 ```
 
