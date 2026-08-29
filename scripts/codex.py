@@ -145,7 +145,6 @@ _format_cli_summary = _review_mod._format_cli_summary
 write_synthesis = _review_mod.write_synthesis
 STRICT_REVIEW_OUTPUT_SCHEMA = _review_mod.STRICT_REVIEW_OUTPUT_SCHEMA
 REVIEW_ONLY_INSTRUCTION = _review_mod.REVIEW_ONLY_INSTRUCTION
-STRICT_REVIEW_TEMPLATES = _review_mod.STRICT_REVIEW_TEMPLATES
 cmd_review = _review_mod.cmd_review
 
 # Re-exports from _status module (status subcommand).
