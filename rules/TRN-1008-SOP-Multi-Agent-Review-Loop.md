@@ -491,6 +491,7 @@ USE TRN-1800, NOT CLD-1800 (the `.claude` repo philosophy doesn't apply here).
 - Static-template constraints incompatible with runtime gating (TRN-3022)
 - Stale-base reference / phantom file (TRN-3021 — fixed by phase-2 branch hygiene)
 - Panel reviewing CLD-1800 weights instead of TRN-1800 (PR #69 R3 lesson)
+- CLI argument defaults touching filesystem or environment at parser-build time — `getcwd()`, `expanduser`-on-missing-`HOME`, env reads. Defaults must resolve lazily at dispatch, not when the parser is built (PR #276 R1: `os.getcwd()` at parser-build broke `discover.py --version` under a deleted cwd; missed by plan-review, caught by codex bot — TRN-3047 §11 F1)
 
 **Gate enforcement**: the gate is `decision == PASS AND weighted_score >= 9.5 AND blocking == []` for *every* reviewer. Mean is informational only.
 

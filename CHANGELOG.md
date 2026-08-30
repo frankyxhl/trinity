@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Review guidance: TRN-1008 §4 "Common R1 universal blockers" catalogue now
+  includes lazy-CLI-defaults — argument defaults must not touch filesystem or
+  environment at parser-build time (getcwd, expanduser-on-missing-HOME, env
+  reads); resolve lazily at dispatch. Motivated by PR #276 R1 (closes #278,
+  TRN-3047 §11 retrospective F1).
+
 ### Removed
 - `STRICT_REVIEW_TEMPLATES` re-export from `scripts/codex.py` (TRN-3052).
   The module-level dict in `scripts/_review.py` was inlined into
