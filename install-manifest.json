@@ -5,7 +5,6 @@
     {"src": "SKILL.md", "dest": ".claude/skills/trinity/SKILL.md"},
     {"src": "scripts/__init__.py", "dest": ".claude/skills/trinity/scripts/__init__.py"},
     {"src": "scripts/_version.py", "dest": ".claude/skills/trinity/scripts/_version.py"},
-    {"src": "scripts/_compat.py", "dest": ".claude/skills/trinity/scripts/_compat.py"},
     {"src": "scripts/session.py", "dest": ".claude/skills/trinity/scripts/session.py"},
     {"src": "scripts/config.py", "dest": ".claude/skills/trinity/scripts/config.py"},
     {"src": "scripts/discover.py", "dest": ".claude/skills/trinity/scripts/discover.py"},

@@ -136,3 +136,4 @@ code. The helper is private to `scripts/` and does not create a public API.
 | 2026-05-18 | Plan-review gate met (glm 9.50 / deepseek 9.55); applied DeepSeek advisories to AC. | Codex |
 | 2026-05-18 | Worker implementation completed; local focused verification passed. | trinity-glm + Codex |
 | 2026-05-18 | R2 bot/CI fix: add `_compat.py` to curl installer download list and install manifest. | Codex |
+| 2026-08-30 | Reversed by issue #238 / over-engineering audit (2026-06-23): _compat.py deleted, session.py + install.py import fcntl directly. Status stays Approved as the historical record of what shipped; the dedup rationale lost to the simpler-is-better verdict. | pi (ryosaeba1985) |

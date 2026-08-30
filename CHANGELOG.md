@@ -10,6 +10,14 @@
   TRN-3047 §11 retrospective F1).
 
 ### Removed
+- `scripts/_compat.py` — the shared guarded-`fcntl` helper (TRN-3041). Reverses
+  the over-engineering-audit verdict (2026-06-23, issue #238): `session.py` and
+  `install.py` now `import fcntl` directly. Behavior delta: on a platform
+  without `fcntl`, scripts now fail with the raw `ImportError` traceback
+  instead of the friendly one-line message — the scripts are POSIX-only and CI
+  runs ubuntu/macos only, so the guard bought nothing. `tests/test_compat.py`
+  deleted with the module; the fake-installed-layout fixture no longer copies
+  the file.
 - `STRICT_REVIEW_TEMPLATES` re-export from `scripts/codex.py` (TRN-3052).
   The module-level dict in `scripts/_review.py` was inlined into
   `resolve_strict_review` (one-entry registry); the re-export of the deleted

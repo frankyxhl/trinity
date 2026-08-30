@@ -23,10 +23,7 @@ except ImportError:
 
 __version__ = load_version()
 
-try:
-    from ._compat import fcntl
-except ImportError:
-    from _compat import fcntl
+import fcntl
 
 
 def atomic_update(path, update_fn):

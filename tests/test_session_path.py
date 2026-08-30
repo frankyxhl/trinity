@@ -623,7 +623,6 @@ def test_claude_slug_helper_runs_from_fake_installed_layout(tmp_path):
     installed_scripts.mkdir(parents=True)
     for filename in (
         "__init__.py",
-        "_compat.py",
         "_version.py",
         "session.py",
         "session_path.py",
