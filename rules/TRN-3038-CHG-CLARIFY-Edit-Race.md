@@ -1,8 +1,8 @@
 # CHG-3038: CLARIFY Edit-Race vs §1 Rocket-Gate Body-Edit Invalidation (Comment-Based CLARIFY)
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-10
-**Last reviewed:** 2026-05-10
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-05-10
 **Requested by:** chatgpt-codex-connector[bot] R6 review on PR #99 commit `155f0f9` (comment `3212948899`); deferred per @frankyxhl chat decision on 2026-05-09.

@@ -1,8 +1,8 @@
 # CHG-3045: Keep Leading Dash in Claude-Family Session-Path Slug
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-06-27
-**Last reviewed:** 2026-06-27
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-06-27
 **Requested by:** Frank Xu (issue #262)

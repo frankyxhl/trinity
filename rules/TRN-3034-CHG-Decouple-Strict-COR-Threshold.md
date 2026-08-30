@@ -1,8 +1,8 @@
 # CHG-3034: Decouple Strict COR Threshold (Per-Template Parameterization)
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-09
-**Last reviewed:** 2026-05-09
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-05-09
 **Requested by:** chatgpt-codex-connector[bot] R2 review on PR #97 (comment `3212719959`); deferred per @frankyxhl chat decision (option (c)) on 2026-05-09

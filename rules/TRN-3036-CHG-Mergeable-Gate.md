@@ -1,8 +1,8 @@
 # CHG-3036: Mergeable Gate (Decouple Auto-Pick From Actual Merge)
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-09
-**Last reviewed:** 2026-05-09
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-05-09
 **Requested by:** @frankyxhl chat directive 2026-05-09 ("那我现在想改成 mergable 就能 autopick 下一个任务...")

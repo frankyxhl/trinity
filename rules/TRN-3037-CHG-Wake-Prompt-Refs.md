@@ -1,8 +1,8 @@
 # CHG-3037: Wake-Prompt § References (Replace Inline Guard Pseudocode With SOP § Pointers)
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-10
-**Last reviewed:** 2026-05-10
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-05-10
 **Requested by:** @frankyxhl issue #112 (filed after PR #109 R4 caught wake-prompt drift in TRN-3036 §Reference Implementation)

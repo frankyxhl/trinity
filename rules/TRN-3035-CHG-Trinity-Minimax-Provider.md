@@ -1,8 +1,8 @@
 # CHG-3035: Add Trinity MiniMax Provider
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-10
-**Last reviewed:** 2026-05-10
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-05-09
 **Requested by:** @frankyxhl via issue #103

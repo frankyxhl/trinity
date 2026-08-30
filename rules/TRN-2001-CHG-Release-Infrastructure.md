@@ -1,8 +1,8 @@
 # CHG-2001: Release Infrastructure
 
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
-**Last updated:** 2026-03-21
-**Last reviewed:** 2026-03-21
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Completed
 **Date:** 2026-03-21
 **Requested by:** Frank

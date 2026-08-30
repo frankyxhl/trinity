@@ -1,8 +1,8 @@
 # CHG-3040: Trinity Session-Path Subcommand (JSONL Transcript Path Resolver)
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-10
-**Last reviewed:** 2026-05-10
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-05-10
 **Requested by:** @frankyxhl chat directive 2026-05-10 (token-efficiency audit unblock); filed as trinity#108 with `blueprint-ready` label.

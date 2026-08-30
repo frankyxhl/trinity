@@ -1,8 +1,8 @@
 # CHG-3046: Droid Provider Session ID via `droid exec -o json`
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-06-28
-**Last reviewed:** 2026-06-28
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Approved
 **Date:** 2026-06-28
 **Requested by:** Frank Xu (issue #263)

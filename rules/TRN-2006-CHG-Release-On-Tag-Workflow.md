@@ -2,8 +2,8 @@
 
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
 **Date:** 2026-04-26
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Completed
 **Requested by:** Frank
 **Priority:** Medium

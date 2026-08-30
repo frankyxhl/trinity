@@ -1,8 +1,8 @@
 # REF-1201: Discussion Tracker 2026-08-02
 
 **Applies to:** TRN project
-**Last updated:** 2026-08-02
-**Last reviewed:** 2026-08-02
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
 **Status:** Active
 
 ---
@@ -23,7 +23,7 @@ Daily discussion tracker for the 2026-08-02 Trinity development session.
 
 | DN | Parent | Source | Topic |
 |----|--------|--------|-------|
-| D1 | — | User | Fix Claude-family project-slug encoding for DeepSeek session resume — fixed via PR #308 (d7971c6), 2026-08-29 |
+| D1 | — | User | Fix Claude-family project-slug encoding for DeepSeek session resume — fixed via PR #308 (d7971c6, author/commit date 2026-08-02) |
 
 
 ## Discussion Notes
