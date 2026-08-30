@@ -84,6 +84,7 @@
 | 3052 | CHG | Inline Strict Template | Approved |
 | 3053 | CHG | Remove Latest Flag | Approved |
 | 3054 | PRP | Compression Carveout | Draft |
+| 3055 | CHG | Late Block Divergence Bookkeeping | Proposed |
 
 ---
 
