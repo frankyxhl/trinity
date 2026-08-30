@@ -11,7 +11,7 @@
 
 ## What Is It?
 
-The exact bookkeeping for the declared-vs-actual divergence check on test blocks demanded AFTER the first §8 re-score, moved verbatim out of TRN-3054 per the D25 ruling (a PRP states intent; the implementing CHG specifies and tests the algorithm). TRN-3054 keeps only: late acceptance folds record a baseline; oversized late tests trip the divergence check.
+The exact bookkeeping for the declared-vs-actual divergence check at every §8 re-score, moved verbatim out of TRN-3054 per the D25 ruling (a PRP states intent; the implementing CHG specifies and tests the algorithm). Scope: ALL cited blocks at every re-score — the first post-implementation one included — where a plan-time block's baseline is its pre-implementation declared budget and a late block's (demanded after the first §8 re-score) baseline is its fold-time record. TRN-3054 keeps only the intent: acceptance folds record a baseline; oversized late tests trip the divergence check.
 
 ## Machinery (moved verbatim from TRN-3054 rounds 20–29; Citex-reviewed)
 
