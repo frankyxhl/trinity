@@ -30,9 +30,10 @@ minimax held a sub-threshold score with an **empty blocking list two rounds runn
 
 **Rule:** test lines added in direct response to a numbered R-round review finding are excluded from the compression-ratio calculation, provided the CHG cites the finding ID at the added test block (e.g., a `# pins R2-F3` comment or a Change-History row mapping test → finding).
 
-**Mechanics (2 doc edits, no code):**
-1. TRN-1800 §weights: append to the compression rows (both code and doc tables) — *"Carve-out: LoC added to pin a contract row demanded by a numbered review finding (cited by finding ID) is excluded from both numerator and denominator. The mapping must be verifiable by grep; reviewers audit it as part of Necessity."*
+**Mechanics (3 doc edits, no code):**
+1. TRN-1800 §weights: append to the compression rows (both code and doc tables) — *"Carve-out: LoC added to pin a contract row demanded by a numbered review finding (cited by finding ID) is excluded from both numerator and denominator. The mapping must be verifiable by grep; reviewers audit it as part of Necessity. Zero-denominator rule: if the exclusion leaves `chars added = 0`, compression scores the maximum (10/10) — the CHG added nothing beyond reviewer-demanded pinning, which is the carve-out's intended limit case."*
 2. TRN-1008 §4 prompt structure: add one sentence to the plan-review prompt spec — *"When scoring compression, exclude test LoC mapped (by cited finding ID) to findings your own panel demanded; audit the mapping, not the growth."*
+3. TRN-1008 §4 "Triage findings" + TRN-3022 schema note: the orchestrator, when folding a round's findings into the CHG plan-review table, assigns each finding a deterministic ID `R<round>-F<index>` (order as listed in the verdict JSON) and records it in the fold row. The TRN-3022 structured schema gains an optional `id` field populated at fold time (schema-conforming reviewers who omit it still work — the ID is assigned downstream, never required from the model).
 
 **Why it wins:** it removes the self-contradiction at the scoring layer, where it lives. Honest CHGs stop needing operator rescue. The 9.5 gate keeps its meaning (correctness dimensions unchanged). Gaming is bounded by the finding-ID citation requirement — a mapping that doesn't verify by grep is a Necessity/Scope finding, and unmapped growth still counts.
 
@@ -50,7 +51,7 @@ minimax held a sub-threshold score with an **empty blocking list two rounds runn
 
 ## Scope
 
-**In scope:** the two doc edits above (TRN-1800 weight-table appendices; TRN-1008 §4 prompt sentence); this PRP; CHANGELOG row; doc-index row.
+**In scope:** the three doc edits above (TRN-1800 weight-table appendices incl. the zero-denominator rule; TRN-1008 §4 prompt sentence + finding-ID assignment at fold time; TRN-3022 optional `id` field note); this PRP; CHANGELOG row; doc-index row.
 **Out of scope:** changing the 9.5 threshold; rebalancing other weights; PKG COR-1800 alignment (separate CHG if wanted); codifying Option B.
 
 ## Acceptance Criteria
