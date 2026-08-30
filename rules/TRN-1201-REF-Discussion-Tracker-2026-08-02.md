@@ -44,3 +44,4 @@ Daily discussion tracker for the 2026-08-02 Trinity development session.
 | Date       | Change                               | By    |
 |------------|--------------------------------------|-------|
 | 2026-08-02 | Initial version and D1 session scope | Codex |
+| 2026-08-30 | D1 archived — fixed via PR #308 (d7971c6, author/commit date 2026-08-02); row moved from Active to Archived with the fix citation. Status-hygiene sweep PR. | pi (ryosaeba1985) |
