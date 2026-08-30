@@ -13,6 +13,12 @@
   with finding-ID citation + audit), Option B (codified sub-threshold
   adjudication) rejected with rationale. Status: Draft — awaits the
   TRN-1008 loop.
+- rules: TRN-3055-CHG — late-block divergence bookkeeping, split out of
+  TRN-3054 per owner ruling PFC-2502/D25: fold records (estimates + baseline
+  commit + stable locator), locator-span actuals with content-anchored
+  endpoints, per-component/member/record/CHG 10% tiers, non-overlapping
+  attribution, and its own implementation surfaces (block_divergence tool +
+  tests). Status: Proposed — awaits the TRN-1008 loop.
 
 ### Removed
 - `scripts/_compat.py` — the shared guarded-`fcntl` helper (TRN-3041). Reverses
