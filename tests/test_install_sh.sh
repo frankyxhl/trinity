@@ -59,7 +59,6 @@ t1_happy_path() {
         ".claude/skills/trinity/SKILL.md"
         ".claude/skills/trinity/scripts/__init__.py"
         ".claude/skills/trinity/scripts/_version.py"
-        ".claude/skills/trinity/scripts/_compat.py"
         ".claude/skills/trinity/scripts/session.py"
         ".claude/skills/trinity/scripts/config.py"
         ".claude/skills/trinity/scripts/discover.py"
