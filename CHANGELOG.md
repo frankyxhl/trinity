@@ -8,6 +8,11 @@
   environment at parser-build time (getcwd, expanduser-on-missing-HOME, env
   reads); resolve lazily at dispatch. Motivated by PR #276 R1 (closes #278,
   TRN-3047 §11 retrospective F1).
+- rules: TRN-3054-PRP — compression-scoring carve-out for contract-pinning
+  test growth (issue #277, TRN-3047 §11 F2). Option A recommended (carve-out
+  with finding-ID citation + audit), Option B (codified sub-threshold
+  adjudication) rejected with rationale. Status: Draft — awaits the
+  TRN-1008 loop.
 
 ### Removed
 - `scripts/_compat.py` — the shared guarded-`fcntl` helper (TRN-3041). Reverses

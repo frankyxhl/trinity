@@ -83,6 +83,7 @@
 | 3051 | CHG | Review Dir Mkdtemp | Approved |
 | 3052 | CHG | Inline Strict Template | Approved |
 | 3053 | CHG | Remove Latest Flag | Approved |
+| 3054 | PRP | Compression Carveout | Draft |
 
 ---
 
