@@ -3,7 +3,7 @@
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-05-10
 **Last reviewed:** 2026-05-10
-**Status:** Proposed
+**Status:** Approved
 **Date:** 2026-05-09
 **Requested by:** @frankyxhl via issue #103
 **Priority:** Medium
@@ -82,3 +82,4 @@ Zero impact on existing providers — purely additive. `providers/registry.json`
 | 2026-05-09 | Initial draft (Status: Proposed). Closes #103. Model id `minimax-m2.7` verified via `droid exec --model help` listing. | trinity-glm |
 | 2026-05-10 | Plan-review R1: significantly expanded surfaces (build_providers.sh DELTAS, Makefile cp, install.sh _download, build/install shell tests, README provider table, registry test constants); reframed providers/minimax.md as build output not source; restored TRN-3022 AC; scoped out .agents/trinity.codex.json; noted SKILL.md install-table reuse. | Claude Opus 4.7 |
 | 2026-05-10 | Plan-review R2: dropped S2 build-output from numbered surfaces (now AC gate); flagged S10 as symmetric-class with L568 anchor fix; added S6 provider-count parenthetical (registry vs total disambiguation); added §Compression N/A line; collapsed AC↔Surfaces duplication; added "after glm" placement preamble. | Claude Opus 4.7 |
+| 2026-08-30 | Status hygiene: Proposed → Approved. Implemented and merged via PR #105 (6c4cd01); provider later upgraded to MiniMax M3 via droid BYOK (3344a43). | pi (ryosaeba1985) |

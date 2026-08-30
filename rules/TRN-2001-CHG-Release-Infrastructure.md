@@ -3,7 +3,7 @@
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
 **Last updated:** 2026-03-21
 **Last reviewed:** 2026-03-21
-**Status:** In Progress
+**Status:** Completed
 **Date:** 2026-03-21
 **Requested by:** Frank
 **Priority:** Medium
@@ -81,3 +81,4 @@ Per COR-1500 (TDD): tests first where applicable, then implementation.
 | Date | Change | By |
 |------|--------|-----|
 | 2026-03-21 | Initial version | Claude Code |
+| 2026-08-30 | Status hygiene: In Progress → Completed. Shipped as release infrastructure v1.0.0 (598c995). | pi (ryosaeba1985) |

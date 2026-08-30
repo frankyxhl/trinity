@@ -3,7 +3,7 @@
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-05-10
 **Last reviewed:** 2026-05-10
-**Status:** Proposed
+**Status:** Approved
 **Date:** 2026-05-10
 **Requested by:** chatgpt-codex-connector[bot] R6 review on PR #99 commit `155f0f9` (comment `3212948899`); deferred per @frankyxhl chat decision on 2026-05-09.
 **Priority:** Medium
@@ -94,3 +94,4 @@ The two rules were composed without noticing the conflict because they were auth
 | Date | Change | By |
 |------|--------|----|
 | 2026-05-10 | Initial draft (Status: Proposed). Closes #100. Six TRN-1008 surfaces enumerated; option (b) comment-based CLARIFY recommended; option (a) strict re-rocket documented as rejected alternative for plan-review override. | trinity-glm |
+| 2026-08-30 | Status hygiene: Proposed → Approved. Implemented and merged via PR #117 (cf1b01f). | pi (ryosaeba1985) |

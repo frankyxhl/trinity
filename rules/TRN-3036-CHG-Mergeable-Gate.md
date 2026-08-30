@@ -3,7 +3,7 @@
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-05-09
 **Last reviewed:** 2026-05-09
-**Status:** Proposed
+**Status:** Approved
 **Date:** 2026-05-09
 **Requested by:** @frankyxhl chat directive 2026-05-09 ("那我现在想改成 mergable 就能 autopick 下一个任务...")
 **Priority:** Medium-High
@@ -139,3 +139,4 @@ Accepted residual: under State B, the prior PR's source changes are not on `orig
 |------|--------|----|
 | 2026-05-09 | Initial draft (Status: Proposed). Closes #106. Concurrent-PR cap default N≤2 pending plan-review. Mermaid decision deferred to plan-review. | trinity-glm |
 | 2026-05-09 | Plan-review R1: added orchestrator-side concurrent-PR cap mechanism (Fix-1); rewrote mergeable-but-revoked recovery prose + generalized revocation triggers + 60s arm-window edge case (Fix-2); §11 State-B guard accepts 3-branch states (Fix-3); §Reference Implementation pseudocode (Fix-4); §1 mermaid dependency-check cross-ref (Fix-5); regression-AC for revocation path (Fix-7); force-push threat residual (Fix-8); atomicity citation corrected to TRN-1800 (Fix-9). | Claude Opus 4.7 |
+| 2026-08-30 | Status hygiene: Proposed → Approved. Implemented and merged via PR #109 (bb1cf66); encoded into TRN-1008 §8 Review Completion Gate. | pi (ryosaeba1985) |

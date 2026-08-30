@@ -17,13 +17,13 @@ Daily discussion tracker for the 2026-08-02 Trinity development session.
 
 | DN | Status | Parent | Source | Created | Updated | Topic |
 |----|--------|--------|--------|---------|---------|-------|
-| D1 | WIP | — | User | 10:25 | — | Fix Claude-family project-slug encoding for DeepSeek session resume |
 
 
 ## Archived Items
 
 | DN | Parent | Source | Topic |
 |----|--------|--------|-------|
+| D1 | — | User | Fix Claude-family project-slug encoding for DeepSeek session resume — fixed via PR #308 (d7971c6), 2026-08-29 |
 
 
 ## Discussion Notes

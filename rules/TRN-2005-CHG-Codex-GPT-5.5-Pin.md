@@ -4,7 +4,7 @@
 **Date:** 2026-04-26
 **Last updated:** 2026-04-26
 **Last reviewed:** 2026-04-26
-**Status:** In Progress
+**Status:** Completed
 **Requested by:** Frank
 **Priority:** Low
 **Change Type:** Standard
@@ -77,3 +77,4 @@ Pin the `trinity-codex` provider to OpenAI's newly released `gpt-5.5` model by a
 | Date | Change | By |
 |------|--------|-----|
 | 2026-04-26 | Initial version | Claude Opus 4.7 |
+| 2026-08-30 | Status hygiene: In Progress → Completed. gpt-5.5 pin shipped with release v1.6.0 (PR #1, 52a83fb); live default since moved to gpt-5.6-sol via PR #307 (d5983bb), which documents its own successor note. | pi (ryosaeba1985) |

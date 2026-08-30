@@ -3,7 +3,7 @@
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-06-27
 **Last reviewed:** 2026-06-27
-**Status:** Approved (§4 plan-review R3 PASS: glm 9.70 / deepseek 9.90 / minimax 9.65 — all ≥9.5, all blocking empty)
+**Status:** Approved
 **Date:** 2026-06-27
 **Requested by:** Frank Xu (issue #262)
 **Priority:** High
@@ -79,3 +79,4 @@ Three surfaces in one CHG. These are indivisible for this bugfix: all three enco
 | 2026-06-27 | R2: address §4 R1 findings (glm 8.40 / deepseek 8.2 / minimax 9.05, all FIX) — enumerate all strip-claiming docstrings (minimax); add literal-anchor test (glm); add Cross-platform note + Linux literal form (deepseek); add Scope Justification (deepseek); new AC A6-A8. Result: glm PASS 9.80, deepseek PASS 9.65, minimax FIX 9.475 (no blocker). | Claude Code (ryosaeba1985) |
 | 2026-06-27 | R3: narrow scope per §4 R2 minimax finding (9.475, compression docked for scope creep) — DEFER thin-alias collapse and `_claude_slug` abspath alignment to follow-up CHG (both are refactor/pre-existing, not the strip bug); fix is now deletion-only. Simplify A6 grep regex (drop redundant `\|lstrip`); tighten Scope Justification wording (per-surface split breaks `make test`, not `make verify-built`). literal-anchor test retained (glm blocker resolution). | Claude Code (ryosaeba1985) |
 | 2026-06-27 | §4 plan-review R3 PASS — glm 9.70 / deepseek 9.90 / minimax 9.65, all blocking empty. Status → Approved. Convergent advisories to address before §8 code-review: confirm no non-claude consumer of `_encode_project_slug` (glm); add provenance comment to literal-anchor hardcoded slugs (glm); verify `make build` regen has no unrelated whitespace diff (glm). | Claude Code (ryosaeba1985) |
+| 2026-08-30 | Status hygiene: normalized Status to plain 'Approved' (af-allowed value; annotation preserved here). Merged via PR #266 (a8df3bf); encoding regression later fixed by PR #308 (d7971c6). | pi (ryosaeba1985) |

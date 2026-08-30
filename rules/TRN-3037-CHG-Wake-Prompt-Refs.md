@@ -3,7 +3,7 @@
 **Applies to:** Trinity project (`frankyxhl/trinity`)
 **Last updated:** 2026-05-10
 **Last reviewed:** 2026-05-10
-**Status:** Proposed
+**Status:** Approved
 **Date:** 2026-05-10
 **Requested by:** @frankyxhl issue #112 (filed after PR #109 R4 caught wake-prompt drift in TRN-3036 §Reference Implementation)
 **Priority:** Medium
@@ -102,3 +102,4 @@ Accepted residual: TRN-3030/TRN-3031 historical RefImpl pseudocode remains uncha
 |------|--------|----|
 | 2026-05-10 | Initial draft (Status: Proposed). Closes #112. Six TRN-1008/TRN-3036 surfaces enumerated; TRN-3030/TRN-3031 RefImpl flagged as historical (out-of-scope per §Audit Note). | trinity-glm |
 | 2026-05-10 | Plan-review R1: added Surfaces for §Failure Modes (b)/(c) amendments (counter binding + stop-marker exception clauses for ref-style); disambiguated "preserved verbatim" → "preserved as bindings"; tightened Wake-procedure-duty ordering ("before any side-effecting action"); defined placeholder convention; added Threat Model stop-marker redundancy note; promoted §-pointer SOP-routing parenthetical. | Claude Opus 4.7 |
+| 2026-08-30 | Status hygiene: Proposed → Approved. Implemented and merged via PR #114 (07e8937). | pi (ryosaeba1985) |
