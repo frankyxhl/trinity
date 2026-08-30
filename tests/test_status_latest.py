@@ -1,4 +1,4 @@
-"""Tests for `trinity status [--latest]` (TRN-2028 / GitHub issue #35).
+"""Tests for `trinity status` (TRN-2028 / GitHub issue #35).
 
 Each test sets up a fake `.trinity/reviews/` under tmp_path, populates it with
 a metadata.json (and optionally synthesis.md / incomplete.json), invokes the
@@ -23,10 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CODEX_SCRIPT = REPO_ROOT / "scripts" / "codex.py"
 
 
-def _run_status(root: Path, latest: bool = False) -> subprocess.CompletedProcess:
+def _run_status(root: Path) -> subprocess.CompletedProcess:
     argv = [sys.executable, str(CODEX_SCRIPT), "status", "--root", str(root)]
-    if latest:
-        argv.append("--latest")
     return subprocess.run(argv, capture_output=True, text=True)
 
 
@@ -784,3 +782,19 @@ def test_t21_status_pre_m1_metadata_falls_back_to_results_rendering(tmp_path):
     assert "Status: completed" in out
     # No live-state section when M1 metadata absent.
     assert "Live state:" not in out
+
+
+def test_status_rejects_removed_latest_flag(tmp_path):
+    """`trinity status --latest` is rejected: the flag was removed (TRN-3053)."""
+    argv = [
+        sys.executable,
+        str(CODEX_SCRIPT),
+        "status",
+        "--root",
+        str(tmp_path),
+        "--latest",
+    ]
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    assert proc.returncode == 2
+    assert proc.stderr
+    assert "--latest" in proc.stderr

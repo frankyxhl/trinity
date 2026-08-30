@@ -109,8 +109,7 @@ the block continue to work via legacy returncode-based rendering. (#39)
 ### Check review status
 
 ```bash
-trinity status              # newest review (default; --latest is reserved for forward-compat)
-trinity status --latest     # explicit; same as bare `trinity status` today
+trinity status              # newest review (default)
 ```
 
 `trinity status` summarises the most recent review under `.trinity/reviews/`.
