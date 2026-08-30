@@ -2,9 +2,9 @@
 
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
 **Date:** 2026-03-21
-**Last updated:** 2026-03-21
-**Last reviewed:** 2026-04-26
-**Status:** In Progress
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
+**Status:** Completed
 **PRP:** TRN-2002 (Approved, Codex 9.2/PASS, Gemini 9.8/PASS)
 **Implementer:** Claude Sonnet 4.6
 
@@ -41,3 +41,4 @@
 |------|--------|----|
 | 2026-05-04 | Backfill Change History table for `af validate` | Codex |
 | 2026-03-21 | Initial change record for remote install script | Claude Code |
+| 2026-08-30 | Status hygiene: In Progress → Completed. Shipped via remote install script commit (1dbb740, TRN-2002/2003). | pi (ryosaeba1985) |

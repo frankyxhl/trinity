@@ -1,9 +1,9 @@
 # CHG-3034: Decouple Strict COR Threshold (Per-Template Parameterization)
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-05-09
-**Last reviewed:** 2026-05-09
-**Status:** Proposed
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
+**Status:** Approved
 **Date:** 2026-05-09
 **Requested by:** chatgpt-codex-connector[bot] R2 review on PR #97 (comment `3212719959`); deferred per @frankyxhl chat decision (option (c)) on 2026-05-09
 **Priority:** Medium
@@ -86,3 +86,4 @@ Zero user-facing change for the fast-review tier (TRN-1008 §4/§8 panel reviews
 | 2026-05-09 | Plan-review R2: specified threading mechanism for parse_structured_review + _review_schema_addendum (deepseek P0); fixed line refs (glm/deepseek P1); added negative test for fast-review default; strengthened Option B rejection. | Claude Opus 4.7 |
 | 2026-05-09 | Plan-review R3: added Surface 9c (2 backward-compat tests); switched threading to strict_review["pass_threshold"] (single dict access, no tuple reconstruction); enumerated hidden 13th surface at scripts/codex.py:2249 (main-flow caller); disambiguated kwarg types in threading paragraph. | Claude Opus 4.7 |
 | 2026-05-09 | Plan-review R3: collapsed Threading paragraph from 13→5 sentences (compression); re-verified all Surface def-tag lines against current `scripts/codex.py` (L1140/L1169/L1592/L1634 all correct as drafted); split Surface 9c into 9c+9d (atomic per-file); added fixture-spec to Surface 10. | Claude Opus 4.7 |
+| 2026-08-30 | Status hygiene: Proposed → Approved. Implemented and merged via PR #102 (1b0e327); the single-entry registry this CHG threaded was later inlined by TRN-3052 / PR #287 (f9f31b7) with the pass_threshold co-location preserved. | pi (ryosaeba1985) |

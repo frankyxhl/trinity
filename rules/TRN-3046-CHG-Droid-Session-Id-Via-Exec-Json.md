@@ -1,9 +1,9 @@
 # CHG-3046: Droid Provider Session ID via `droid exec -o json`
 
 **Applies to:** Trinity project (`frankyxhl/trinity`)
-**Last updated:** 2026-06-28
-**Last reviewed:** 2026-06-28
-**Status:** Approved (§4 plan-review: glm 9.50 / deepseek 9.60 / minimax 9.50 R2 — all ≥9.5, all blocking empty)
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
+**Status:** Approved
 **Date:** 2026-06-28
 **Requested by:** Frank Xu (issue #263)
 **Priority:** High
@@ -67,3 +67,4 @@ Switch the droid-based providers' (`glm`, `minimax`) new-session extraction from
 |------|--------|----|
 | 2026-06-28 | Initial Proposed CHG per issue #263 (surfaced by glm/minimax/deepseek smoke test) | Claude Code (ryosaeba1985) |
 | 2026-06-28 | R2: address §4 R1 minimax blocker (no regression test for A4 collision) — add A7 static grep assertions in `tests/test_build_providers.sh`; reword A3 + Why (droid family is `RESPONSE=` stdout-capture + `droid search`, NOT JSONL grep — that pattern is the claude/deepseek/openrouter family, out of scope). R1: glm 9.50 PASS, deepseek 9.60 PASS, minimax 8.30 FIX. | Claude Code (ryosaeba1985) |
+| 2026-08-30 | Status hygiene: normalized Status to plain 'Approved' (af-allowed value; annotation preserved here). Merged via PR #267 (68eb914). | pi (ryosaeba1985) |

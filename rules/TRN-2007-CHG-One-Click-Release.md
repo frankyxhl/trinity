@@ -2,9 +2,9 @@
 
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
 **Date:** 2026-04-26
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
-**Status:** In Progress
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
+**Status:** Completed
 **Requested by:** Frank
 **Priority:** Low
 **Change Type:** Standard
@@ -223,3 +223,4 @@ All `${{ github.* }}` and `${{ github.event.* }}` references inside `run:` block
 |------|--------|-----|
 | 2026-04-26 | Initial version (D1–D8) | Claude Opus 4.7 |
 | 2026-04-26 | Add D9 (2-job split) + D10 (concurrency) + D11 (ruleset bypass) + D12 (env-mapping) per multi-model review | Claude Opus 4.7 |
+| 2026-08-30 | Status hygiene: In Progress → Completed. Shipped via PR #8 (be08ab8), incl. RELEASE_TAG_PAT Path A (47c87b7). | pi (ryosaeba1985) |

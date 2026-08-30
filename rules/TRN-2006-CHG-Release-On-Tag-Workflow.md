@@ -2,9 +2,9 @@
 
 **Applies to:** trinity/ package (`frankyxhl/trinity`)
 **Date:** 2026-04-26
-**Last updated:** 2026-04-26
-**Last reviewed:** 2026-04-26
-**Status:** In Progress
+**Last updated:** 2026-08-30
+**Last reviewed:** 2026-08-30
+**Status:** Completed
 **Requested by:** Frank
 **Priority:** Medium
 **Change Type:** Standard
@@ -207,3 +207,4 @@ Per COR-1500 (TDD): tests first where applicable.
 | Date | Change | By |
 |------|--------|-----|
 | 2026-04-26 | Initial version | Claude Opus 4.7 |
+| 2026-08-30 | Status hygiene: In Progress → Completed. Release-on-tag Action shipped (9ce1bf5, merged via PR #4 bcc89e1). | pi (ryosaeba1985) |

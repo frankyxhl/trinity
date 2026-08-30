@@ -28,6 +28,15 @@
   #245.
 
 ### Changed
+- Rules status-hygiene sweep: TRN-3034/3035/3036/3037/3038/3040
+  `Proposed` → `Approved` (all implemented and merged — PRs #102/#105/#109/
+  #114/#117/#119, each cited in the doc's Change History); TRN-2001/2003/
+  2005/2006/2007/2009 `In Progress` → `Completed` (shipped: 598c995,
+  1dbb740, PR #1 52a83fb, PR #4 bcc89e1, PR #8 be08ab8, PR #13 f4e2f3d);
+  TRN-3045/3046 Status normalized to plain `Approved` (was a non-af-vocabulary
+  annotation — fixes both pre-existing `af validate` errors); TRN-1201 D1
+  archived (fixed via PR #308, d7971c6). `af validate`: 181 documents,
+  **0 issues** (only the known FXA-2315 tag warning remains).
 - CI: `test` workflow Python matrix trimmed from 3.11/3.12/3.13/3.14 to
   **3.14 only** (owner decision 2026-08-30) — 8 matrix jobs → 2; OS matrix
   (ubuntu-latest, macos-latest) unchanged. `requires-python = ">=3.11"` in
