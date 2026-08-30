@@ -31,8 +31,8 @@ minimax held a sub-threshold score with an **empty blocking list two rounds runn
 **Rule:** test lines added in direct response to a numbered R-round review finding are excluded from the compression-ratio calculation, provided the CHG cites the finding ID at the added test block (e.g., a `# pins R2-F3` comment or a Change-History row mapping test → finding).
 
 **Mechanics (3 doc edits, no code):**
-1. TRN-1800 §weights: append to the compression rows (both code and doc tables) — *"Carve-out: LoC added to pin a contract row demanded by a numbered review finding (cited by finding ID) is excluded from both numerator and denominator. The mapping must be verifiable by grep; reviewers audit it as part of Necessity. Zero-denominator rule: if the exclusion leaves `chars added = 0`, compression scores the maximum (10/10) — the CHG added nothing beyond reviewer-demanded pinning, which is the carve-out's intended limit case."*
-2. TRN-1008 §4 prompt structure: add one sentence to the plan-review prompt spec — *"When scoring compression, exclude test LoC mapped (by cited finding ID) to findings your own panel demanded; audit the mapping, not the growth."*
+1. TRN-1800 §weights: append to the compression rows (both code and doc tables) — *"Carve-out: characters added to pin a contract row demanded by a review finding (cited by finding ID) are excluded from the denominator; the numerator is unchanged. Units are characters throughout, matching the base formula: exclude the full added characters of each cited block — wholly added lines count all their characters including delimiters and newlines; a partially changed line counts only the characters it adds. The mapping must be verifiable by grep; reviewers audit it as part of Necessity. Zero-denominator rule: if the exclusion leaves `chars added = 0`, compression scores the maximum (10/10) — the CHG added nothing beyond reviewer-demanded pinning, which is the carve-out's intended limit case."*
+2. TRN-1008 §4 prompt structure: add one sentence to the plan-review prompt spec — *"When scoring compression, exclude the characters of test blocks mapped (by cited finding ID) to findings your own panel demanded; audit the mapping, not the growth."*
 3. TRN-1008 §4 "Triage findings" + TRN-3022 schema note: the orchestrator, when folding a round's findings into the CHG plan-review table, assigns each finding a deterministic, globally-unique ID `R<round>-<provider>-F<index>` (e.g. `R2-glm-F3`) — provider from the verdict's origin, index over that provider's findings in a fixed flattening order (blocking array first, then advisory array, each in listed order). The ID and its origin row are recorded in the fold row. The TRN-3022 structured schema gains an optional `id` field populated at fold time (schema-conforming reviewers who omit it still work — the ID is assigned downstream, never required from the model). Uniqueness is by construction: provider-scoped indices cannot collide across the three verdict JSONs, and the fixed flatten order removes within-provider ambiguity.
 
 **Why it wins:** it removes the self-contradiction at the scoring layer, where it lives. Honest CHGs stop needing operator rescue. The 9.5 gate keeps its meaning (correctness dimensions unchanged). Gaming is bounded by the finding-ID citation requirement — a mapping that doesn't verify by grep is a Necessity/Scope finding, and unmapped growth still counts.
@@ -56,8 +56,9 @@ minimax held a sub-threshold score with an **empty blocking list two rounds runn
 
 ## Acceptance Criteria
 
-- [ ] TRN-1800 compression rows carry the carve-out sentence with the citation/audit requirement
+- [ ] TRN-1800 compression rows carry the carve-out sentence with the citation/audit requirement, character-unit definition (wholly/partially added lines), and zero-denominator rule
 - [ ] TRN-1008 §4 prompt spec carries the exclusion sentence
+- [ ] TRN-1008 §4 triage step assigns `R<round>-<provider>-F<index>` IDs at fold time, and TRN-3022's structured schema documents the optional `id` field populated at fold — both observable in the amended docs
 - [ ] A worked example exists showing PR #276's minimax R3 score computed under the new rule (mapping: R1 findings → pinned tests) reaching ≥ 9.5 on the compression dimension
 - [ ] `af validate` clean
 
