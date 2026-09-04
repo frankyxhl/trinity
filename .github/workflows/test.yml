@@ -98,7 +98,10 @@ jobs:
         if: steps.changes.outputs.run_tests == 'true'
         run: make coverage
       - name: Upload coverage report
-        if: always() && steps.changes.outputs.run_tests == 'true'
+        # GitHub-only: upload-artifact v4+ uses the artifact API protocol that
+        # Forgejo does not serve (GHESNotSupportedError, pfc D247). Coverage
+        # still runs on the forge; only the artifact upload is skipped there.
+        if: always() && steps.changes.outputs.run_tests == 'true' && github.server_url == 'https://github.com'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-${{ matrix.os }}-py${{ matrix.python-version }}

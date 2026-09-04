@@ -49,6 +49,7 @@ The instance key is passed by Claude in the prompt. Format:
 - Default: `gemini`
 - Named: `gemini:design`, `gemini:brainstorm`, etc.
 
+@include _base/timeout-default.md
 @include _base/common-tail.md
 - Always use `gemini --model gemini-3.1-pro-preview -p` for non-interactive mode
 - For resume: `gemini --model gemini-3.1-pro-preview -r <index> -p "<prompt>"` (order matters: -r before -p)

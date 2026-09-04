@@ -89,6 +89,7 @@ Passed by Claude in the prompt. Format:
 - Default: `claude-code`
 - Named: `claude-code:review`, `claude-code:code`, etc.
 
+@include _base/timeout-default.md
 @include _base/common-tail.md
 - Always use `run_claude_code -p` for non-interactive mode
 - For resume: `run_claude_code --resume <session_id> -p "<prompt>"`

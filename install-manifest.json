@@ -26,9 +26,11 @@
     {"src": "providers/openrouter.md", "dest": ".claude/agents/trinity-openrouter.md"},
     {"src": "providers/deepseek.md", "dest": ".claude/agents/trinity-deepseek.md"},
     {"src": "providers/claude-code.md", "dest": ".claude/agents/trinity-claude-code.md"},
+    {"src": "providers/agy-opus.md", "dest": ".claude/agents/trinity-agy-opus.md"},
     {"src": "providers/bin/deepseek", "dest": ".claude/skills/trinity/bin/deepseek", "mode": "755"},
     {"src": "providers/bin/openrouter", "dest": ".claude/skills/trinity/bin/openrouter", "mode": "755"},
     {"src": "providers/bin/claude-code", "dest": ".claude/skills/trinity/bin/claude-code", "mode": "755"},
+    {"src": "providers/bin/agy-opus", "dest": ".claude/skills/trinity/bin/agy-opus", "mode": "755"},
     {"src": "providers/registry.json", "dest": ".claude/skills/trinity/providers/registry.json"}
   ],
   "conditional_comment": "Installed only when the named runtime dir already exists under ~ (auto-detected). Used for the ZCode-runtime peer skill trinity-zc, which lives in ~/.agents/ and must not create ~/.agents on machines that do not use that runtime.",

@@ -65,6 +65,7 @@ Passed by Claude in the prompt. Format:
 - Default: `openrouter`
 - Named: `openrouter:review`, `openrouter:code`, etc.
 
+@include _base/timeout-default.md
 @include _base/common-tail.md
 - Always use `run_openrouter -p` for non-interactive mode
 - For resume: `run_openrouter --resume <session_id> -p "<prompt>"`

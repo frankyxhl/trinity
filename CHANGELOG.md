@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- Provider `agy-opus`: Claude Opus 4.6 (Thinking) worker via the Antigravity
+  CLI — third fallback after Codex and GLM (TRI-0002, pfc D120). New wrapper
+  `providers/bin/agy-opus` pins the model, serialises runs with a pid lock
+  held for the whole run, clears agy's shared scratch dir only when no
+  other agy process is alive, and refuses to start when the Google-plan
+  `Claude and GPT models` five-hour bucket is below 20% remaining
+  (`AGY_OPUS_MIN_5H_PCT` override); worker card `trinity-agy-opus`; registry
+  + install-manifest entries; wrapper behaviour tests
+  (`tests/test_agy_opus_wrapper.sh`). Not a review/jury seat.
 - Review guidance: TRN-1008 §4 "Common R1 universal blockers" catalogue now
   includes lazy-CLI-defaults — argument defaults must not touch filesystem or
   environment at parser-build time (getcwd, expanduser-on-missing-HOME, env

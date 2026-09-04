@@ -65,6 +65,7 @@ Passed by Claude in the prompt. Format:
 - Default: `deepseek`
 - Named: `deepseek:review`, `deepseek:code`, etc.
 
+@include _base/timeout-default.md
 @include _base/common-tail.md
 - Always use `run_deepseek -p` for non-interactive mode
 - For resume: `run_deepseek --resume <session_id> -p "<prompt>"`

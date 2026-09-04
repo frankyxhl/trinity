@@ -62,6 +62,7 @@ The instance key is passed by Claude in the prompt. Format:
 - Default: `glm`
 - Named: `glm:auth`, `glm:order`, etc.
 
+@include _base/timeout-default.md
 @include _base/common-tail.md
 - Always use `droid exec --auto medium --model custom:GLM-5.2` (non-interactive mode). Note: `--reasoning-effort` is omitted — Factory docs mark it unsupported for `custom:` models and droid silently ignores it; do not add it.
 - If the task description mentions "complex", "large", or "multi-file", use the longer 600000ms timeout

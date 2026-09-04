@@ -35,6 +35,12 @@
       "supports_resume": true,
       "resume_arg": "--resume",
       "timeout": 600
+    },
+    "agy-opus": {
+      "cli": "{HOME}/.claude/skills/trinity/bin/agy-opus",
+      "supports_resume": true,
+      "resume_arg": "--conversation",
+      "timeout": 900
     }
   }
 }

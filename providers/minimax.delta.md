@@ -62,6 +62,7 @@ The instance key is passed by Claude in the prompt. Format:
 - Default: `minimax`
 - Named: `minimax:auth`, `minimax:order`, etc.
 
+@include _base/timeout-default.md
 @include _base/common-tail.md
 - Always use `droid exec --auto medium --model custom:MiniMax-M3` (non-interactive mode). Note: `--reasoning-effort` is not supported for `custom:` models — do not add it.
 - If the task description mentions "complex", "large", or "multi-file", use the longer 600000ms timeout

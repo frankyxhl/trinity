@@ -44,12 +44,12 @@ t1_happy_path() {
 
     if [ $RC -ne 0 ]; then _fail "T1: non-zero exit"; return; fi
 
-    # Verify trinity.json was created with all 6 providers
+    # Verify trinity.json was created with all 8 providers
     TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
     if [ ! -f "${TRINITY_JSON}" ]; then
         _fail "T1: ~/.claude/trinity.json not created"; rm -rf "${FAKE_HOME}"; return
     fi
-    for provider in glm minimax codex gemini openrouter deepseek claude-code; do
+    for provider in glm minimax codex gemini openrouter deepseek claude-code agy-opus; do
         if ! python3 -c "import json,sys; d=json.load(open('${TRINITY_JSON}')); sys.exit(0 if '${provider}' in d.get('providers',{}) else 1)"; then
             _fail "T1: provider ${provider} missing from trinity.json"; rm -rf "${FAKE_HOME}"; return
         fi
@@ -71,6 +71,7 @@ t1_happy_path() {
         ".claude/agents/trinity-openrouter.md"
         ".claude/agents/trinity-deepseek.md"
         ".claude/agents/trinity-claude-code.md"
+        ".claude/agents/trinity-agy-opus.md"
     )
     for f in "${EXPECTED_FILES[@]}"; do
         if [ ! -f "${FAKE_HOME}/${f}" ]; then
@@ -215,7 +216,7 @@ t9_bin_scripts_and_absolute_cli() {
         bash "${INSTALL_SCRIPT}" >/dev/null
 
     BIN_DIR="${FAKE_HOME}/.claude/skills/trinity/bin"
-    for w in deepseek openrouter claude-code; do
+    for w in deepseek openrouter claude-code agy-opus; do
         if [ ! -x "${BIN_DIR}/${w}" ]; then
             _fail "T9: ${BIN_DIR}/${w} missing or not executable"
             rm -rf "${FAKE_HOME}"; return
@@ -226,9 +227,11 @@ t9_bin_scripts_and_absolute_cli() {
     EXPECTED_DS="${BIN_DIR}/deepseek -p"
     EXPECTED_OR="${BIN_DIR}/openrouter -p"
     EXPECTED_CC="${BIN_DIR}/claude-code -p"
+    EXPECTED_AGY="${BIN_DIR}/agy-opus"
     ACTUAL_DS=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['deepseek']['cli'])")
     ACTUAL_OR=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['openrouter']['cli'])")
     ACTUAL_CC=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['claude-code']['cli'])")
+    ACTUAL_AGY=$(python3 -c "import json; print(json.load(open('${TRINITY_JSON}'))['providers']['agy-opus']['cli'])")
 
     if [ "${ACTUAL_DS}" != "${EXPECTED_DS}" ]; then
         _fail "T9: deepseek cli mismatch: got '${ACTUAL_DS}' expected '${EXPECTED_DS}'"
@@ -240,6 +243,10 @@ t9_bin_scripts_and_absolute_cli() {
     fi
     if [ "${ACTUAL_CC}" != "${EXPECTED_CC}" ]; then
         _fail "T9: claude-code cli mismatch: got '${ACTUAL_CC}' expected '${EXPECTED_CC}'"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+    if [ "${ACTUAL_AGY}" != "${EXPECTED_AGY}" ]; then
+        _fail "T9: agy-opus cli mismatch: got '${ACTUAL_AGY}' expected '${EXPECTED_AGY}'"
         rm -rf "${FAKE_HOME}"; return
     fi
 

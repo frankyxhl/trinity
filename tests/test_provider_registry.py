@@ -41,7 +41,7 @@ SKILL_PATH = ROOT / "SKILL.md"
 PROVIDERS_DIR = ROOT / "providers"
 
 DIRECT_PROVIDERS = {"glm", "codex", "minimax"}
-WRAPPER_PROVIDERS = {"openrouter", "deepseek", "claude-code"}
+WRAPPER_PROVIDERS = {"openrouter", "deepseek", "claude-code", "agy-opus"}
 REGISTRY_PROVIDERS = DIRECT_PROVIDERS | WRAPPER_PROVIDERS
 
 GEMINI_EXCEPTION = "gemini"  # Deferred from registry per TRN-3020.

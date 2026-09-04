@@ -1,0 +1,140 @@
+#!/bin/sh
+# providers/bin/agy-opus — Claude Opus 4.6 (Thinking) worker wrapper via the
+# Antigravity CLI (TRI-0002, D120). Third worker provider in the fallback
+# order Codex (gpt-5.6-sol) → GLM 5.3 (codex-glm) → agy-opus.
+#
+# Contract (same spirit as codex-glm): task in, result out.
+#   agy-opus [agy flags…] "<task text>"
+#     --add-dir <project>    give the run project visibility (repeatable)
+#     --conversation <id>    resume a stored conversation (session store id)
+#   The model is PINNED to claude-opus-4-6-thinking (caller --model refused).
+#   Output: agy --output-format json on stdout — {conversation_id, status,
+#   response, duration_seconds, num_turns, usage}; the worker card parses it.
+#
+# Budget guard (pfc D120): refuses to start when the 'Claude and GPT models'
+# five-hour bucket shows < 20% remaining (floor overridable via
+# AGY_OPUS_MIN_5H_PCT). The /usage read is a zero-quota status call.
+#
+# Quirk handled (TRI-0002 §4): agy print-mode runs SHARE
+# ~/.gemini/antigravity-cli/scratch. Runs are serialised by a lock dir held
+# for the WHOLE run (B1, forge pilot/trinity#1), and the pre-run clear is
+# SKIPPED whenever another agy process is alive, so a concurrent run's
+# artifacts (other workers, jury seat D) are never deleted.
+set -eu
+
+MODEL="claude-opus-4-6-thinking"
+FAMILY="Claude and GPT models"
+WINDOW="Five Hour Limit Remaining"
+MIN_PCT="${AGY_OPUS_MIN_5H_PCT:-20}"
+SCRATCH="$HOME/.gemini/antigravity-cli/scratch"
+USAGE_TIMEOUT="${AGY_OPUS_USAGE_TIMEOUT:-45}"
+LOCK_DIR="${SCRATCH}.lock"
+LOCK_WAIT="${AGY_OPUS_LOCK_WAIT:-600}"
+
+# Refuse caller flags that would override the pinned invocation. The LAST
+# positional is the task text and is never scanned: a task that is literally
+# "-p" or starts with "--model=" is still a task (F3, forge pilot/trinity#1).
+scan_i=0
+for arg in "$@"; do
+    scan_i=$((scan_i + 1))
+    if [ "$scan_i" -lt "$#" ]; then
+        case "$arg" in
+            --model|--model=*)
+                echo "agy-opus: --model is pinned to $MODEL (TRI-0002); refusing override" >&2
+                exit 2 ;;
+            --print|--print=*|-p|--prompt|--prompt=*)
+                echo "agy-opus: pass the task as the (last) positional argument, not --print" >&2
+                exit 2 ;;
+        esac
+    fi
+done
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: agy-opus [agy flags…] \"<task text>\"" >&2
+    exit 2
+fi
+
+# Budget guard — one zero-quota /usage status read.
+PCT=$(agy --print="/usage" --print-timeout "${USAGE_TIMEOUT}s" 2>/dev/null \
+    | awk -F'\t' -v fam="$FAMILY" -v win="$WINDOW" \
+        '$1 == fam && $2 == win { gsub(/%/, "", $3); print int($3); exit }')
+case "${PCT:-}" in
+    ''|*[!0-9]*)
+        echo "agy-opus: cannot read /usage (signed out? offline?) — refusing to start" >&2
+        exit 1 ;;
+esac
+if [ "$PCT" -lt "$MIN_PCT" ]; then
+    echo "agy-opus: budget guard — $FAMILY $WINDOW at ${PCT}% (floor ${MIN_PCT}%) — try later or another provider" >&2
+    exit 1
+fi
+
+# Run lock (B1, forge pilot/trinity#1): one agy-opus run at a time. The
+# lock dir holds the holder's pid; $$ is written before the exec below and
+# exec PRESERVES the pid, so the lock stays valid exactly while the run
+# lives and goes stale the instant it dies (SIGKILL-safe — no trap needed
+# on the exec path). A dead holder's lock is reclaimed by the next run.
+mkdir -p "$HOME/.gemini/antigravity-cli"
+lock_waited=0
+while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    lock_pid=""
+    if [ -f "$LOCK_DIR/pid" ]; then
+        read -r lock_pid < "$LOCK_DIR/pid" || lock_pid=""
+    fi
+    case "$lock_pid" in
+        *[!0-9]*|'') lock_pid="" ;;
+    esac
+    if [ -z "$lock_pid" ] || ! kill -0 "$lock_pid" 2>/dev/null; then
+        # Unreadable pid or a gone holder — but a lock created a moment ago
+        # may not have its pid file yet: grace-sleep before reclaiming.
+        sleep 1
+        if [ -f "$LOCK_DIR/pid" ] && read -r lock_pid < "$LOCK_DIR/pid"; then
+            if kill -0 "$lock_pid" 2>/dev/null; then continue; fi
+        fi
+        rm -rf "$LOCK_DIR" 2>/dev/null || :
+        continue
+    fi
+    if [ "$lock_waited" -ge "$LOCK_WAIT" ]; then
+        echo "agy-opus: another agy-opus run is active (pid $lock_pid holds $LOCK_DIR) — refusing to start; retry later or use another provider" >&2
+        exit 1
+    fi
+    sleep 1
+    lock_waited=$((lock_waited + 1))
+done
+printf '%s\n' "$$" > "$LOCK_DIR/pid"
+
+# Scratch contamination guard (TRI-0002 §4) — conditional since B1: never
+# delete while another agy process may own files in the shared scratch dir.
+# pgrep -x agy sees the real CLI binary; if the probe is unavailable, keep
+# the files (fail closed: lose the contamination guard, not a live run's
+# output).
+mkdir -p "$SCRATCH"
+clear_scratch=1
+if command -v pgrep >/dev/null 2>&1 && pgrep -x agy >/dev/null 2>&1; then
+    clear_scratch=0
+    echo "agy-opus: another agy process is active — skipping scratch clear (shared dir, TRI-0002 §4)" >&2
+elif ! command -v pgrep >/dev/null 2>&1; then
+    clear_scratch=0
+    echo "agy-opus: pgrep unavailable — skipping scratch clear" >&2
+fi
+if [ "$clear_scratch" -eq 1 ]; then
+    find "$SCRATCH" -mindepth 1 -delete 2>/dev/null || true
+fi
+
+# Split trailing task text (last arg) from agy flags; single-quote everything
+# for the eval (POSIX sh, no arrays).
+q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+TASK=$(eval "printf '%s' \"\${$#}\"")
+COUNT=$#
+FLAGS=""
+i=0
+for arg in "$@"; do
+    i=$((i + 1))
+    [ "$i" -lt "$COUNT" ] && FLAGS="$FLAGS $(q "$arg")"
+done
+
+# Defaults first so caller flags (last) win on duplicates (Go flag parsing).
+# NOTE: all quoting is resolved while building CMD — an unexpanded $(q ...)
+# inside the eval string would substitute AFTER quote parsing and word-split.
+CMD="exec agy --print-timeout 15m --output-format json --model $(q "$MODEL") --print=$(q "$TASK")$FLAGS"
+eval "$CMD"

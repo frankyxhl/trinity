@@ -112,7 +112,13 @@ def test_review_runs_providers_in_parallel_and_preserves_result_order(tmp_path):
     elapsed = time.monotonic() - started
 
     assert result.returncode == 0, result.stderr
-    assert elapsed < 2.5
+    # Wall-clock guard is deliberately loose: the authoritative parallelism
+    # property is the event-overlap assertion below (max(starts) < min(ends)),
+    # which fails deterministically under serialization. A hard 2.5s bound
+    # tripped on slow CI runners (forge Lima guest, pfc D247) where CLI
+    # startup alone can approach it — 2×sleep + 8s allowance only catches
+    # "serialized AND pathological", which is all a wall clock can prove.
+    assert elapsed < 2 * 1.0 + 8
     rows = event_rows(events)
     starts = {row["provider"]: row["time"] for row in rows if row["event"] == "start"}
     ends = {row["provider"]: row["time"] for row in rows if row["event"] == "end"}

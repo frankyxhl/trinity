@@ -59,6 +59,7 @@ The instance key is passed by Claude in the prompt. Format:
 - Default: `codex`
 - Named: `codex:review`, `codex:impl`, etc.
 
+@include _base/timeout-default.md
 @include _base/common-tail.md
 - Always use `codex exec --skip-git-repo-check -m gpt-5.6-sol -c model_reasoning_effort=$EFFORT` (non-interactive mode)
 - Strip metadata headers from Codex output — return only the actual content

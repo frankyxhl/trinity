@@ -71,6 +71,7 @@ The command reads `<project>/.claude/trinity.json`, looks up the pointer for the
 | `claude-code` | `~/.claude-trinity-claude-code/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `deepseek` | `~/.claude-deepseek/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `openrouter` | `~/.claude-openrouter/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
+| `agy-opus` | not yet supported (exits 3 with explicit deferral message) — transcripts are agy SQLite stores under `~/.gemini/antigravity-cli/conversations/`, not JSONL |
 | `gemini` | not yet supported (exits 3 with explicit deferral message) |
 
 Path encoding differs by provider family. Droid-based `glm` and `minimax` preserve their slash-only transform: replace `/` with `-`, keep other characters, and retain the leading dash. The claude-CLI wrappers (`claude-code`, `deepseek`, and `openrouter`) share the canonical Claude Code 2.1.220 transform: replace every non-ASCII-alphanumeric UTF-16 code unit with `-`; when the sanitized slug exceeds 200 UTF-16 units, keep the first 200 and append `-<hash>`, where `<hash>` is the absolute signed 32-bit JavaScript string hash of the original absolute path in lowercase base 36. This preserves the leading dash for absolute paths and matches the wrappers' `~/.claude-*/projects/` layout, including underscores, Unicode, and long paths.
