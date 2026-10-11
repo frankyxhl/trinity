@@ -1,10 +1,10 @@
-# Acceptance cases: credential leak set and honest transcripts (ACC-200 .. ACC-224)
+# Acceptance cases: credential leak set and honest transcripts (ACC-200 .. ACC-225)
 
 Companion to `ACCEPTANCE.md` (conventions, doubles and seams are in its section 0). This file defines the **bar** for "no secret in any output" (the requirement says pattern redaction is best-effort, so the bar must be written down: it is the must-catch list in L1 plus the surfaces in L2).
 
 ## L0. Fixture secrets
 
-All values are fake and built at test time from parts, so that no real-looking token is stored in the repository.
+All values are fake and built at test time from parts, so that no real-looking token is stored in the repository. S1 to S6 are zero-filled for readability; because zero-filled bodies never trip an entropy rule, S7 and S8 use random bodies (generated at test time from a seeded generator, the seed recorded in the report).
 
 | Name | Construction | Shape |
 | --- | --- | --- |
@@ -14,20 +14,24 @@ All values are fake and built at test time from parts, so that no real-looking t
 | S4 | JSON member `"api_key": "test-` + 32 times `0` + `"` | structured config or tool argument |
 | S5 | `https://user:` + `test-pw-` + 16 times `0` + `@example.invalid/` | password inside a URL |
 | S6 | the contents of the profile's credential file (`test-cred-` + 32 times `0`) | the profile's own credential value |
+| S7 | `sk-test-` + 40 random characters from `[A-Za-z0-9]` | vendor-style key with a high-entropy body |
+| S8 | `TEST_SECRET=` + 40 random lowercase hex digits (an assignment); and the same 40 hex digits alone on a line (bare) | hex-shaped secret; the bare form looks like a git object id |
 
 Variants of one value for the scanner: raw; JSON-escaped; URL-encoded; HTML-entity-encoded; base64 of the raw value; the first 12 and last 12 characters alone (a partial leak is a leak).
 
 ## L1. The bar
 
-**Must-catch** (the reader's redaction has to remove these wherever they appear in an event text; a hit is a failure): S1, S2, S3, S4, S5 and S6 as raw text, including when they sit inside a longer line, at the very start or end of a text, in a tool-call argument, inside a stack trace, and repeated 100 times in one event.
+**Must-catch** (the reader's redaction has to remove these wherever they appear in an event text; a hit is a failure): S1, S2, S3, S4, S5, S6, S7 and the assignment form of S8 as raw text, including when they sit inside a longer line, at the very start or end of a text, in a tool-call argument, inside a stack trace, and repeated 100 times in one event.
 
-**Report-only** (known limits of best-effort redaction; the case records the result and never fails on it, but the *journal, logs, argv and the profile listing must still be clean*, because those surfaces never hold text at all): a secret split across two lines; base64, URL-encoded or HTML-entity variants of a value in event text; a value with zero-width characters inserted.
+**Depends on contract fix P1-4.** The reader's pattern list (RDR-008) does not yet cover S3 with generic names (`*_API_KEY=`, `*_TOKEN=`, `*_SECRET=`, `*_PASSWORD=`), S4 (JSON member), S5 (URL userinfo) or S6 (the profile's own credential value); the bar above is what the contract must reach. A reader that keeps only the current list fails ACC-201 by design. For S6 the contract must also say who reads the credential value and how (a reader must not pull the value into the core, NG-05, PRF-001); if it chooses not to match the profile's own value, S6 moves to Report-only and the contract states why.
+
+**Report-only** (known limits of best-effort redaction; the case records the result and never fails on it, but the *journal, logs, argv and the profile listing must still be clean*, because those surfaces never hold text at all): the bare form of S8 (a 7 to 64 digit hex string survives by design so that commit ids and hashes do; depends on contract fix P2-13 to state the outcome); a secret split across two lines; base64, URL-encoded or HTML-entity variants of a value in event text; a value with zero-width characters inserted.
 
 **Scanner** `scan(root_list, secret_set)`: reads every file and every captured byte stream below the given roots as bytes, decodes entity, URL and base64 layers one level deep, and reports each (file or stream, variant) hit. Hits in files named in the explicit allow-list for a case (the credential file itself, vendor-owned fake transcripts, which are test inputs) are ignored; everything else is a failure.
 
 ## L2. Surfaces
 
-Journal file(s); prune log; error log; Trinity state and cache directories; temp files; stdout and stderr of every Trinity command; `trinity profiles`; `trinity tree` (default and expanded); `trinity show --events`; the local web page (HTML, every JSON/stream response, response headers, page title); child process argv sampled during calls; child environment; crash output.
+Journal file(s); prune log; error log; Trinity state and cache directories; temp files; stdout and stderr of every Trinity command; `trinity profiles`; `trinity tree` (default and expanded); `trinity show --events`; the local web page (HTML, every JSON/stream response, response headers, page title); child process argv sampled during calls; child environment; crash output; and, if the owner adopts the adapter-written local transcript for the direct-API adapter (OPEN-R1), that file (it holds full text outside the journal, so it is scanned like any vendor fixture except that it is Trinity's own output and gets no allow-list entry).
 
 ---
 
@@ -41,11 +45,12 @@ Fails if: fewer than seven. A leak suite whose scanner misses a variant proves n
 
 ### ACC-201 Secret in a native transcript, every event type
 Covers: LAW-04, ADP-012, LED-008, LED-009, VIEW-R3
-Given: for each adapter, a fixture transcript with S1..S6 planted in a `prompt` event, a `thinking` event, a `tool` input, a `tool` output and an `output` event, one per event (30 plantings per adapter).
+Given: for each adapter, a fixture transcript with S1..S7 and the assignment form of S8 planted in a `prompt` event, a `thinking` event, a `tool` input, a `tool` output and an `output` event, one per event (40 plantings per adapter).
 When: a run records a call that points at the transcript, then the reader is asked for events, through the library, `trinity show <run>/<node> --events` and the web detail pane.
-Then: the journal holds no part of any secret; the events returned by the reader, printed by the CLI and shown by the web page contain none of the must-catch values (redacted in place, with a visible mask); event count and order are unchanged by redaction; the `raw_ref` of a redacted event still resolves to the unredacted source bytes in the vendor file (the file is not modified).
+Then: the journal holds no part of any secret; the events returned by the reader, printed by the CLI and shown by the web page contain none of the must-catch values (redacted in place, with a visible mask `[redacted:<kind>]`, and the result's `redactions` count equals the number of plantings); event count and order are unchanged by redaction; the `raw_ref` of a redacted event still resolves to the unredacted source bytes in the vendor file (the file is not modified).
 Observable: scan of the journal and of all view outputs is empty; the transcript fixture file's hash is unchanged; event count equals fixture event count.
 Fails if: any hit, or a redacted event was dropped instead of masked, or the transcript file was rewritten.
+Depends on contract fix P1-4 for S3 (generic names), S4, S5 and S6.
 
 ### ACC-202 Secret in stderr
 Covers: LAW-04, ADP-002, ADP-012
@@ -122,11 +127,12 @@ Fails if: the prompt text is stored or shown unmasked.
 
 ### ACC-211 Secret in caller-supplied free-text fields
 Covers: LAW-04, LED-009, CHK-004, LED-004
-Given: S1 placed in each caller-supplied text field the core accepts: step name, node label, run name, override reason (CHK-004), retry reason pointer text, any `--note`-like option.
+Given: S1 placed in each caller-supplied field the core accepts: step name, node label, run name, `override_ref`, `reason_ref` (retry), any `--note`-like option. The override reason itself is a closed code (CHK-004, DSP-003) and is tested in ACC-113: a secret placed in the code position is refused as an unlisted code.
 When: each is written.
-Then: for each field the core either refuses the value with a stated reason or stores it masked; the journal never holds S1; free text longer than the contract's length limit is refused or cut; no field can carry prompt-sized text.
-Observable: journal scan; behaviour per field recorded (refused / masked) with the field name.
-Fails if: any field stores the raw value, or any field accepts 100 KB of text. This case fills a gap in the draft ledger (override reason and labels are text fields); the contract must state each field's limit.
+Then: for each field the core either refuses the value with a stated reason or stores it masked; `override_ref` and `reason_ref` are pointers (a ref, never text), and a value shaped like text is refused; the journal never holds S1; text longer than the contract's per-field limit is refused or cut; no field accepts prompt-sized text (fixture: 100 KB refused or cut to the limit).
+Observable: journal scan; behaviour per field recorded (refused / masked) with the field name and the limit.
+Fails if: any field stores the raw value, or any field accepts 100 KB of text.
+Depends on contract fix P2-8 (the contract states each field's limit and the mask-or-refuse rule; until then the fixture limit is 256 characters).
 
 ### ACC-212 Secret in a path the journal must store
 Covers: LAW-04, LED-009, LED-R1
@@ -135,6 +141,7 @@ When: the call is recorded.
 Then: the contract's chosen strategy applies and no secret reaches the journal: the ref is stored relative to a root, or hashed with a lookup kept outside the journal and outside any view, or the call is refused with a stated reason; the reader can still resolve the ref when the strategy keeps it resolvable.
 Observable: journal scan; reader success or the documented refusal.
 Fails if: the path with the key is written. Any of the three strategies passes.
+Depends on contract fix P2-7 (the contract picks one strategy; once it does, only that strategy passes).
 
 ### ACC-213 Summary-only thinking is labelled, never faked
 Covers: ADP-013, LAW-11, VIEW-011, RSK-11
@@ -231,3 +238,13 @@ When: ten such calls run.
 Then: the journal stays small (each record below a bounded size the contract states; fixture bound 4 KB per line) and contains no marker string.
 Observable: maximum line length; scan for markers.
 Fails if: any line exceeds the bound or holds a marker.
+Depends on contract fix P2-8 for the bound (fixture 4 KB until the contract sets one).
+
+### ACC-225 The entropy rule and the hex exemption are both exercised
+Covers: RDR-008, RDR-R1, LAW-04
+Given: event text holding S7 (random-bodied key) on its own, S7 with no known prefix (40 random characters in a log line), the assignment form of S8 (`TEST_SECRET=` + 40 hex digits), the bare form of S8, a real-looking git object id (40 hex digits) in a commit line, a 7-digit short id, a 64-digit content hash, a 65-digit hex string.
+When: the reader returns the events.
+Then: S7 with the prefix and the assignment form of S8 are masked (must-catch); the 40-character random string with no prefix is masked by the entropy rule; hex strings of 7 to 64 digits in plain text (git ids, content hashes) survive unmasked; a 65-digit hex string is treated as high-entropy and masked; the bare S8 outcome is recorded in the run report (ACC-219) and does not fail the case.
+Observable: masked or not, per fixture line; `redactions` count.
+Fails if: S7 or the assignment form of S8 survives, a 7 to 64 digit hex id is masked, or the 65-digit string survives.
+Depends on contract fix P2-13 (the contract states the hex-shaped outcome; the 7 to 64 hex exemption itself is in RDR-008).
