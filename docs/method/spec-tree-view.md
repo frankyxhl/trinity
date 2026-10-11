@@ -14,7 +14,7 @@ In — view commands (CLI front end):
 | Command | Shows | Data from |
 | --- | --- | --- |
 | `trinity profiles` | profile list | profiles (no secrets) |
-| `trinity tree <run>` | one line per node: state glyph, step, profile/model, session `新/续` + short id, wall time, tokens, output summary (commit id / verdict word / heartbeat age) | journal |
+| `trinity tree <run>` | one line per node: state glyph, step, profile/model, session `新/续` + short id, wall time, tokens, exit class + `output_kind` + heartbeat age; the commit id / verdict word is resolved on click via the reader (LED-015) | journal |
 | `trinity tree <run> --expand <step>` | the rounds of one step, each with its ↺ reason | journal |
 | `trinity show <run>/<node> --events` | time-ordered events: 提示词 / 思考 / 工具 / 输出 / 心跳, plus the transcript ref | reader via ref |
 | `trinity open <run>` | the same tree as a local web page: tree left, node detail + events right (events loaded on click) | journal + reader |

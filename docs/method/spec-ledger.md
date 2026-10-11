@@ -11,7 +11,7 @@ Record every run, call, round, check and heartbeat as a tree, so that views, sta
 
 In:
 
-- Record kinds: `run` (start/end), `node` (one call), `edge` (`child` or `retry` with reason), `check` (quota/lock result), `heartbeat` (time + source kind), `state` (node state change), `prune` (retention removal).
+- Record kinds: `run` (start/end), `node` (one call), `edge` (`child` or `retry` with reason), `check` (quota/lock result), `heartbeat` (time + source kind), `state` (node state change). Prune lines go to a separate prune log, not the journal (LED-013).
 - Append API used by the core; read API used by views and metrics.
 - 90-day retention prune.
 
@@ -27,14 +27,14 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 
 ```json
 {"v":1,"kind":"node","run":"r-…","node":"n-…","parent":"n-…|null",
- "step":"review","round":1,"label":"review",
+ "step":"review","round":1,"label":"review","depth":0,
  "harness":"codex","profile":"codex","profile_reason":"named","model":"…",
  "session":{"id":"…","mode":"new|continue"},
  "transcript_ref":{"path":"…","offset":0},"t":"…"}
 ```
 
 ```json
-{"v":1,"kind":"state","run":"r-…","node":"n-…","state":"queued|running|done|failed|interrupted","exit_class":"ok","output_ref":{"path":"…","offset":1234},"usage":{"tokens":48000},"t":"…"}
+{"v":1,"kind":"state","run":"r-…","node":"n-…","state":"queued|running|done|failed|interrupted","exit_class":"ok","output_kind":"commit|verdict|none","output_ref":{"path":"…","offset":1234},"usage":{"tokens":48000},"t":"…"}
 ```
 
 ```json
@@ -43,6 +43,10 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 
 ```json
 {"v":1,"kind":"check","run":"r-…","node":"n-…","check":"quota","result":"ok|unknown|exhausted|override","source_kind":"vendor_cli","read_at":"…","t":"…"}
+```
+
+```json
+{"v":1,"kind":"check","run":"r-…","node":"n-…","check":"heavy_lock","result":"ok|unavailable|override","waited_s":12,"t":"…"}
 ```
 
 ```json
@@ -56,17 +60,18 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 | LED-001 | No in-place edits. A correction is a new line naming the line it corrects. The only removal is the retention prune (LED-013). |
 | LED-002 | Run ids and node ids are generated, unique and stable; display labels (any language) are never keys. |
 | LED-003 | In every run present in the journal, each node has exactly one parent except the run root, and the parent appears earlier. Pruning removes whole runs only, so this holds after a prune. |
-| LED-004 | A further attempt at a step is a new node with `round = previous + 1` and a `retry` edge whose `reason` is one of `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (with an optional `reason_ref` pointer to the rejection text). Rounds of one step may use different profiles (a step may switch author after repeated rejection). |
-| LED-005 | Node state moves only along `queued → running → (done | failed | interrupted)`. `stuck` is never written; readers derive it from heartbeat age and stall limit. |
+| LED-004 | A further attempt at a step is a new node with `round = previous + 1` and a `retry` edge whose `reason` is one of `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (with an optional `reason_ref` pointer to the rejection text). Rounds of one step may use different profiles (a step may switch author after repeated rejection); a round on another profile is a new session (PRF-010). |
+| LED-005 | Node state moves only along `queued → running → (done | failed | interrupted)`, or `queued → failed` when a pre-start check stops the node (exit class `check_failed` or `lock_unavailable`). `stuck` is never written; readers derive it from heartbeat age and stall limit. |
 | LED-006 | Each line is written by one `write()` of one line under an exclusive lock, so parallel children cannot interleave. |
 | LED-007 | A partial last line (crash mid-write) is skipped by readers and reported, never fatal. |
 | LED-008 | No credential value is ever written. Since no text field exists (LED-009), redaction duty sits with the readers (ADP-012), not the journal. |
 | LED-009 | The journal stores `transcript_ref`, `output_ref`, `reason_ref` and `harness` only — never prompt, thinking, tool or output text. No per-run option (decided, OPEN-05). |
 | LED-010 | The journal alone is enough to rebuild the tree, each node's wall time, reported token totals, rounds and retry reasons, and the per-step count of rejection rounds. |
 | LED-011 | Format carries a version `v`; readers refuse unknown major versions with a clear error. |
-| LED-012 | A repeated call is always a new node; two calls are never merged, even with identical prompt and session. A node id seen twice is a defect: readers keep the first and report the second. |
-| LED-013 | **Retention: 90 days.** A prune removes whole runs whose end time is older than 90 days and appends a `prune` line (run ids, count, time) to a separate prune log that is itself never pruned. |
-| LED-014 | `check` and `heartbeat` lines are written by the core (CHK-001..006); every `check` line names its result, source kind and read time. |
+| LED-012 | A repeated call is always a new node; two calls are never merged, even with identical prompt and session. Two `node` records with the same node id are a defect (state, check and heartbeat lines repeat the id by design): readers keep the first and report the second. |
+| LED-013 | **Retention: 90 days.** A prune removes whole runs whose end time — or, for a run with no end record, its last record time — is older than 90 days, and appends a `prune` line (run ids, count, time) to a separate prune log that is itself never pruned. |
+| LED-014 | `check` and `heartbeat` lines are written by the core (CHK-001..006); every quota `check` line names result, source kind and read time; every heavy-lock `check` line names result and wait time. `node` lines carry nesting `depth` (CHK-005). |
+| LED-015 | `output_kind` is a closed enum (`commit`, `verdict`, `none`), never free text; the commit id or verdict word itself is read from `output_ref` on demand. |
 
 ## 5. Environment assumptions
 

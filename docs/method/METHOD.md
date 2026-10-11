@@ -1,13 +1,13 @@
 # Trinity 法式 (Method Specification) — draft 0.2
 
 Status: **draft, WO-001 (CraftCode §14.2, stage 1 of §14.1).** Nothing here is accepted or verified.
-Baseline: Trinity mirror `main` at commit 019e354 (VERSION 3.3.0) — decided, see OPEN-01.
+Baseline: Trinity 3.3.0 — the public `main` plus later commits not yet public — decided, see OPEN-01.
 
 This file states what every Trinity component must agree on: scope, terms, rules, risks, open items. Component boundaries are in the four `spec-*.md` files beside it; the dispatch core is a stub in §5.
 
 ## 0. Baseline and sources
 
-- Code baseline: the private mirror's `main` at 019e354, which contains the public `main` plus later commits. Other copies (an unmerged model-id guard branch, locally installed copies) are **reference input only**; any fix they carry is re-specified from WO-002, not ported.
+- Code baseline: Trinity 3.3.0, i.e. the public `main` plus later commits not yet public; the exact commit is recorded outside this repo. Other copies (an unmerged model-id guard branch, locally installed copies) are **reference input only**; any fix they carry is re-specified from WO-002, not ported.
 - Today's shape at the baseline: a host skill (`SKILL.md`) that spawns one background worker per call from generated agent files (`providers/<p>.delta.md` + `providers/_base/*.md`); a registry (`providers/registry.json`: cli, resume flag, timeout per provider); shell wrappers in `providers/bin/`; sessions per instance key in `<project>/.claude/trinity.json` (`scripts/session.py`, `fcntl.flock`); a review pipeline (`scripts/_review.py`, `provider_runtime.py`, per-review `metadata.json`). No run, no parent, no rounds are recorded today.
 - Decision record TRN-3000 (stay a CLI backend, not ACP) stands. It means event detail must come from vendor transcripts, not structured events.
 - Owner plan for this rework: all harnesses in current use, profiles for multiple accounts, one call path with continue/new session, quota and heavy-lock checks, a call-tree journal, CLI and web views with live update, retry rounds shown as ↺, remove gemini.
@@ -19,7 +19,7 @@ This file states what every Trinity component must agree on: scope, terms, rules
 
 | ID | Scope item | Source |
 | --- | --- | --- |
-| SCO-01 | Adapters for every harness in current use: claude-code, codex, droid (glm, minimax), agy, anthropic-compat (deepseek, openrouter), opencode, deepseek-api. Mapping in §2.1 | owner plan |
+| SCO-01 | Adapters for every harness in current use: claude-code, codex, droid (glm, minimax), agy, anthropic-compat (openrouter; deepseek metered, OPEN-A3), opencode, deepseek-api. Mapping in §2.1 | owner plan |
 | SCO-02 | Profiles: named credential + model + billing + retention bundles (e.g. `claude:account-1`); default by lowest current use | owner plan |
 | SCO-03 | One common call path: new session or continue session, same for every harness | owner plan |
 | SCO-04 | Pre-dispatch checks: quota and heavy-job lock (§5) | owner plan |
@@ -83,7 +83,7 @@ Component specs use these terms and do not redefine them.
 | codex | codex | |
 | glm, minimax | droid | one adapter, model from profile |
 | agy | agy | |
-| deepseek | anthropic-compat (subscription path via opencode, metered path direct) | see OPEN-A3 |
+| deepseek | undecided (OPEN-A3): opencode for subscription + anthropic-compat or deepseek-api for metered | |
 | openrouter | anthropic-compat | a profile of that adapter, no own adapter |
 | opencode | opencode | **new** |
 | deepseek-api | deepseek-api or anthropic-compat profile | OPEN-A3 |
@@ -96,7 +96,7 @@ Component specs use these terms and do not redefine them.
 | LAW-01 | **One call path.** Every harness is reached through the same `call(profile, session=new|<id>, prompt, cwd, limits)` contract. Harness differences live only inside its adapter. |
 | LAW-02 | **The journal is the only record of runs.** Tree shape, states and numbers in every view, status and retro count come from the journal. Event *detail* comes from readers via journal refs (LAW-08). No view keeps its own state of record. |
 | LAW-03 | **No in-place edits.** Journal lines are never edited. Corrections are new lines. The only removal is the retention prune of whole runs older than 90 days (LED-013), and every prune is logged. |
-| LAW-04 | **No secret in any Trinity output.** Credential values never appear in the journal, logs, argv, prompts or views. Profiles name a credential *source*, not a value. |
+| LAW-04 | **No secret in any Trinity output.** Credential values never appear in the journal, logs, argv, prompts or views. Profiles name a credential *source*, not a value. Credential text that reaches a reader through a transcript is caught by pattern redaction (ADP-012), which is best-effort; the WO-002 leak-test fixture defines the bar. |
 | LAW-05 | **Model ids are data.** A model id appears in profile data only, never in adapter code or agent prose. Retired ids are refused (mechanism to be specified in WO-002; TRN-1006). |
 | LAW-06 | **Fail closed on checks.** If the quota or heavy-lock check cannot get an answer, dispatch stops with a stated reason unless the caller passes an explicit override, which is journaled. |
 | LAW-07 | **Recursion guard.** A child harness must not dispatch Trinity again unless the run explicitly allows nesting; nesting depth is journaled. |
@@ -135,11 +135,11 @@ Component specs use these terms and do not redefine them.
 | ID | Requirement |
 | --- | --- |
 | CHK-001 | Before each node starts, the core runs the quota check for the chosen profile and writes a check record (result, source kind, read time). |
-| CHK-002 | A quota read that is missing, failed, or older than the profile's freshness limit counts as unknown; unknown or exhausted stops the node (LAW-06) unless overridden. |
-| CHK-003 | A node marked heavy acquires the heavy lock before start and releases it at end; failure to acquire within its limit stops the node with exit class `lock_unavailable`, and a check record is written. |
+| CHK-002 | A quota read that is missing, failed, or older than the profile's freshness limit counts as unknown; unknown or exhausted stops the node before it starts (state `queued → failed`, exit class `check_failed`, LED-005) unless overridden. |
+| CHK-003 | A node marked heavy acquires the heavy lock before start and releases it at end; failure to acquire within the lock wait limit (OPEN-11) stops the node before it starts (`queued → failed`, exit class `lock_unavailable`), and a lock check record is written. |
 | CHK-004 | An override of CHK-002/003 is a caller flag, journaled in the check record with the caller's stated reason. |
 | CHK-005 | The core sets the recursion guard on every child (ADP-007) and journals nesting depth per node (LAW-07). |
-| CHK-006 | The core owns heartbeat rows: it polls the adapter's heartbeat source and appends a heartbeat row (time + source kind) at most once per poll interval. |
+| CHK-006 | The core owns heartbeat rows: it polls the adapter's heartbeat source and appends a heartbeat row (time + source kind) at most once per poll interval (OPEN-12). |
 | CHK-007 | Session not found (ADP-004) is surfaced to the caller; starting a new session instead is a caller decision and appears as a new node. |
 | CHK-008 | Retry ownership: the core does not retry on its own. Retries are caller decisions and appear as new rounds (LED-004). |
 
@@ -148,7 +148,7 @@ Component specs use these terms and do not redefine them.
 - WR-01 Every work order names: goal, baseline sha, allowed paths, forbidden changes, acceptance, budget, stop/escalate conditions, deliverables (CraftCode §8.2).
 - WR-02 The author of a component does not write or change its acceptance cases (§8.1). WO-002 acceptance cases get an owner other than the WO-003+ author (OPEN-06).
 - WR-03 Every requirement ID — families `SCO`, `NG`, `LAW`, `CHK`, `ADP`, `PRF`, `LED`, `VIEW`, `SUC` — is traced to a test or marked unverified (§6.7). Risks (`RSK`, `ADP-R`, `PRF-R`, `LED-R`, `VIEW-R`) each name the requirement or test meant to catch them, or say "none yet".
-- WR-04 Work happens on the pilot branch of the private mirror. Pushing to the public repository happens only for a release (§8) after a secret and private-reference scan over the whole tree finds nothing.
+- WR-04 Work happens on a non-public pilot branch. A public release (§8) is **exported as a fresh single-commit tree**: branch history, earlier commit messages and author fields are never published. The public commit message carries only the version and a neutral summary (no work-order ids, names or paths); its author and committer are the project's public identity, never a personal address. Before export, a secret and private-reference scan over the exported tree and the commit message must find nothing. The export is a release-time action.
 - WR-05 Retro per work order: wall time, rejection rounds, defects, human minutes (CraftCode §15.1), filed in the method project's retro record (outside this repo).
 
 ## 7. Environment limits and comparison record (§14.1 stage 1)
@@ -159,6 +159,7 @@ Environment limits (each spec has its detail):
 - Harnesses: vendor CLIs installed and logged in; credential files mode 600/400.
 - Stores and the boundaries they can carry:
   - **Journal store** (local file, append under exclusive lock): can carry one-line atomic appends and whole-run pruning; cannot carry cross-host writes or transactions across runs.
+  - **Error log** (local file, core-owned): holds the redacted stderr tail for `unknown` exits (ADP-002); same redaction as readers (ADP-012); kept 90 days like journal rows.
   - **Vendor transcript stores** (vendor-owned): readable by path, retention set by the vendor and noted per profile (PRF-009); Trinity cannot guarantee they still exist, so readers report "gone" (LAW-11).
 - Quota sources may be stale; freshness limits apply (CHK-002).
 - Views: UTF-8 terminal; local browser; the web view binds to localhost only.
@@ -167,7 +168,7 @@ Comparison record: for each work order, the retro records wall time, rejection r
 
 ## 8. Release semantics (发布语义) — working definition
 
-A Trinity release is an **annotated version tag on the public default branch** whose `VERSION` file equals the tag, and for which `install.sh` with that version installs exactly the tagged tree. A merge to a branch, a mirror push, or a local install is not a release. Refinement (changelog rules, who may tag, rollback) stays OPEN-10, WO-006.
+A Trinity release is an **annotated version tag on the public default branch** whose `VERSION` file equals the tag, and for which `install.sh` with that version installs exactly the tagged tree; the tagged commit is the single-commit export of WR-04. A merge to a branch, a push to a non-public branch, or a local install is not a release. Refinement (changelog rules, who may tag, rollback) stays OPEN-10, WO-006.
 
 ## 9. Risks
 
@@ -180,16 +181,16 @@ A Trinity release is an **annotated version tag on the public default branch** w
 | RSK-05 | Journal grows large | LAW-08 (refs only), LED-013 (90-day prune) |
 | RSK-06 | Concurrent writers corrupt the journal | LED-006, LED-007 |
 | RSK-07 | Scope creep: about ten features in the plan | §14.1: one end-to-end path first (OPEN-07); SCO-09 deferred to WO-006 |
-| RSK-08 | Deployment facts leak into the public repo | LAW-09; WR-04 scan before every public push |
+| RSK-08 | Deployment facts leak into the public repo, including through history or commit metadata | LAW-09; WR-04 single-commit export + scan |
 | RSK-09 | Changing harness set, profile model and views at once hides what helped | One change class per work order (WR-01) |
-| RSK-10 | "Stuck" judged wrong (busy session, no transcript growth) | Per-adapter stall limit (ADP-008); stuck is display only, never an automatic kill (CHK-008) |
+| RSK-10 | "Stuck" judged wrong (busy session, no transcript growth) | Per-adapter stall limit (ADP-008); stuck is display only (LED-005, VIEW-003), never an automatic kill |
 | RSK-11 | Readers show partial thinking as if complete | LAW-11, ADP-013, VIEW-011 |
 
 ## 10. Open items (未决事项)
 
 | ID | Question | Status / needed by | Owner |
 | --- | --- | --- | --- |
-| OPEN-01 | Baseline | **Decided:** mirror `main` at 019e354; other copies reference only (§0) | owner |
+| OPEN-01 | Baseline | **Decided:** Trinity 3.3.0 as stated in §0; other copies reference only | owner |
 | OPEN-02 | Trinity shape | **Decided:** one core, two front ends (SCO-08) | owner |
 | OPEN-03 | Public repo | **Decided:** the repo goes public; no tokens, account names, emails, host names or deployment paths in it (LAW-09, WR-04) | owner |
 | OPEN-04 | Profile pack location | **Decided:** separate private repository (LAW-09); format is OPEN-P5 | owner |
@@ -199,6 +200,9 @@ A Trinity release is an **annotated version tag on the public default branch** w
 | OPEN-08 | Dispatch core full contract (call signature, error classes) beyond the §5 stub | Open — WO-002 | author + reviewer |
 | OPEN-09 | Presets and plan mode | **Decided:** rebuilt on the journal in WO-006 (SCO-09) | owner |
 | OPEN-10 | Release semantics refinement beyond §8 | Open — WO-006 | project lead |
+| OPEN-11 | Heavy-lock wait limit (CHK-003) | Open — WO-002 | author + reviewer |
+| OPEN-12 | Heartbeat poll interval (CHK-006) | Open — WO-002 | author + reviewer |
+| OPEN-13 | Citations of the method text ("CraftCode §…") and the comparison process in §7: publish the method, cite by title/version, or describe neutrally? Kept as is until decided | Open — before first public release | owner |
 
 Component open items: adapters OPEN-A1..A6, profiles OPEN-P1..P5, journal OPEN-L1..L5, views OPEN-V1..V5 (see each spec; decided ones are marked there).
 
@@ -206,5 +210,5 @@ Component open items: adapters OPEN-A1..A6, profiles OPEN-P1..P5, journal OPEN-L
 
 - SUC-01 A run with ≥2 nodes is dispatched through one profile, journaled, and shown in the CLI tree with correct parents, sessions (new/continued) and states.
 - SUC-02 A further round shows as ↺ with its reason, from journal data only.
-- SUC-03 A scan over the journal and both views finds no credential value and no transcript text.
+- SUC-03 A scan over the journal and both views finds no credential value from the leak-test fixture and no transcript text in the journal.
 - SUC-04 Retro numbers per work order exist and can be compared as §7 describes.

@@ -35,7 +35,7 @@ Out:
 | PRF-007 | Model ids live only in profile data (LAW-05); a profile with a retired id is refused at load. |
 | PRF-008 | Profile data is layered: neutral examples in this repo (no real accounts), then the private profile pack from a separate private repository (LAW-09; the repo never names its location — it is passed by env var or config at run time), then a project override. |
 | PRF-009 | `transcript_retention` states how long the vendor keeps that profile's native transcripts (duration, or `unknown`). Readers use it to report expected expiry (ADP-014). |
-| PRF-010 | A continued session stays on the profile that created it; asking to continue under another profile is refused (settles OPEN-P3). |
+| PRF-010 | A continued session stays on the profile that created it; asking to continue under another profile is refused (settles OPEN-P3). A continue that names only a provider reuses the session's profile and skips the default pick (PRF-005). A retry round on another profile (LED-004) starts a new session. |
 
 ## 4. Example profile set (neutral; real values live in the private pack)
 
@@ -45,7 +45,7 @@ Out:
 | codex | codex | subscription | vendor CLI (read live) |
 | glm | droid | subscription | window % from vendor |
 | opencode | opencode | subscription | TBD (OPEN-P1) |
-| deepseek | anthropic-compat / deepseek-api | metered | API balance |
+| deepseek | opencode (subscription) / anthropic-compat or deepseek-api (metered) — OPEN-A3 | both | vendor CLI / API balance |
 | agy | agy | subscription | TBD |
 | minimax | droid | subscription | TBD |
 
@@ -61,7 +61,7 @@ Out:
 | --- | --- | --- |
 | PRF-R1 | A stale status board makes "lowest use" pick an exhausted account | PRF-004, CHK-002 |
 | PRF-R2 | Two runs use one account at once; vendor rate-limits per account | none yet (OPEN-P2) |
-| PRF-R3 | Credential rotated mid-run; continuing the session fails | PRF-010 + ADP-002 `auth_error` |
+| PRF-R3 | Credential rotated mid-run; continuing the session fails | ADP-002 `auth_error` (surfaced, not hidden) |
 | PRF-R4 | Repo examples drift from the private pack; someone copies real values into examples | WR-04 scan before public push |
 | PRF-R5 | "Lowest use" leaves no account with headroom for urgent work | OPEN-P2 |
 
