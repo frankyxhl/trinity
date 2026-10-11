@@ -3,10 +3,27 @@
 #
 # This wrapper prevents recursive Trinity dispatch and keeps nested Claude Code
 # state separate from the orchestrator's normal ~/.claude state.
+#
+# It selects an account (TRINITY_CLAUDE_CODE_ACCOUNT = a|b|c, default b) and
+# hands the matching seat token "$HOME/.claude/fleet-token.<account>" to the
+# exec'd claude as CLAUDE_CODE_OAUTH_TOKEN only. The token files are read-only
+# inputs: this wrapper never creates, copies or modifies them, and never prints
+# their contents.
 set -eu
 
 MODEL="${TRINITY_CLAUDE_CODE_MODEL:-sonnet}"
 EFFORT="${TRINITY_CLAUDE_CODE_EFFORT:-high}"
+
+ACCOUNT="${TRINITY_CLAUDE_CODE_ACCOUNT:-}"
+[ -n "$ACCOUNT" ] || ACCOUNT=b
+
+case "$ACCOUNT" in
+    a|b|c) ;;
+    *)
+        echo "trinity-claude-code: invalid account '$ACCOUNT' (expected a|b|c)." >&2
+        exit 1
+        ;;
+esac
 
 case "$EFFORT" in
     low|medium|high|xhigh|max) ;;
@@ -16,8 +33,44 @@ case "$EFFORT" in
         ;;
 esac
 
+TOKEN_FILE="${HOME}/.claude/fleet-token.${ACCOUNT}"
+
+if [ ! -e "$TOKEN_FILE" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: missing" >&2
+    exit 1
+fi
+
+# Reject any group/other permission bit (077) without depending on stat(1)
+# flavour: `ls -ld` is POSIX and its first field is always
+# `<type><user-rwx><group-rwx><other-rwx>` at characters 5-10 (a trailing ACL
+# or xattr marker, if any, sits after character 10). Empty output (ls failed
+# unexpectedly) is refused to stay fail-closed.
+GROUP_OTHER=$(ls -ld "$TOKEN_FILE" 2>/dev/null | cut -c5-10)
+case "$GROUP_OTHER" in
+    ------)
+        ;;
+    *)
+        echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: readable or writable by group or other" >&2
+        exit 1
+        ;;
+esac
+
+# Read without echoing; command substitution strips trailing newlines, then
+# trim any remaining surrounding whitespace. Tokens contain no internal spaces.
+TOKEN=$(cat "$TOKEN_FILE")
+TOKEN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
+
+if [ -z "$TOKEN" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: empty" >&2
+    exit 1
+fi
+
+# No silent identity: inherited credentials never reach the nested claude.
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+
 TRINITY_DISABLE_DISPATCH="1" \
 CLAUDE_CONFIG_DIR="${HOME}/.claude-trinity-claude-code" \
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1" \
+CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" \
 exec claude --permission-mode bypassPermissions --disable-slash-commands \
     --model "$MODEL" --effort "$EFFORT" "$@"

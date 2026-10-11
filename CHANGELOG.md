@@ -29,6 +29,17 @@
   attribution, and its own implementation surfaces (block_divergence tool +
   tests). Status: Proposed — awaits the TRN-1008 loop.
 
+### Fixed
+- `providers/bin/claude-code`: the wrapper previously passed no credential, so
+  the nested `claude` reported "not logged in". It now selects a Claude Code
+  seat via `TRINITY_CLAUDE_CODE_ACCOUNT` (`a`/`b`/`c`, default `b`), reads that
+  seat's token from `~/.claude/fleet-token.<account>`, and hands it to the
+  exec'd `claude` only as `CLAUDE_CODE_OAUTH_TOKEN`. It fails closed (exit 1
+  before `claude` runs) when the account is invalid or the token file is
+  missing, empty, or readable/writable by group or other; the token is never
+  printed and inherited `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` /
+  `ANTHROPIC_AUTH_TOKEN` no longer reach the nested process (D2596-FIX3).
+
 ### Removed
 - `scripts/_compat.py` — the shared guarded-`fcntl` helper (TRN-3041). Reverses
   the over-engineering-audit verdict (2026-06-23, issue #238): `session.py` and

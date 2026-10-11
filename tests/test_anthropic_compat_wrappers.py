@@ -381,7 +381,9 @@ def test_t15_claude_code_account_a_selects_its_token_file(stub_env):
     _write_token_file(env["HOME"], "a", FLEET_TOKEN_A)
     res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
     assert res.returncode == 0, res.stderr
-    assert json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    )
 
 
 def test_t15_claude_code_account_c_selects_its_token_file(stub_env):
@@ -390,7 +392,9 @@ def test_t15_claude_code_account_c_selects_its_token_file(stub_env):
     _write_token_file(env["HOME"], "c", FLEET_TOKEN_C)
     res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
     assert res.returncode == 0, res.stderr
-    assert json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_C
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_C
+    )
 
 
 def test_t15_claude_code_empty_account_env_defaults_to_b(stub_env):
@@ -398,7 +402,9 @@ def test_t15_claude_code_empty_account_env_defaults_to_b(stub_env):
     env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": ""})
     res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
     assert res.returncode == 0, res.stderr
-    assert json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_B
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_B
+    )
 
 
 def test_t15_claude_code_invalid_account_rejected_before_invoking_claude(stub_env):
@@ -446,6 +452,18 @@ def test_t15_claude_code_group_or_other_readable_token_rejected(stub_env):
     assert not rec.exists(), "claude stub should not have been invoked"
 
 
+def test_t15_claude_code_group_writable_token_rejected(stub_env):
+    """R3/R7: mode 0620 (group-writable only, not readable) is still a 077 bit."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", "fake-token-acct-a-secret", mode=0o620)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "group or other" in res.stderr.lower()
+    assert "fake-token-acct-a-secret" not in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+
+
 def test_t15_claude_code_inherited_tokens_do_not_reach_claude(stub_env):
     """R5/R9: the selected token wins; inherited OAuth/API/auth tokens are
     overridden or unset for the exec'd claude."""
@@ -483,7 +501,9 @@ def test_t15_claude_code_strips_surrounding_whitespace_from_token(stub_env):
     _write_token_file(env["HOME"], "a", f"  {FLEET_TOKEN_A}\n", mode=0o600)
     res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
     assert res.returncode == 0, res.stderr
-    assert json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    )
 
 
 # --- Sanity check on installed bits (these are the obvious RED indicators) ---
