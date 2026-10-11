@@ -624,6 +624,32 @@ def test_t15_claude_code_darwin_acl_listing_failure_refuses(stub_env):
     _assert_token_absent(res, FLEET_TOKEN_A)
 
 
+def test_t15_claude_code_acl_listing_failure_with_unknown_uname_refuses(stub_env):
+    """Gap fail-closed: if `ls -lde` fails AND `uname -s` fails/prints nothing,
+    the OS is unknown, so the ACL check could not be done — REFUSE rather than
+    treat it as non-Darwin and accept the token."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    bin_dir = Path(env["HOME"]) / "bin"
+    uname_stub = bin_dir / "uname"
+    uname_stub.write_text("#!/bin/sh\nexit 1\n")
+    uname_stub.chmod(0o755)
+    ls_stub = bin_dir / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) exit 1;;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    assert "fleet-token.a" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
 def test_t15_claude_code_unreadable_ls_rejected(stub_env):
     """P2: an ls that fails (even with permission-shaped output) must not pass."""
     env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
