@@ -1,4 +1,4 @@
-# Acceptance cases: credential leak set and honest transcripts (ACC-200 .. ACC-227)
+# Acceptance cases: credential leak set and honest transcripts (ACC-200 .. ACC-229)
 
 Companion to `ACCEPTANCE.md` (conventions, doubles and seams are in its section 0). This file defines the **bar** for "no secret in any output" (the requirement says pattern redaction is best-effort, so the bar must be written down: it is the must-catch list in L1 plus the surfaces in L2).
 
@@ -31,7 +31,7 @@ Variants of one value for the scanner: raw; JSON-escaped; URL-encoded; HTML-enti
 
 ## L2. Surfaces
 
-Journal file(s); prune log; error log; Trinity state and cache directories; temp files; stdout and stderr of every Trinity command; `trinity profiles`; `trinity tree` (default and expanded); `trinity show --events`; the local web page (HTML, every JSON/stream response, response headers, page title); child process argv sampled during calls; child environment; crash output; and, if the owner adopts the adapter-written local transcript for the direct-API adapter (OPEN-R1), that file (it holds full text outside the journal, so it is scanned like any vendor fixture except that it is Trinity's own output and gets no allow-list entry).
+Journal file(s); prune log; error log; Trinity state and cache directories; temp files; stdout and stderr of every Trinity command; `trinity profiles`; `trinity tree` (default and expanded); `trinity show --events`; the local web page (HTML, every JSON/stream response, response headers, page title); child process argv sampled during calls; child environment; crash output; and the local JSONL transcript the direct-HTTP adapter writes (RDR-015, decided): it holds full text outside the journal, and because it is Trinity's own output it is scanned with no allow-list entry (ACC-228). Vendor-written transcripts stay on the allow-list as test inputs.
 
 ---
 
@@ -50,7 +50,7 @@ When: a run records a call that points at the transcript, then the reader is ask
 Then: the journal holds no part of any secret; the events returned by the reader, printed by the CLI and shown by the web page contain none of the must-catch values (redacted in place, with a visible mask `[redacted:<kind>]`, and the result's `redactions` count equals the number of plantings); event count and order are unchanged by redaction; the `raw_ref` of a redacted event still resolves to the unredacted source bytes in the vendor file (the file is not modified).
 Observable: scan of the journal and of all view outputs is empty; the transcript fixture file's hash is unchanged; event count equals fixture event count.
 Fails if: any hit, or a redacted event was dropped instead of masked, or the transcript file was rewritten.
-Note: S3 generic names, S4, S5 and S6 are RDR-008 kinds 4 to 7.
+Note: S3 generic names, S4, S5 and S6 are RDR-008 kinds 4 to 7. For the direct-HTTP adapter the file is Trinity's own (RDR-015, ACC-228) and is never allow-listed: its fixture is a scripted API response, the planted secrets must not be in the file, and the read-time redaction, the unmodified-source and the `redactions`-equals-plantings lines apply to the vendor-written adapters; ACC-228 carries the direct-HTTP checks.
 
 ### ACC-202 Secret in stderr
 Covers: LAW-04, ADP-002, ADP-012
@@ -185,7 +185,7 @@ Fails if: any hit, any `Set-Cookie`, or any request needing a credential to load
 Covers: SUC-03, LAW-04, LAW-08, RSK-02
 Given: one temporary root in which every other case of this file has run, with the allow-list limited to the credential files and the vendor fixture transcripts.
 When: the scanner runs over the entire root, including hidden files, temp files, session store, caches and logs, plus the captured output of every command executed.
-Then: zero hits for S1..S6 and for all variants of the journal-visible kinds; zero transcript markers (ACC-215) in the journal.
+Then: zero hits for S1..S6 and for all variants of the journal-visible kinds; zero transcript markers (ACC-215) in the journal; the adapter-written transcript (ACC-228) is inside the swept root and has no allow-list entry.
 Observable: scanner report is empty and lists the number of files and bytes scanned (a report that scanned zero files fails).
 Fails if: any hit or an empty scan.
 
@@ -220,6 +220,7 @@ When: a run is recorded and no view is opened; then a view is opened and one nod
 Then: the reader is called 0 times during recording and exactly once for the clicked node; opening the tree does not call it.
 Observable: spy counters.
 Fails if: transcript text is read at journal-write time or at tree-load time.
+Note: the spy is on the reader. The direct-HTTP adapter's own transcript is written with text already passed through the redaction function (RDR-015, ACC-228); that is the adapter writing its output, not the reader running at write time, and this case's counters do not include it.
 
 ### ACC-223 Uncertain input is raw, never dropped, never leaked
 Covers: ADP-012, RSK-03, LAW-04
@@ -262,3 +263,21 @@ When: the reader returns the events.
 Then: every (a) form is masked as `[redacted:key]`; no (b) text is changed; every (c) value is masked with the name kept; no (d) line is changed; `redactions` counts only the masks of (a) and (c).
 Observable: output text per fixture line; `redactions` count.
 Fails if: a (b) word is masked, a (d) value is masked, a (c) value survives, or an (a) key survives.
+
+### ACC-228 The direct-HTTP adapter's own transcript is scanned, with no allow-list **[the direct-HTTP adapter]**
+Covers: RDR-015, OPEN-R1, LAW-04, LED-008, RDR-008, RDR-R1
+Given: the direct-HTTP adapter pointed at DBL-A; the profile's credential value is S6; the caller's prompt carries S1, S3, S5 and S7; DBL-A's scripted answers carry S1..S5, S7 and the assignment form of S8 in thinking text, tool input, tool output and output text, in the error body of a second call (HTTP 500), and echo the request's authorisation header back in a header; a first call, a continue of it, and a call killed with SIGKILL while a streamed answer that holds S1 is half written (the cut falls inside the secret).
+When: the calls run (or die); then the scanner (L1) runs over Trinity's whole state directory and temp area, with the allow-list limited to the credential file and to nothing else: the adapter-written file is not on it.
+Then: DBL-A's capture shows the credential only in a request header and never in a body or url; the scanner reports zero hits for S1..S6, S7 and the assignment form of S8, in the adapter-written transcript, the journal, the logs, argv and the environment dump of every command, for every variant of L0 (raw, JSON-escaped, URL-encoded, entity-encoded, base64, first 12 and last 12 characters); the transcript's text events hold the visible mask `[redacted:<kind>]` where a secret was and event count and order are those of the exchange; the killed call's file ends at a whole line or in a partial last line that the reader skips (ACC-018) and holds no piece of S1; the report-only items of L1 are recorded for this file and never fail the case; a scan that read zero adapter-written files fails the case.
+Observable: scanner report (files and bytes scanned, count of adapter-written files > 0, hits); DBL-A capture; transcript lines.
+Fails if: any must-catch hit in the file, the credential outside a header, a half-written secret after the kill, a vendor-style allow-list entry covering this file, or an empty scan.
+Note: the file is Trinity's own output, not a vendor fixture, so it carries no exemption (owner ruling OPEN-R1; RDR-015). RDR-015 puts the redaction at write for this file; the case checks the result (no hit) and not where in the code it happens.
+
+### ACC-229 The adapter-written transcript sits outside the journal, mode 600, and is removed per the profile's retention **[the direct-HTTP adapter]**
+Covers: RDR-015, OPEN-R1, PRF-009, ADP-014, LED-009, LED-001
+Given: two profiles of the direct-HTTP adapter, one with retention "30 days", one "90 days", one "unknown"; a finished session on each; a vendor-written claude-code fixture transcript of the same age; the test clock (S-2).
+When: the journals and the state directory are listed; the clock is moved to 29 days, then 31 days, then 91 days, and the retention pass runs at each stop (the pass the contract names); the reader is asked for the three nodes after each stop.
+Then: each transcript is a separate JSONL file under Trinity's state directory, not the journal file and not inside the journal's directory; its mode is 600; the journal holds only the node's `transcript_ref` (path plus byte offset) and no transcript text (ACC-224); at 29 days all three files exist; at 31 days the 30-day file is gone and the other two exist; at 91 days the 90-day file is gone and the "unknown" file still exists (never given a number); the reader returns the events while a file exists and `gone` with the expected expiry computed from the profile after it is removed (ACC-214); the journal is byte-identical across the removal (append-only; removal changes no line); the vendor-written fixture is never deleted by Trinity at any stop.
+Observable: directory listing and modes; journal hash across stops; reader status per stop.
+Fails if: a transcript text is in the journal, the file is world- or group-readable, a file is removed before or never after its profile's retention, "unknown" is turned into a number, the journal changes on removal, or a vendor file is deleted.
+Note: the contract does not say what runs the retention pass; the case runs whichever mechanism it names and fails if there is none.

@@ -1,4 +1,4 @@
-# Acceptance cases for the Trinity rework (ACC-001 .. ACC-163, plus GRAPH.md and LEAK.md)
+# Acceptance cases for the Trinity rework (ACC-001 .. ACC-173, plus GRAPH.md and LEAK.md)
 
 Written by an author who did not write the contracts and who may not be changed by the contracts' author. Code that follows these specs must pass every case. Files:
 
@@ -6,7 +6,7 @@ Written by an author who did not write the contracts and who may not be changed 
 | --- | --- |
 | `ACCEPTANCE.md` (this file) | conventions, end-to-end path, ledger, profiles, adapters, dispatch core, reader, views, coverage table, spec gaps |
 | `GRAPH.md` | ACC-300 .. ACC-324: nesting, depth limit, loops, revises, depends, mutual wait |
-| `LEAK.md` | ACC-200 .. ACC-227: credential leak set, honest thinking, deleted transcripts |
+| `LEAK.md` | ACC-200 .. ACC-229: credential leak set, honest thinking, deleted transcripts, the adapter-written transcript |
 
 ## 0. Conventions
 
@@ -33,10 +33,12 @@ A case needs these to be runnable. If the contract offers a different mechanism,
 | S-5 | The heavy-lock location and wait limit can be set. |
 | S-6 | Heartbeat poll interval, stall limit, freshness limit, depth limit and live-update target can be set per test. |
 | S-7 | Views can be pointed at a journal file that no run is writing. |
+| S-8 | The direct-HTTP adapter's endpoint base URL can be pointed at DBL-A. |
 
 ### 0.4 Test doubles
 
-- **DBL-H (fake harness)**: an executable that follows a script. It records its argv, its environment variable *names* and its working directory to a capture file; writes a native transcript in the format of the adapter under test; can exit with any code, sleep, hang, spawn a grandchild, write given bytes to stdout and stderr, and report or withhold usage.
+- **DBL-H (fake harness)**: an executable that follows a script. It records its argv, its environment variable *names* and its working directory to a capture file; writes a native transcript in the format of the adapter under test; can exit with any code, sleep, hang, spawn a grandchild, write given bytes to stdout and stderr, and report or withhold usage. For session-id cases it can also: report a session id at a scripted moment in a scripted place (first output chunk, a later chunk, never), never report one, report a different id than the one it was given, and, at its own start, read the journal file and record what it holds.
+- **DBL-A (API double)**: a local HTTP server that stands in for a vendor API (seam S-8). It follows a script (status, body, streamed chunks, delay, hang), and records every request's method, path, header names and values, and body to a capture file.
 - **DBL-Q (quota stub)**: returns a scripted value with a read time, or fails, or hangs.
 - **DBL-C (clock)**: seam S-2.
 - **Reader fixtures**: per adapter, a transcript file with all five event types, summary and encrypted thinking, unknown lines, and a deleted-file variant.
@@ -117,7 +119,7 @@ Fails if: a collision, or an id that changes.
 
 ### ACC-013 Record kinds and required fields
 Covers: LED-014, SCO-05
-Given: a run exercising every kind: run start/end, node, state, edge, check (quota), check (heavy lock), heartbeat.
+Given: a run exercising every kind: run start/end, node, state, edge, check (quota), check (heavy lock), heartbeat, session (one captured, one `session_unknown`, ACC-165, ACC-166).
 When: the journal is parsed.
 Then: every line is one JSON object with a version field; each kind carries the fields the contract lists; no kind carries a free-text field holding prompt, thinking, tool or output content; prune lines are absent from the journal.
 Observable: schema validation of every line; absence of prune lines.
@@ -143,7 +145,7 @@ Fails if: a duplicate round number, a lost attempt, a caller-chosen number, or b
 Covers: LED-005, DSP-013, RSK-10
 Given: a node in each state.
 When: every transition is attempted.
-Then: only these are accepted (LED-005): `queued -> running`, `running -> done`, `running -> failed`, `running -> interrupted`, `queued -> failed` when a pre-start stop ends the node (exit class `check_failed`, `lock_unavailable`, `profile_refused` or `dependency_failed`; any other class on this transition is refused), and `queued -> interrupted` (a cancel before start, DSP-013, no process started); every other transition is refused, including any move out of `done`, `failed` or `interrupted` and `queued -> done`; a value `stuck` is refused as a state; after a stall limit passes with no heartbeat, the journal still holds no `stuck` line.
+Then: only these are accepted (LED-005): `queued -> running`, `running -> done`, `running -> failed`, `running -> interrupted`, `queued -> failed` when a pre-start stop ends the node (exit class `check_failed`, `lock_unavailable`, `profile_refused` or `dependency_failed`; any other class on this transition is refused), and `queued -> interrupted` (a cancel before start, DSP-013, no process started); every other transition is refused, including any move out of `done`, `failed` or `interrupted` and `queued -> done`; a value `stuck` is refused as a state; for a node whose session is `session_unknown`, `running -> done` is refused too (ACC-166); after a stall limit passes with no heartbeat, the journal still holds no `stuck` line.
 Observable: accepted and refused sets; journal scan for `stuck`.
 Fails if: any other transition lands, or a `stuck` state is written.
 
@@ -372,11 +374,11 @@ Observable: class per script; the set of every class value seen in journal and r
 Fails if: a value outside the 16, an adapter returning a core-set class, a wrong mapping, or stderr in the journal.
 Note: the adapter-set classes are the §4 table of dispatch-core (ADP-002 points to DSP-010); `interrupted` is set by the core, not an adapter.
 
-### ACC-072 New session id by marker or reported id, never by newest file **[per adapter]**
-Covers: ADP-003, SCO-03
+### ACC-072 New session id: the assigned one, or by marker or reported id, never by newest file **[per adapter]**
+Covers: ADP-003, SCO-03, DSP-020
 Given: a decoy transcript with a newer modification time written by an unrelated process in the same directory; also two new-session calls started together in the same working directory.
 When: the calls finish.
-Then: each call returns the id of its own session; the decoy is never taken.
+Then: each call returns the id of its own session (for an adapter that pre-assigns, the id Trinity generated, ACC-164; for one that captures, the id its harness reported or the exact marker, ACC-165); the decoy is never taken. (The one file in a directory that only this call owns is not "newest": ACC-172.)
 Observable: ids against the scripts; transcript refs against the scripts.
 Fails if: a call gets the decoy's id or the other call's id.
 
@@ -454,11 +456,12 @@ Fails if: the wrong bytes are shown, status `ok` with no events, a time attached
 
 ### ACC-083 Adapter-by-case grid
 Covers: SCO-01, SCO-03
-Given: the results of ACC-070 to ACC-081, ACC-150 and ACC-209.
+Given: the results of ACC-070 to ACC-081, ACC-150, ACC-164 to ACC-167, ACC-169 to ACC-173 and ACC-209.
 When: the report is built.
 Then: it holds a full grid of adapters against cases with a verdict in every cell; an adapter or case absent from the grid fails the grid.
 Observable: the report file.
 Fails if: a cell is empty.
+Note: ACC-164 runs on the adapters marked pre-assign and ACC-165 on those marked capture (ADP-016 table, read at test time); the other cells of those two rows read "not applicable by ADP-016", which is a verdict, not an empty cell. ACC-167 and ACC-169 on an adapter whose continue form is still to be probed (ADP-016) read "not applicable until probed".
 
 ### ACC-084 Gemini is removed
 Covers: SCO-07, ADP-R6
@@ -604,7 +607,7 @@ Fails if: unbounded waiting, a different timeout, a wait on the unreachable lock
 Covers: DSP-002, CHK-001, CHK-002
 Given: a call that fails the quota check, a call whose journal append fails at step 3, a call that fails the heavy lock, a call that is refused at validation, and a call that passes everything; a spy sees each step.
 When: they run.
-Then: the order is (1) validate, (2) resolve the profile, (3) under the journal lock: assign the round number, append the node record `queued` with its edges, release the lock, (4) profile check, (5) dependency gate, (6) quota check, (7) heavy lock, (8) adapter call, (9) end state; a stop at validation, or a journal failure at step 3 (lock or append), leaves no node; the lock is released before step 4 and never held across a check, a wait or the adapter call; a stop at profile check, dependency gate, quota check or heavy lock ends the node `queued -> failed` with the class of that step (exception: a dependency cycle, see ACC-314b and ACC-316), and no later step is reached.
+Then: the order is (1) validate, (2) resolve the profile, (3) under the journal lock: assign the round number and, for `session: new` on an adapter that pre-assigns, generate the session id, append the node record `queued` with its edges (and that id, source `assigned`), release the lock, (4) profile check, (5) dependency gate, (6) quota check, (7) heavy lock, (8) adapter call, (9) end state; a stop at validation, or a journal failure at step 3 (lock or append), leaves no node; the lock is released before step 4 and never held across a check, a wait or the adapter call; a stop at profile check, dependency gate, quota check or heavy lock ends the node `queued -> failed` with the class of that step (exception: a dependency cycle, see ACC-314b and ACC-316), and no later step is reached.
 Observable: step trace (including lock acquire and release marks); node lines.
 Fails if: a step runs out of order, a node exists after a validation stop or a step-3 journal failure, the lock is held while a check or the adapter runs, or a step after the stopping one runs.
 
@@ -797,6 +800,94 @@ Then: both front ends return exactly the fields `run, node, exit_class, session_
 Observable: key set of the result.
 Fails if: a field is added, dropped or renamed, or `journal_complete` is missing.
 
+### ACC-164 A pre-assigned session id reaches the harness and the journal before the call runs **[per adapter marked pre-assign in the ADP-016 table]**
+Covers: DSP-020, ADP-016, ADP-003, LED-017
+Given: a new-session call on each adapter marked pre-assign in the ADP-016 table; DBL-H, at its own start, reads the journal file and records what it holds, then records its argv (for deepseek-api, DBL-A records the first request); the harness is scripted to hang 5 s on the test clock after starting.
+When: the call is made and, while the harness hangs, the journal is read from a second process.
+Then: the id was generated by Trinity (a UUID v4 the caller did not send) and is in the node record (`session.id`, source `assigned`, mode `new`) on disk; what DBL-H read at its start already held that line (the line is on disk before the process starts, not after); the id sits in the harness's session-id argument (an adapter that passes it as an argument) or is the id of the adapter-written transcript (the direct-HTTP adapter) and the same value is in all three places; no `session` line is written (nothing was captured); the result's `session_id` and the ended node both carry the same id; two concurrent new calls get two different ids; the ADP-016 table is a test input: it is read at test time, each adapter marked pre-assign declares source `assigned`, and each adapter marked capture declares no id to pass; an adapter whose table row and declaration differ fails.
+Observable: journal line order against DBL-H's own start record; argv or request capture; ids compared across journal, argv or transcript, and result.
+Fails if: the id appears in the journal only after the harness started, the harness is given a different id than the one journaled, a `session` line is written for an assigned id, two calls share an id, or an adapter declares the other source.
+Note: DSP-020 names the node record as the place; the order check does not depend on a field spelling.
+
+### ACC-165 A captured session id is journaled at first output, before the end state, and survives a crash after that **[per adapter marked capture in the ADP-016 table]**
+Covers: DSP-020, ADP-016, ADP-003, LED-017, LED-006
+Given: each adapter marked capture in the ADP-016 table; DBL-H reports its id in the first output chunk that carries one (the 3rd chunk, after two chunks without it) and then keeps running 20 s on the test clock; a decoy transcript newer than the real one sits in the same directory.
+When: the call is made; the journal is read from a second process on the test clock at the moment of the 3rd chunk plus 1 s; then the Trinity process that holds the call is killed with SIGKILL at the 3rd chunk plus 2 s (its harness may be left alone or reaped by the double); afterwards a new Trinity process reads the journal.
+Then: at the first read the node record has no id (`session.id` null, source null), a `session` line exists (source `captured`) holding the harness's id, and the node is still `running`; no line of this node was written between the chunk and that `session` line other than heartbeat or state lines; after the kill the `session` line is still there and complete, the node reads as running (stuck after the stall limit, never changed by the kill), the journal has no partial line that the reader cannot skip (ACC-018), and a later continue naming that id with no profile finds the node's profile from the journal (DSP-006); the id is the harness's, never the decoy's (ACC-072); a harness that reports the same id again in later chunks adds no further `session` line.
+Observable: second-process journal read at two instants; journal after the kill; continue result.
+Fails if: the `session` line is written only when the call ends, a crash after the report loses the id, the id comes from the decoy or the newest file, or repeated reports add lines.
+Note: where the capture format of an adapter is still marked "confirm" or probe-pending in ADP-016, DBL-H is scripted to the format that adapter declares and the case is re-run against a recorded real fixture once the format is settled (ADP-R3).
+
+### ACC-166 No session id means `session_unknown`, never a success class **[per adapter]**
+Covers: DSP-020, LED-017, DSP-010, LED-005
+Given: for each adapter marked capture, DBL-H scripted never to report an id and to end as: (a) a normal success (exit 0, full output); (b) a quota message; (c) a hang past the time limit; (d) a generic recognised error; with a newer decoy transcript present. For each adapter marked pre-assign, a control: normal success, harness reports nothing.
+When: each call ends; then a hand-written `session` line with a real id for a `session_unknown` node is appended to a copy of the journal; then the node is read, shown, and a continue naming it is attempted.
+Then: for the capture adapters: a `session` line with source `session_unknown` and id null is appended at the end; (a) ends `running -> failed` with exit class `harness_error` (output ref kept), never `ok` and never `done`; (b), (c), (d) end with their own classes (`quota_exhausted`, `timeout`, `harness_error`), never `ok`; for every one the result has `session_id: null`; no journal line of any run carries both a `done` state and a `session_unknown` for the same node; `running -> done` for such a node is refused by the writer; in the hand-edited copy the reader still shows the node's session as unknown (it is final, LED-017) and flags the extra line as a defect by line (ACC-019); the decoy's id is never adopted. For the pre-assign controls: no `session` line at all, state `done`, class `ok`, `session_id` equal to the assigned id.
+Observable: `session` and `state` lines; result fields; state transition attempts; reader output on the edited copy.
+Fails if: any class of success is written for a node with no id, `session_id` is anything but null, the node is left without a `session` line, the decoy is adopted, a late id replaces `session_unknown`, or a pre-assign adapter writes `session_unknown`.
+Note: `session_unknown` covers any end with no id, not only a clean one; the failure class in (b), (c), (d) is the harness's own because a real failure should not be relabelled.
+
+### ACC-167 `trinity resume <run>/<node>` is the same as the explicit call **[per adapter]**
+Covers: DSP-021, OPEN-D1, DSP-006, DSP-018, LAW-02
+Given: two copies of one fixture journal holding run R with a finished node N (step S, parent P, profile X, session id I, round 1); a prompt Q; for each adapter whose continue form is settled (ADP-016 table; the rest are "not applicable until probed").
+When: on copy 1 `trinity resume R/N "Q"`; on copy 2 the explicit call: continue, run R, session I, profile X, step S, parent P, prompt Q, no other option. Then a third pair: both forms with an override requested but no code; and a pair naming a node that is not in R.
+Then: the two runs append the same lines apart from generated ids and times: same kinds in the same order (node, edges, state, checks), same mode `continue`, same session id, profile, step, parent, run, same round number (DSP-018), same harness argv and environment names, same quota check and lock behaviour, the same result field set and exit class; resume writes no field that the explicit call does not and drops none; the override without a code is refused alike (`bad_request`, nothing written); a node not in R is refused as the explicit call with an unknown parent is, `bad_request` and nothing written; a code spy shows `resume` reaches the dispatch core through the same single call entry (ACC-070, ACC-120) and holds no check or step logic of its own.
+Observable: normalised journal tail of both copies compared; argv capture; result key sets; call-entry spy.
+Fails if: the tails differ beyond ids and times, resume skips or adds a check, picks another profile, starts a new session, or has its own validation.
+Note: what resume does with an extra `--profile` or `--session` option is not in the owner's ruling and no case fixes it.
+
+### ACC-168 A node with no session cannot be resumed
+Covers: DSP-021, DSP-020, LED-017
+Given: a node whose session is `session_unknown` (from ACC-166).
+When: `trinity resume` is requested for it.
+Then: it is refused with `bad_request` naming the node and the reason (no session); nothing is written (journal byte-identical); no process starts; no new session is created in its place.
+Observable: result class and reason, journal hash before and after, invocation count.
+Fails if: a node is created, a process starts, or a new session replaces the missing one.
+
+### ACC-169 A continue records the caller's id, and a different reported id is journaled **[per adapter]**
+Covers: DSP-020, LED-017, DSP-006
+Given: a finished node with session I; a continue call; DBL-H (a) reports I, (b) reports a different id J in its first output, (c) reports nothing.
+When: each call runs; then a further continue is made with no id given for the same node's session.
+Then: the new node record carries I (mode `continue`, source `caller`); in (a) and (c) no `session` line and the node can end `done` (the caller's id is an id; a continue is not `session_unknown`); in (b) a `session` line with J (source `captured`) is appended while the harness runs; the result's `session_id` is J; a later continue of that node finds J (and still finds I from the earlier node) and its profile through the journal (DSP-006).
+Observable: node and `session` lines; result; continue resolution.
+Fails if: (c) ends in failure for want of an id, (b) is ignored, or I and J are mixed up.
+Note: DSP-020 is the source; the owner ruling is silent on continue.
+
+### ACC-170 Layer 1: the live view reads Trinity's own pipe and needs no vendor id **[per adapter marked capture in the ADP-016 table]**
+Covers: DSP-020, LAW-04, LAW-08, VIEW-005
+Given: DBL-H scripted to write output chunks for 10 s on the test clock and to report no id for the first 6 s (and, in a second run, never); its vendor transcript directory is made unreadable (a hostile or missing store); S1 is planted in one chunk.
+When: a live view of the running node is opened at 2 s and at 8 s.
+Then: output chunks show within the live-update delay (VIEW-012) at 2 s, when no session id is known, and in the second run to the end, so the live view does not wait for an id and does not read the vendor store; the planted S1 is masked in what the view shows; no chunk text reaches the journal, the error log or any cache (ACC-215, ACC-224); the view opens no file under the vendor transcript directory (open-file spy).
+Observable: view output over time; open-file trace; scanner over journal, logs and caches.
+Fails if: the view shows nothing until an id exists, reads the vendor directory, shows S1, or text is stored by Trinity.
+Note: the contract names how a second process reads a running call's output; the case runs whichever mechanism it names and fails if there is none.
+
+### ACC-171 The captured id is known before the first model token **[per adapter marked capture in the ADP-016 table]**
+Covers: DSP-020, ADP-003, LED-017
+Given: DBL-H scripted as a stream: event 1 carries the id (a start event), then a 3 s pause on the test clock, then event 2, the first event that holds model output (a token or text delta); the double records the instant it writes each event; a second process reads the journal on a loop.
+When: the call runs.
+Then: the `session` line (source `captured`) is on disk before event 2 is written by the harness double (it is already read at the pause, not at event 2 or later); between the start event and the line there is no model output event seen by Trinity; the id equals event 1's; a harness whose first event is already model output and carries the id in the same event still gets its `session` line before that event's text is shown by the live view.
+Observable: journal read instants against the double's own write instants.
+Fails if: the id is journaled after the first model output, or only at the call's end.
+Note: this is ACC-165's first-output rule pinned to the owner's "known before the first model token".
+
+### ACC-172 Layer 3: a per-call session directory gives one file and the id, and is not "newest file" **[per adapter marked capture whose harness takes a per-call session directory]**
+Covers: DSP-020, ADP-003, LED-017
+Given: DBL-H whose stream carries no id; each call gets its own fresh session directory (set through the harness's own location setting, e.g. a home or sessions path, created empty by Trinity under the temp root and never shared between calls); the double writes exactly one rollout file there named with a timestamp and a UUID, whose first line is a session-meta record holding that UUID; a decoy rollout with a newer modification time and another UUID sits in the shared, non-per-call directory; two calls run at once.
+When: both calls end.
+Then: each call's id is the UUID of the one file in its own directory (taken from the file name and confirmed by line 1; a file name and a first line that disagree is a defect, see below); the decoy is never taken; the two calls never see each other's directory; the `session` line (source `captured`) is journaled as soon as the file and its first line exist, while the harness still runs; a per-call directory holding zero files at the end gives `session_unknown` (ACC-166); a directory holding two or more files gives no pick: `session_unknown` and an error-log line naming the count, never the newest.
+Observable: ids against the scripts; directory contents; `session` lines; error log.
+Fails if: an id comes from a directory shared between calls, from the newest file, from a directory with two files, or a directory is reused by a second call.
+Note: this is a unique-file rule inside a directory only one call owns, so it does not contradict ACC-072 (a shared directory's newest file is never taken); the marker or reported id and this rule are both ways to get an id, neither is "newest".
+
+### ACC-173 Two layers that disagree are a defect, never a pick; resume works from the journaled id **[per adapter marked capture in the ADP-016 table]**
+Covers: DSP-020, DSP-021, LED-017, OPEN-D1
+Given: (a) DBL-H whose stream reports id I1 and whose per-call directory file holds id I2 (different); (b) the same with I1 equal I2; (c) a call whose stream reports I1, then the Trinity process is killed with SIGKILL after the `session` line; then `trinity resume R/N "Q"` is made on that journal, and again after the harness double is reconfigured to accept only I1.
+When: each runs.
+Then: (a) the `session` line for I1 stays (append-only), no line for I2 replaces it, the node does not end in a success class (`harness_error`), and the error log names both ids (ids are not secrets); (b) one id, no defect, no second `session` line; (c) the resume reaches the harness with I1 in its resume argument or request, and the new node records mode `continue` with I1; if the harness accepts only I1 the resume succeeds, and the same call after a hand-edit of the journal to another id reaches the harness with that other id (the id is read from the journal, never from the vendor directory); a node whose only id came from the per-call directory (ACC-172) resumes the same way.
+Observable: `session` lines; end class; error log; harness argv or request capture on resume.
+Fails if: either id is silently chosen on a mismatch, a mismatch ends in success, a second `session` line appears when they agree, or resume takes its id from anywhere but the journal.
+
 ---
 
 ## 6. Views
@@ -930,7 +1021,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | LAW-01 | 070, 085 |
 | LAW-02 | 004, 130, 319 |
 | LAW-03 | 010, 011, 023, 025 |
-| LAW-04 | 200 to 225 (all) |
+| LAW-04 | 200 to 229 (all) |
 | LAW-05 | 056, 078 |
 | LAW-06 | 111, 112, 113, 122 |
 | LAW-07 | 302, 303, 304, 316, 323, 162 |
@@ -976,6 +1067,8 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | DSP-017 | 160, 211, 224 |
 | DSP-018 | 015, 161 |
 | DSP-019 | 159 |
+| DSP-020 | 164, 165, 166, 169, 170, 171, 172, 173, 072, 016, 123, 163 |
+| DSP-021 | 167, 168, 173 (OPEN-D1, decided) |
 
 ### 7.3c Transcript-reader contract (RDR)
 
@@ -988,13 +1081,14 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | RDR-005 | 153, 213 |
 | RDR-006 | 154, 214 |
 | RDR-007 | 081 |
-| RDR-008 | 201, 219, 220, 223, 225, 226, 227 |
+| RDR-008 | 201, 219, 220, 223, 225, 226, 227, 228 |
 | RDR-009 | 155 |
 | RDR-010 | 156 |
 | RDR-011 | 156 |
 | RDR-012 | 157, 205 |
 | RDR-013 | 226 |
 | RDR-014 | 212, 227 |
+| RDR-015 | 228, 229 (OPEN-R1, decided) |
 
 ### 7.3d Graph contract (GRF)
 
@@ -1017,7 +1111,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | --- | --- |
 | ADP-001 | 070, 074 |
 | ADP-002 | 071, 075, 086, 144, 202, 203, 204 |
-| ADP-003 | 072 |
+| ADP-003 | 072, 164, 165, 171, 172 |
 | ADP-004 | 073 |
 | ADP-005 | 209 |
 | ADP-006 | 209 |
@@ -1028,8 +1122,9 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | ADP-011 | 079, 137 |
 | ADP-012 | 080, 081, 150, 152, 201, 220, 222, 223 |
 | ADP-013 | 153, 213 |
-| ADP-014 | 154, 214, 216, 058, 081 |
+| ADP-014 | 154, 214, 216, 058, 081, 229 |
 | ADP-015 | 021 |
+| ADP-016 | 164, 165, 166, 170, 171, 172, 173, 083 |
 
 ### 7.5 Profiles
 
@@ -1043,7 +1138,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | PRF-006 | 055 |
 | PRF-007 | 056 |
 | PRF-008 | 057 |
-| PRF-009 | 058 |
+| PRF-009 | 058, 229 |
 | PRF-010 | 059, 143, 308 |
 
 ### 7.6 Journal
@@ -1055,10 +1150,10 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | LED-003 | 026, 302, 311, 317, 318 |
 | LED-004 | 014, 015, 305, 307, 308 |
 | LED-005 | 016, 116, 142, 312, 313, 314, 315, 316 |
-| LED-006 | 015, 017, 026, 029 |
+| LED-006 | 015, 017, 026, 029, 165 |
 | LED-007 | 018, 318, 158 |
-| LED-008 | 218, 224 |
-| LED-009 | 020, 215, 224 |
+| LED-008 | 218, 224, 228 |
+| LED-009 | 020, 215, 224, 229 |
 | LED-010 | 004, 300, 319 |
 | LED-011 | 019, 158 |
 | LED-012 | 021, 022, 158 |
@@ -1066,6 +1161,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | LED-014 | 013, 027, 110, 112, 114, 302, 304, 314 |
 | LED-015 | 028, 119 |
 | LED-016 | 212 |
+| LED-017 | 165, 166, 169, 013, 168, 171, 172, 173 |
 
 ### 7.7 Views
 
@@ -1104,7 +1200,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | Risk | Cases |
 | --- | --- |
 | RSK-01 | 056, 078 |
-| RSK-02 | 200 to 225 |
+| RSK-02 | 200 to 229 |
 | RSK-03 | 223 |
 | RSK-04 | 053, 111 |
 | RSK-05 | 023, 224 |
@@ -1117,7 +1213,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | RSK-12 | 314, 314b, 316 |
 | ADP-R1 | 073 per adapter |
 | ADP-R2 | 074 per profile |
-| ADP-R3 | 072, 080 for opencode (run once the probe settles the session id source) |
+| ADP-R3 | 072, 080, 165 for opencode (run once the probe settles the session id source) |
 | ADP-R4 | not testable yet: no stable observable; candidate is a compare of the reported model with the requested one |
 | ADP-R5 | 086 |
 | ADP-R6 | 084 |
@@ -1141,7 +1237,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | DSP-R2 | 129 |
 | DSP-R3 | 128 (the metrics output counts overrides by code from the journal) |
 | DSP-R4 | 126 |
-| RDR-R1 | 220, 225, 227 |
+| RDR-R1 | 220, 225, 227, 228 |
 | RDR-R2 | 150 |
 | RDR-R3 | 151, 215 |
 | RDR-R4 | 226 |
@@ -1169,3 +1265,4 @@ Status against the contracts at draft 0.2: gaps 1 to 4 and 6 to 10 are closed by
 8. **Clock injection.** Closed: one replaceable clock function (DSP-019; seam S-2, ACC-159).
 9. **Terminal control sequences.** Closed: VIEW-007 covers the terminal as well as HTML (ACC-135).
 10. **Length bound.** Closed: a journal line is at most 4 KiB (DSP-017; ACC-224, ACC-160).
+11. **Session id and the direct-HTTP transcript (owner rulings OPEN-D1, OPEN-R1, requirement DSP-SID).** Closed in the cases (DSP-020, DSP-021, RDR-015; ACC-164 to ACC-173, ACC-228, ACC-229). Not fixed by any text and so not tested: what `resume` does with an extra `--profile` or `--session` option; what runs the retention pass that removes an adapter-written transcript; how a second process reads a running call's pipe for the live view (ACC-170); and how a continue by replay works when the stored history is masked (RDR-015 masks at write; the replayed conversation then differs from the one the vendor saw).
