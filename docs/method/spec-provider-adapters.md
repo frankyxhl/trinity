@@ -1,88 +1,92 @@
-# Component spec: provider adapters (提供方适配) — draft 0.1
+# Component spec: provider adapters (提供方适配) — draft 0.2
 
 Status: **draft, WO-001 boundary spec.** Requirements are unverified. Full contract + acceptance cases are WO-002.
-Laws that bind this component: LAW-01, 04, 05, 07, 08 (METHOD.md §3).
+Terms: METHOD.md §2. Laws that bind this component: LAW-01, 04, 05, 07, 08, 11.
 
 ## 1. Purpose
 
-Turn one Trinity call into one harness invocation, and report back: session id, final output, exit class, and a pointer to the raw transcript.
+Each adapter has two jobs for one harness:
+
+1. **Call:** turn one Trinity call into one harness invocation and report back session id, final output pointer, exit class, harness type and transcript ref.
+2. **Read:** on demand, turn that harness's native transcript (via ref) into the unified event schema (`prompt`, `thinking`, `tool`, `output`, `heartbeat`).
 
 ## 2. Scope
 
-In:
+In — one adapter per harness family (provider names map per METHOD §2.1):
 
-- One adapter per harness family. Target set:
-
-| Adapter | Harness | Billing | Today (forge/main) | Change |
+| Adapter | Harness | Billing | At baseline | Change |
 | --- | --- | --- | --- | --- |
-| claude-code | `claude -p` (isolated config dir) | subscription via setup-token | wrapper, sonnet/high, no token selection | read token from profile (A/B/C) |
-| codex | `codex exec` / `experimental resume` | subscription | `gpt-5.6-sol` pinned in registry | model from profile |
-| droid (glm, minimax) | `droid exec --auto medium` | subscription | GLM-5.2 / MiniMax-M3 pinned | model from profile; reconcile with installed LiteLLM bridge glm (RSK-01) |
-| agy | `agy` (Antigravity) | subscription | agy-opus wrapper with run lock | keep |
-| anthropic-compat | `claude` pointed at a compatible endpoint | metered | deepseek, openrouter wrappers | one adapter, endpoint from profile |
-| opencode | `opencode` (Go, e.g. `opencode-go/deepseek-v4.1-flash`) | subscription | absent | **new** |
-| deepseek-api | DeepSeek HTTP API direct | metered | via anthropic-compat only | **new or folded into anthropic-compat** (OPEN-A3) |
-| gemini | `gemini -p` | — | agent files, no registry entry | **remove** |
+| claude-code | `claude -p` (isolated config dir) | subscription via setup-token | wrapper, fixed model/effort, one login | credential and model from profile (one profile per account) |
+| codex | `codex exec` / `experimental resume` | subscription | model id pinned in registry | model from profile (vendor's current models) |
+| droid | `droid exec --auto medium` (glm, minimax) | subscription | model ids pinned | model from profile; glm path re-specified in WO-002 (RSK-01) |
+| agy | Antigravity CLI | subscription | wrapper with run lock | keep |
+| anthropic-compat | `claude` pointed at a compatible endpoint | metered | deepseek and openrouter wrappers | one adapter; endpoint and model from profile; openrouter is a profile of it |
+| opencode | `opencode` | subscription | absent | **new** |
+| deepseek-api | DeepSeek HTTP API direct | metered | only via anthropic-compat | **new or a profile of anthropic-compat** (OPEN-A3) |
+| gemini | `gemini -p` | — | agent files present, no registry entry | **remove**; installer cleans or warns (ADP-R6) |
 
-- New session and continue session.
-- Reporting: start, session id known, heartbeat source, end, exit class.
+Also in: new session and continue session; call-time reporting (start, session id, heartbeat source, end, exit class); per-harness transcript reader.
 
 Out:
 
-- Choosing which profile to use (profiles component).
-- Quota and lock checks (dispatch core).
-- Writing the journal (adapter emits events; the core writes them).
-- Retry policy (dispatch core / orchestrator owns retries; one retry owner, CraftCode §16.1).
+- Choosing the profile (profiles spec).
+- Quota and lock checks, heartbeat rows, retries (dispatch core, METHOD §5).
+- Writing the journal: the adapter returns fields; the core writes them.
 
 ## 3. Boundary contract (draft)
 
-Input (from dispatch core): resolved profile (no secret values, only a credential source reference), `session` = `new` or a session id, prompt text (or prompt file), working dir, time limit, stall limit, run id + node id.
+Call input (from the core): resolved profile (credential *source* only), `session` = `new` or a session id, prompt text or prompt file, working dir, time limit, stall limit, run id + node id.
 
-Output: `session_id`, `final_text` (or pointer), `exit_class`, `transcript_ref` (path + optional offset), `usage` (tokens/cost if the harness reports it, else null), timestamps.
+Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to final output in the transcript), `exit_class`, `transcript_ref` (path + offset or hash), `usage` (or absent), start/end times.
 
 | ID | Requirement |
 | --- | --- |
-| ADP-001 | Every adapter accepts the same input shape and returns the same output shape. |
-| ADP-002 | `exit_class` is one of: `ok`, `harness_error`, `auth_error`, `quota_exhausted`, `timeout`, `interrupted`, `session_not_found`, `unknown`. `unknown` is allowed but journaled with raw stderr tail. |
-| ADP-003 | `session=new` returns the new session id, found by an exact marker or harness-reported id — never by newest-mtime (keeps TRINITY-2004 fix). |
-| ADP-004 | `session=<id>` on a missing/expired session returns `session_not_found`; the adapter does **not** silently start a new session (today's "discard and create new" moves up to the caller, so the journal shows it). |
-| ADP-005 | Credentials are passed by env or file read inside the wrapper process; never on argv; never echoed. |
-| ADP-006 | The child process env is built from an allow-list (existing `build_provider_env`), plus only the profile's declared variables. |
+| ADP-001 | Every adapter accepts the same input shape and returns the same output shape, including `harness`. |
+| ADP-002 | `exit_class` is one of: `ok`, `harness_error`, `auth_error`, `quota_exhausted`, `timeout`, `interrupted`, `session_not_found`, `lock_unavailable` (set by the core), `unknown`. `unknown` comes with the last 2 KB of stderr in the core's error log, not in the journal. |
+| ADP-003 | `session=new` returns the new session id, found by an exact marker or a harness-reported id — never by newest-mtime (keeps the existing trace-marker fix). |
+| ADP-004 | `session=<id>` on a missing/expired session returns `session_not_found`; the adapter never starts a new session in its place (CHK-007). |
+| ADP-005 | Credentials are passed by env or by a file read inside the wrapper process; never on argv; never echoed. Observable: a process listing during a call shows no credential value. |
+| ADP-006 | The child env is built from an allow-list (existing `build_provider_env`) plus only the profile's declared variables. |
 | ADP-007 | The child gets the recursion guard (`TRINITY_DISABLE_DISPATCH=1` or equivalent) unless the run allows nesting. |
-| ADP-008 | Each adapter declares its heartbeat source (transcript file growth, stdout, or process alive) and a default stall limit. |
-| ADP-009 | On timeout or interrupt, the adapter kills only the process group it started and reports partial output (existing `terminate_process_group`). |
-| ADP-010 | Model id comes from the profile; the adapter refuses an id on the retired list. |
-| ADP-011 | `usage` is reported when the harness exposes it; adapters never estimate tokens and label the estimate as real. |
+| ADP-008 | Each adapter declares its heartbeat source (transcript growth, stdout, or process alive) and a default stall limit in seconds; a profile may override it (OPEN-A6). |
+| ADP-009 | On timeout or interrupt the adapter kills only the process group it started and reports partial output (existing `terminate_process_group`). |
+| ADP-010 | Model id comes from the profile; an id on the retired list is refused before any process starts (list and mechanism specified in WO-002). |
+| ADP-011 | `usage` is copied from what the harness reports. If the harness reports nothing, `usage` is **absent** (not 0, not an estimate). |
+| ADP-012 | **Reader.** Each adapter has one reader: input `transcript_ref`; output an ordered list of unified events `{t, type ∈ prompt|thinking|tool|output|heartbeat, text, raw_ref}`. It runs on demand (when a view asks), never at journal-write time. Lines it does not understand become `output` events marked `raw`, never dropped. It redacts secret-pattern matches before returning text. |
+| ADP-013 | **Honest thinking.** When the harness gives thinking only as a summary or encrypted, the reader returns it with `thinking_form = summary | encrypted | absent`, and never presents it as full text. |
+| ADP-014 | **Gone transcripts.** If the transcript at the ref no longer exists, the reader returns `gone` with the time it was found missing and, when the profile states vendor retention (PRF-009), the expected expiry time. |
+| ADP-015 | A repeated identical call (same prompt, same session) is a new call: new node, new output; the adapter never returns a cached earlier answer. |
 
 ## 4. Environment assumptions
 
-- Vendor CLIs installed and logged in where the harness needs login (opencode Go login done on bajie and wukong, frank-todo 10-10).
-- claude-code profiles: token files exist at the profile's credential source with mode 600/400.
-- Session transcripts are written by the vendor to known places (`session_path.py` today knows the claude-family slugs).
-- macOS + Linux; POSIX sh wrappers (no zsh, TRN-2009).
+- Vendor CLIs installed and logged in where the harness needs login, on each host that runs them.
+- Credential files exist at the profile's credential source with mode 600/400.
+- Transcripts are written by the vendor to locations the reader can find (today `session_path.py` knows the claude-family slugs).
+- macOS + Linux; POSIX sh wrappers, no zsh (TRN-2009).
 
 ## 5. Risks
 
-| ID | Risk |
-| --- | --- |
-| ADP-R1 | Vendor CLI flag changes (codex `experimental resume`, droid `-s`) break resume silently. |
-| ADP-R2 | `claude -p` with an OAuth setup-token behaves differently from the isolated-config login (smoke 14:15: only the token path worked). |
-| ADP-R3 | opencode transcript/session format unknown to Trinity today; heartbeat and events may be stdout-only. |
-| ADP-R4 | Anthropic-compat endpoints accept the request but ignore model/effort fields. |
-| ADP-R5 | Folding deepseek-api into anthropic-compat hides its own error classes (rate limit vs balance). |
-| ADP-R6 | Removing gemini breaks users who still have `trinity-gemini.md` installed; installer must clean or warn. |
+| ID | Risk | Caught by |
+| --- | --- | --- |
+| ADP-R1 | Vendor CLI flag changes (codex `experimental resume`, droid `-s`) break resume silently | ADP-004 case per adapter (WO-002) |
+| ADP-R2 | `claude -p` with a setup-token behaves differently from the isolated-config login | claude-code new + continue cases per profile (WO-002) |
+| ADP-R3 | opencode session id / transcript format unknown today; heartbeat may be stdout-only | OPEN-A2 probe before WO-002 |
+| ADP-R4 | Compatible endpoints accept the request but ignore model/effort fields | none yet; candidate: compare reported model in usage |
+| ADP-R5 | Folding deepseek-api into anthropic-compat hides its own error classes (rate limit vs balance) | OPEN-A3; ADP-002 mapping test |
+| ADP-R6 | Removing gemini breaks users with an old gemini agent installed | installer test in WO-002 |
+| ADP-R7 | A reader shows summary thinking as full thinking | ADP-013 |
 
 ## 6. Open items
 
-| ID | Question |
-| --- | --- |
-| OPEN-A1 | Does each adapter stay a markdown agent file (sub-agent prose + shell), or become Python code called by one generic agent? (LAW-01 favours code.) |
-| OPEN-A2 | opencode: session id source and resume flag; transcript location. Needs a probe before WO-002. |
-| OPEN-A3 | deepseek "both billing modes": is subscription = OpenCode Go and metered = direct API? Then deepseek-api is just a profile of anthropic-compat. |
-| OPEN-A4 | codex "current models": which ids (mockup `gpt-6.1-sol`; fleet uses Sol/Luna/Astra)? Who updates them (TRN-1006)? |
-| OPEN-A5 | Keep `openrouter`? Not named in the plan. |
-| OPEN-A6 | Where per-adapter stall limits come from (adapter default vs profile override). |
+| ID | Question | Status |
+| --- | --- | --- |
+| OPEN-A1 | Adapters as markdown agent files or core code? | **Decided by SCO-08/NG-06:** adapters are core code; agent files become thin front-end shims |
+| OPEN-A2 | opencode: session id source, resume flag, transcript location | Open — probe before WO-002 |
+| OPEN-A3 | deepseek both billing modes: subscription via opencode, metered via direct API — is deepseek-api then only a profile of anthropic-compat? | Open — WO-002 |
+| OPEN-A4 | Which codex model ids are current, and who updates them (TRN-1006) | Open — WO-002 |
+| OPEN-A5 | Ship an openrouter example profile? (adapter question settled: it is an anthropic-compat profile) | Open — WO-002 |
+| OPEN-A6 | Default stall limits per adapter, and whether profiles may override | Open — WO-002 |
 
 ## 7. Verification to define in WO-002 (not done)
 
-Per adapter: new session, continue session, missing session, bad credential, timeout kill, recursion guard present, no secret in argv/journal, retired model refused. Mark each case adapter-specific or shared.
+Per adapter: new session, continue session, missing session, bad credential, timeout kill, recursion guard present, no secret in argv/journal, retired model refused, usage absent when unreported, reader on a fixture transcript (all five event types, unknown line kept, summary thinking labelled, deleted transcript → `gone`).

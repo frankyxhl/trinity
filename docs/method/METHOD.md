@@ -1,132 +1,210 @@
-# Trinity 法式 (Method Specification) — draft 0.1
+# Trinity 法式 (Method Specification) — draft 0.2
 
-Status: **draft, WO-001 (CraftCode §14.2 stage 1)**. Nothing here is accepted or verified.
-Baseline: Trinity `forge/main` 019e354 (3.3.0). CraftCode v0.1 @ 6c7923e.
+Status: **draft, WO-001 (CraftCode §14.2, stage 1 of §14.1).** Nothing here is accepted or verified.
+Baseline: Trinity mirror `main` at commit 019e354 (VERSION 3.3.0) — decided, see OPEN-01.
 
-This file states what every Trinity component must agree on: scope, terms, rules, risks, open items. Component boundaries are in the four `spec-*.md` files beside it.
+This file states what every Trinity component must agree on: scope, terms, rules, risks, open items. Component boundaries are in the four `spec-*.md` files beside it; the dispatch core is a stub in §5.
+
+## 0. Baseline and sources
+
+- Code baseline: the private mirror's `main` at 019e354, which contains the public `main` plus later commits. Other copies (an unmerged model-id guard branch, locally installed copies) are **reference input only**; any fix they carry is re-specified from WO-002, not ported.
+- Today's shape at the baseline: a host skill (`SKILL.md`) that spawns one background worker per call from generated agent files (`providers/<p>.delta.md` + `providers/_base/*.md`); a registry (`providers/registry.json`: cli, resume flag, timeout per provider); shell wrappers in `providers/bin/`; sessions per instance key in `<project>/.claude/trinity.json` (`scripts/session.py`, `fcntl.flock`); a review pipeline (`scripts/_review.py`, `provider_runtime.py`, per-review `metadata.json`). No run, no parent, no rounds are recorded today.
+- Decision record TRN-3000 (stay a CLI backend, not ACP) stands. It means event detail must come from vendor transcripts, not structured events.
+- Owner plan for this rework: all harnesses in current use, profiles for multiple accounts, one call path with continue/new session, quota and heavy-lock checks, a call-tree journal, CLI and web views with live update, retry rounds shown as ↺, remove gemini.
+- A design sketch of the views exists outside the repo; the parts this spec relies on are written out in `spec-tree-view.md`.
 
 ## 1. Purpose and scope
 
 **Trinity** lets one orchestrating agent (编排者) hand tasks to other model harnesses, continue or restart their sessions, and leave a call-tree record that a human can read live and replay.
 
-In scope for the D2595 rework:
-
 | ID | Scope item | Source |
 | --- | --- | --- |
-| SCO-01 | Adapters for every harness the fleet runs: claude-code, codex, glm, minimax, agy, deepseek (direct API), opencode (Go), openrouter | D2595 (1), plan |
-| SCO-02 | Profiles: named credential + model + billing bundles (e.g. `claude:A/B/C`); default by lowest weekly use | plan, mockup |
-| SCO-03 | One common call path: new session or continue session, same for every harness | plan "common wrapper" |
-| SCO-04 | Pre-dispatch checks: quota and heavy-job lock | plan |
-| SCO-05 | Journal (账本) as a call tree, with retry rounds (↺) | plan, mockup |
-| SCO-06 | Two views over the journal: CLI tree and web page, both live | plan, mockup |
-| SCO-07 | Remove gemini | plan |
+| SCO-01 | Adapters for every harness in current use: claude-code, codex, droid (glm, minimax), agy, anthropic-compat (deepseek, openrouter), opencode, deepseek-api. Mapping in §2.1 | owner plan |
+| SCO-02 | Profiles: named credential + model + billing + retention bundles (e.g. `claude:account-1`); default by lowest current use | owner plan |
+| SCO-03 | One common call path: new session or continue session, same for every harness | owner plan |
+| SCO-04 | Pre-dispatch checks: quota and heavy-job lock (§5) | owner plan |
+| SCO-05 | Journal (账本) as a call tree, with rounds (↺) | owner plan |
+| SCO-06 | Views over the journal: CLI tree and web page, both live | owner plan |
+| SCO-07 | Remove gemini | owner plan |
+| SCO-08 | **One core, two front ends**: a standalone CLI and the host skill. Both call the same core (decided, OPEN-02) | owner decision |
+| SCO-09 | Review presets and plan mode rebuilt on the journal — **in WO-006**, not earlier (decided, OPEN-09) | owner decision |
 
 Non-goals (this rework):
 
 - NG-01 Not an ACP / long-lived harness control plane (TRN-3000 stands).
-- NG-02 Not a scheduler or seat booker: Trinity does not decide *which* fleet seat or unit runs; it runs what the orchestrator asks.
-- NG-03 Not an acceptance authority: a review verdict recorded in the journal is evidence, not approval (CraftCode §8.1).
-- NG-04 No tmux, no daemon required for dispatch (README design decision). A live view may need a reader process; see spec-tree-view.
+- NG-02 Not a scheduler or worker booker: Trinity runs what the orchestrator asks; it does not pick which external worker or work unit runs.
+- NG-03 Not an acceptance authority: a review verdict in the journal is evidence, not approval (CraftCode §8.1).
+- NG-04 No tmux, no daemon required for dispatch. A live view may run a short-lived reader; see spec-tree-view.
 - NG-05 Not a secrets manager. Trinity reads credentials that already exist; it never writes, copies or prints them.
+- NG-06 Neither front end holds logic of its own: parsing, checks, journal writes and state derivation live in the core.
 
 ## 2. Terms (术语)
+
+Component specs use these terms and do not redefine them.
 
 | Term | 中文 | Meaning |
 | --- | --- | --- |
 | Orchestrator | 编排者 | The agent or human that calls Trinity. The root of a run. |
+| Front end | 前端 | A way to call the core: the `trinity` CLI or the host skill (`/trinity`). Holds no logic (NG-06). |
+| Core | 核心 | Dispatch path, checks, journal writer, profile resolver and readers; shared by both front ends. |
 | Harness | 工具壳 | A vendor CLI or API endpoint that runs a model session (claude, codex, droid, agy, opencode, HTTP API). |
-| Adapter | 提供方适配 | Trinity code that turns one call into one harness invocation and back. One per harness. |
-| Provider | 提供方 | Name users type (`codex`, `glm`). Maps to one adapter. Kept for compatibility. |
-| Profile | profile | A named bundle: provider + credential source + model + billing mode + quota source. Example `claude:B`. |
+| Adapter | 提供方适配 | Core code that turns one call into one harness invocation and back, and reads that harness's transcripts. One per harness. |
+| Provider | 提供方 | Name users type (`codex`, `glm`). Maps to one adapter (§2.1). Kept for compatibility. |
+| Profile | profile | A named bundle: provider + credential source + model + billing mode + quota source + transcript retention. |
+| Profile pack | profile 包 | The private set of real profiles for one deployment. Lives in a separate private repository, never in this repo (LAW-09). |
+| Credential source | 凭据来源 | Where a credential is read from: an env var name or a file path. Never the value. |
+| Quota source | 额度来源 | Where current use is read from, by kind: vendor CLI status, API balance, or a shared status board. |
+| Freshness limit | 新鲜度上限 | Maximum age of a quota read before it counts as unknown. |
 | Billing mode | 计费 | `subscription` (window/weekly quota) or `metered` (pay per token/request). |
-| Session | 会话 | The harness's own conversation id. Continuing (续) reuses it; new (新) starts one. |
+| Session | 会话 | The harness's own conversation id. Continue (续) reuses it; new (新) starts one. |
 | Run | 运行 | One orchestrator task and every call made under it. Has a run id. |
 | Node | 节点 | One call (one prompt sent to one session) inside a run. Has a node id and a parent. |
-| Step | 步骤 | A named role inside a run (RED author, review, gate). One step can have several rounds. |
-| Round | 轮次 | One attempt at a step. A RETURN starts a new round; drawn as ↺. |
-| Journal | 账本 | Append-only record of runs, nodes, edges and events. `run-journal.jsonl`. Single source of truth. |
-| Event | 事件 | A typed entry under a node: prompt, thinking, tool, output, heartbeat, state. |
-| Heartbeat | 心跳 | Evidence that a node is still alive (transcript growth or process alive). |
-| Stuck | 卡住 | Running node with no heartbeat for longer than its stall limit. |
+| Edge | 边 | A link between nodes: `child` (parent → call) or `retry` (round → next round, with a reason). |
+| Step | 步骤 | A named role inside a run (author, review, check). A step has one or more rounds. |
+| Round | 轮次 | Any attempt at a step. A further round is drawn as ↺; its reason is one of: review rejection, failure, timeout, stuck, manual. |
+| Journal | 账本 | Append-only record of runs, nodes, edges, checks and heartbeats. Holds **pointers, never transcript text** (LAW-08). File layout: OPEN-L1. |
+| Check record | 检查记录 | Journal record of a pre-dispatch check result (quota, heavy lock) for one node. |
+| Transcript | 原始记录 | The vendor's own session record (file or API history). Owned by the vendor, not by Trinity. |
+| Ref (pointer) | 指针 | Journal field locating transcript data: path + byte offset or content hash, plus harness type. |
+| Reader | 读取器 | Per-harness code that turns a transcript (via ref) into unified events, on demand. |
+| Event | 事件 | Unified view item produced by a reader: `prompt`, `thinking`, `tool`, `output`, `heartbeat`. Not stored in the journal. |
+| Heartbeat | 心跳 | Evidence a node is alive (transcript growth or process alive). The core writes a heartbeat row (time + source, no text). |
+| Stall limit | 停顿上限 | Heartbeat age after which a running node is shown as stuck. |
+| Stuck | 卡住 | A running node whose last heartbeat is older than its stall limit. Display state only. |
+| Exit class | 结束类别 | Normalised outcome of one call (list in ADP-002). |
 | Heavy lock | 重型锁 | A host-wide lock that heavy jobs (full test suites) must hold. |
+| Released | 已发布 | See §8 (working definition). |
+
+### 2.1 Provider → adapter mapping
+
+| Provider name | Adapter | Notes |
+| --- | --- | --- |
+| claude-code (`claude`) | claude-code | profiles per account |
+| codex | codex | |
+| glm, minimax | droid | one adapter, model from profile |
+| agy | agy | |
+| deepseek | anthropic-compat (subscription path via opencode, metered path direct) | see OPEN-A3 |
+| openrouter | anthropic-compat | a profile of that adapter, no own adapter |
+| opencode | opencode | **new** |
+| deepseek-api | deepseek-api or anthropic-compat profile | OPEN-A3 |
+| gemini | — | **removed** (SCO-07) |
 
 ## 3. Architecture rules (法)
 
 | ID | Rule |
 | --- | --- |
 | LAW-01 | **One call path.** Every harness is reached through the same `call(profile, session=new|<id>, prompt, cwd, limits)` contract. Harness differences live only inside its adapter. |
-| LAW-02 | **The journal is the only record.** CLI tree, web view, status and retro metrics read the journal. No view keeps its own state of record. |
-| LAW-03 | **Append, never rewrite.** Journal lines are not edited or deleted by Trinity. Corrections are new lines. |
+| LAW-02 | **The journal is the only record of runs.** Tree shape, states and numbers in every view, status and retro count come from the journal. Event *detail* comes from readers via journal refs (LAW-08). No view keeps its own state of record. |
+| LAW-03 | **No in-place edits.** Journal lines are never edited. Corrections are new lines. The only removal is the retention prune of whole runs older than 90 days (LED-013), and every prune is logged. |
 | LAW-04 | **No secret in any Trinity output.** Credential values never appear in the journal, logs, argv, prompts or views. Profiles name a credential *source*, not a value. |
-| LAW-05 | **Model ids are data.** A model id appears in profile data only, never in adapter code or agent prose. Retired ids are refused (TRN-1006 + retired-model guard). |
-| LAW-06 | **Fail closed on checks.** If the quota or heavy-lock check cannot get an answer, dispatch stops with a stated reason unless the caller passes an explicit override that is journaled. |
+| LAW-05 | **Model ids are data.** A model id appears in profile data only, never in adapter code or agent prose. Retired ids are refused (mechanism to be specified in WO-002; TRN-1006). |
+| LAW-06 | **Fail closed on checks.** If the quota or heavy-lock check cannot get an answer, dispatch stops with a stated reason unless the caller passes an explicit override, which is journaled. |
 | LAW-07 | **Recursion guard.** A child harness must not dispatch Trinity again unless the run explicitly allows nesting; nesting depth is journaled. |
-| LAW-08 | **Raw transcripts stay where the vendor puts them.** The journal stores pointers (path + byte offset or hash), not copies, unless a node is explicitly archived. |
-| LAW-09 | **Fleet facts stay outside the core.** Paths such as fleet token dirs, quota boards and lock files come from a fleet profile pack, not hard-coded in Trinity. |
-| LAW-10 | **Compatibility.** `/trinity <provider> "task"` and `trinity review` keep working through the rework, or their removal is a recorded decision. |
+| LAW-08 | **Pointers, never text.** The journal stores ref + harness type only. It never stores prompt, thinking, tool or output text — no per-run option, no archive exception (decided, OPEN-05). |
+| LAW-09 | **Deployment facts stay outside the repo.** Real accounts, token locations, status-board locations, lock paths and host names live in the private profile pack, which this repo never names or points to. The repo ships neutral examples only. |
+| LAW-10 | **Compatibility.** `/trinity <provider> "task"` and `trinity review` keep working through the rework; presets and plan mode stay as they are until WO-006 rebuilds them (SCO-09). |
+| LAW-11 | **Never fake transcript content.** Thinking that the harness gives only as a summary or encrypted is shown labelled as such; a transcript the harness has deleted is shown as gone with a time. |
 
 ## 4. Component map (式)
 
 ```text
-orchestrator ──call──▶ [dispatch core] ──▶ [profile resolver] ──▶ [adapter: claude|codex|droid|agy|opencode|api]
-                          │   ▲                 │ quota/lock checks
-                          ▼   │                 ▼
-                        [journal writer] ◀── events from adapter (start, session id, heartbeat, end)
-                          │
-                          ▼
-                    run-journal.jsonl ──▶ [tree render: CLI]   [web view + live]
+ front ends:  [trinity CLI]        [host skill /trinity]
+                    \                   /
+                     ▼                 ▼
+ core:        [dispatch path + checks (§5)] ──▶ [profile resolver] ──▶ [adapter: call]
+                     │                                                     │
+                     ▼                                                     ▼
+              [journal writer] ◀── session id, heartbeat, exit class ──  harness
+                     │                                                     │
+                     ▼                                                     ▼
+                  journal ─────────────▶ [views: CLI tree, web] ◀── [adapter: reader] ◀── vendor transcript
+                  (refs only)               tree/states from journal;  events on click via ref
 ```
 
-| Component | Spec file | Changes for one reason |
+| Component | Spec | Changes for one reason |
 | --- | --- | --- |
-| Provider adapters | `spec-provider-adapters.md` | A vendor CLI/API changes |
-| Profiles | `spec-profiles.md` | Accounts, models, billing, quota sources change |
+| Provider adapters (call + reader) | `spec-provider-adapters.md` | A vendor CLI/API or transcript format changes |
+| Profiles | `spec-profiles.md` | Accounts, models, billing, quota sources, retention change |
 | Journal (账本) | `spec-ledger.md` | The record format changes |
 | Tree render + live view | `spec-tree-view.md` | Presentation changes |
+| Dispatch core (stub) | §5 below | Call path, checks, retry ownership change |
+| Front ends | CLI: `spec-tree-view.md` (view commands) + §5 (dispatch commands); skill: §5 | Host or CLI syntax changes; no logic (NG-06) |
 
-The dispatch core (call path, checks, journal writes) is the 组装 between them; its contract is WO-002 work and is listed as an open item, not specified here.
+## 5. Dispatch core (stub; full contract is OPEN-08, WO-002)
 
-## 5. Working rules for the pilot (施工)
+| ID | Requirement |
+| --- | --- |
+| CHK-001 | Before each node starts, the core runs the quota check for the chosen profile and writes a check record (result, source kind, read time). |
+| CHK-002 | A quota read that is missing, failed, or older than the profile's freshness limit counts as unknown; unknown or exhausted stops the node (LAW-06) unless overridden. |
+| CHK-003 | A node marked heavy acquires the heavy lock before start and releases it at end; failure to acquire within its limit stops the node with exit class `lock_unavailable`, and a check record is written. |
+| CHK-004 | An override of CHK-002/003 is a caller flag, journaled in the check record with the caller's stated reason. |
+| CHK-005 | The core sets the recursion guard on every child (ADP-007) and journals nesting depth per node (LAW-07). |
+| CHK-006 | The core owns heartbeat rows: it polls the adapter's heartbeat source and appends a heartbeat row (time + source kind) at most once per poll interval. |
+| CHK-007 | Session not found (ADP-004) is surfaced to the caller; starting a new session instead is a caller decision and appears as a new node. |
+| CHK-008 | Retry ownership: the core does not retry on its own. Retries are caller decisions and appear as new rounds (LED-004). |
+
+## 6. Working rules for the pilot (施工)
 
 - WR-01 Every work order names: goal, baseline sha, allowed paths, forbidden changes, acceptance, budget, stop/escalate conditions, deliverables (CraftCode §8.2).
-- WR-02 The author of a component does not write or change its acceptance cases (§8.1). WO-002 acceptance cases get an owner other than the WO-003+ author.
-- WR-03 Each requirement ID in the specs (`ADP-*`, `PRF-*`, `LED-*`, `VIEW-*`) is traced to a test or marked unverified (§6.7).
-- WR-04 Branch `pilot/trinity` on forge only. No GitHub push until Q3 is decided.
-- WR-05 Retro per work order: wall time, RETURNs, defects, human minutes (CraftCode §15.1), filed in ~/Projects/craftcode.
+- WR-02 The author of a component does not write or change its acceptance cases (§8.1). WO-002 acceptance cases get an owner other than the WO-003+ author (OPEN-06).
+- WR-03 Every requirement ID — families `SCO`, `NG`, `LAW`, `CHK`, `ADP`, `PRF`, `LED`, `VIEW`, `SUC` — is traced to a test or marked unverified (§6.7). Risks (`RSK`, `ADP-R`, `PRF-R`, `LED-R`, `VIEW-R`) each name the requirement or test meant to catch them, or say "none yet".
+- WR-04 Work happens on the pilot branch of the private mirror. Pushing to the public repository happens only for a release (§8) after a secret and private-reference scan over the whole tree finds nothing.
+- WR-05 Retro per work order: wall time, rejection rounds, defects, human minutes (CraftCode §15.1), filed in the method project's retro record (outside this repo).
 
-## 6. Risks
+## 7. Environment limits and comparison record (§14.1 stage 1)
 
-| ID | Risk | Why it matters | Mitigation idea (not decided) |
+Environment limits (each spec has its detail):
+
+- Hosts: macOS and Linux; POSIX `sh` wrappers (TRN-2009); a filesystem with working `flock`. Up to two hosts; one run stays on one host (OPEN-L4).
+- Harnesses: vendor CLIs installed and logged in; credential files mode 600/400.
+- Stores and the boundaries they can carry:
+  - **Journal store** (local file, append under exclusive lock): can carry one-line atomic appends and whole-run pruning; cannot carry cross-host writes or transactions across runs.
+  - **Vendor transcript stores** (vendor-owned): readable by path, retention set by the vendor and noted per profile (PRF-009); Trinity cannot guarantee they still exist, so readers report "gone" (LAW-11).
+- Quota sources may be stale; freshness limits apply (CHK-002).
+- Views: UTF-8 terminal; local browser; the web view binds to localhost only.
+
+Comparison record: for each work order, the retro records wall time, rejection rounds, defects and human minutes. The comparison is against the same metrics for comparable units run by the existing development process (the standard multi-review process and its shortened variant) over the same period. The record lives in the method project's retro file, outside this repo (WR-05).
+
+## 8. Release semantics (发布语义) — working definition
+
+A Trinity release is an **annotated version tag on the public default branch** whose `VERSION` file equals the tag, and for which `install.sh` with that version installs exactly the tagged tree. A merge to a branch, a mirror push, or a local install is not a release. Refinement (changelog rules, who may tag, rollback) stays OPEN-10, WO-006.
+
+## 9. Risks
+
+| ID | Risk | Caught by |
+| --- | --- | --- |
+| RSK-01 | Reference copies (unmerged guard branch, installed copies) diverge from the baseline; fixes they carry get ported unreviewed | Baseline decided (OPEN-01); retired-id guard and glm wrapper re-specified in WO-002 (LAW-05, ADP-010) |
+| RSK-02 | Credential leak through journal, argv, env dumps or the web view | LAW-04, LAW-08, ADP-005/006, VIEW-006; leak test in WO-002 |
+| RSK-03 | Vendor transcript formats change without notice | ADP-012 (unknown lines → raw events, not dropped) |
+| RSK-04 | Quota read is stale | CHK-002, PRF-004 |
+| RSK-05 | Journal grows large | LAW-08 (refs only), LED-013 (90-day prune) |
+| RSK-06 | Concurrent writers corrupt the journal | LED-006, LED-007 |
+| RSK-07 | Scope creep: about ten features in the plan | §14.1: one end-to-end path first (OPEN-07); SCO-09 deferred to WO-006 |
+| RSK-08 | Deployment facts leak into the public repo | LAW-09; WR-04 scan before every public push |
+| RSK-09 | Changing harness set, profile model and views at once hides what helped | One change class per work order (WR-01) |
+| RSK-10 | "Stuck" judged wrong (busy session, no transcript growth) | Per-adapter stall limit (ADP-008); stuck is display only, never an automatic kill (CHK-008) |
+| RSK-11 | Readers show partial thinking as if complete | LAW-11, ADP-013, VIEW-011 |
+
+## 10. Open items (未决事项)
+
+| ID | Question | Status / needed by | Owner |
 | --- | --- | --- | --- |
-| RSK-01 | Three diverging Trinity copies (forge/main, retired-model-guard branch, installed `~/.claude`) | Specs written against the wrong baseline | Decide baseline (OPEN-01) before WO-002; installed glm bridge wrapper must be brought into git or dropped |
-| RSK-02 | Credential leak through journal, argv, env dumps or the web view | Fleet tokens are high value | LAW-04; env built from allow-list (existing `build_provider_env`); leak test in WO-002 |
-| RSK-03 | Vendor transcript formats change without notice | Live view and thinking events break silently | Adapters own parsing; unknown lines kept as raw events, not dropped |
-| RSK-04 | Quota read is stale (usage.bob board was stale 10-11) | Wrong profile picked, account hits limit mid-run | Quota source carries its read time; stale reads count as unknown (LAW-06) |
-| RSK-05 | Journal grows large (thinking + tool events) | Slow views, disk use, privacy | Pointers not copies (LAW-08); retention rule (OPEN-05) |
-| RSK-06 | Concurrent writers (parallel children) corrupt the journal | Broken tree | Single-line appends under a lock; each line self-contained JSON |
-| RSK-07 | Scope creep: plan lists ~10 features | Pilot never finishes WO-004 | §14.1: one end-to-end path first (OPEN-07) |
-| RSK-08 | Fleet-specific facts leak into a repo that may go public | Exposes paths, account names | LAW-09; profile pack outside repo |
-| RSK-09 | Changing harness set, profile model and views at once | §14.1 warns: can't attribute effects | Sequence the work orders; one change class per WO |
-| RSK-10 | "Stuck" judged wrong (busy session with no transcript growth) | Wrong retry, killed good work | Stall limit per adapter; stuck is a display state, never an automatic kill |
+| OPEN-01 | Baseline | **Decided:** mirror `main` at 019e354; other copies reference only (§0) | owner |
+| OPEN-02 | Trinity shape | **Decided:** one core, two front ends (SCO-08) | owner |
+| OPEN-03 | Public repo | **Decided:** the repo goes public; no tokens, account names, emails, host names or deployment paths in it (LAW-09, WR-04) | owner |
+| OPEN-04 | Profile pack location | **Decided:** separate private repository (LAW-09); format is OPEN-P5 | owner |
+| OPEN-05 | Journal content and retention | **Decided:** refs + harness type only, never text (LAW-08); journal rows kept 90 days (LED-013); transcript retention per profile (PRF-009) | owner |
+| OPEN-06 | Owner of WO-002 acceptance cases (not the WO-003+ author) | Open — WO-002 | project lead |
+| OPEN-07 | First end-to-end path (suggest: claude-code, one account profile, new session, one child, journal + CLI tree) | Open — WO-004 | project lead |
+| OPEN-08 | Dispatch core full contract (call signature, error classes) beyond the §5 stub | Open — WO-002 | author + reviewer |
+| OPEN-09 | Presets and plan mode | **Decided:** rebuilt on the journal in WO-006 (SCO-09) | owner |
+| OPEN-10 | Release semantics refinement beyond §8 | Open — WO-006 | project lead |
 
-## 7. Open items (未决事项)
+Component open items: adapters OPEN-A1..A6, profiles OPEN-P1..P5, journal OPEN-L1..L5, views OPEN-V1..V5 (see each spec; decided ones are marked there).
 
-| ID | Question | Needed by | Owner |
-| --- | --- | --- | --- |
-| OPEN-01 | Baseline: forge/main 3.3.0 alone, or + retired-model-guard branch? Is the installed `bin/glm` bridge wrapper canonical? | WO-002 | pfc / Frank |
-| OPEN-02 | Trinity shape: skill-in-host only, standalone CLI, or one core with both front ends? (mockup implies a standalone `trinity` CLI) | WO-002 | Frank |
-| OPEN-03 | Public repo plan (GitHub later?) and therefore what must stay out of the repo | WO-002 | Frank |
-| OPEN-04 | Where the fleet profile pack lives and who maintains it | WO-002 | pfc |
-| OPEN-05 | Journal retention, and whether thinking text is indexed or only pointed to | WO-002 | Frank |
-| OPEN-06 | Owner of WO-002 acceptance cases (not the WO-003+ author) | WO-002 | pfc |
-| OPEN-07 | First end-to-end path for WO-004 (suggest: claude-code profile B, new session, one child, journal + CLI tree) | WO-003 | pfc |
-| OPEN-08 | Dispatch core contract (call signature, error classes, retry owner) | WO-002 | author + reviewer |
-| OPEN-09 | Keep `/trinity` review presets and plan mode as-is, or rebuild them on the journal? | WO-002 | Frank |
-| OPEN-10 | Release semantics: what "released" means for Trinity (forge tag? install.sh version? fleet `~/.claude` install?) — CraftCode WO-001 asks for 发布语义 | WO-006 | pfc |
-
-## 8. Success conditions for the pilot (§14.1 stage 1)
+## 11. Success conditions for the pilot (§14.1 stage 1)
 
 - SUC-01 A run with ≥2 nodes is dispatched through one profile, journaled, and shown in the CLI tree with correct parents, sessions (new/continued) and states.
-- SUC-02 A RETURN round shows as ↺ with its reason, from journal data only.
-- SUC-03 A leak scan over journal + views finds no credential value.
-- SUC-04 Retro numbers per WO exist and can be compared with the full chain and D2592 fast lane (D2595 (1)).
+- SUC-02 A further round shows as ↺ with its reason, from journal data only.
+- SUC-03 A scan over the journal and both views finds no credential value and no transcript text.
+- SUC-04 Retro numbers per work order exist and can be compared as §7 describes.
