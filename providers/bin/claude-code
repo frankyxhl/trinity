@@ -74,8 +74,7 @@ fi
 
 # macOS keeps the `+` marker hidden behind `@` in the short listing, so also ask
 # for ACL entries with `ls -lde`: a file with an ACL prints the mode line plus
-# one line per entry. GNU ls has no `-e`, so a failure here just means we fall
-# back to the `+` check above. The listing is never printed.
+# one line per entry. The listing is never printed.
 if ACL_LIST=$(ls -lde -- "$TOKEN_FILE" 2>/dev/null); then
     case "$ACL_LIST" in
         *"
@@ -84,6 +83,14 @@ if ACL_LIST=$(ls -lde -- "$TOKEN_FILE" 2>/dev/null); then
             exit 1
             ;;
     esac
+else
+    # GNU ls has no `-e`, so elsewhere a failure just means the `+` check above
+    # is the only signal. On Darwin `-lde` is the ONLY way to see an ACL, so a
+    # failure to inspect is fail-closed: refuse rather than assume there is none.
+    if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+        echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: cannot inspect ACL" >&2
+        exit 1
+    fi
 fi
 
 # Read without echoing. Drop any inherited exported TOKEN first so the secret

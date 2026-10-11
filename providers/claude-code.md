@@ -60,16 +60,19 @@ If the task prompt contains `EFFORT=<level>`, where `<level>` is one of
 `TRINITY_CLAUDE_CODE_EFFORT`. The wrapper also honors
 `TRINITY_CLAUDE_CODE_MODEL` when the orchestrator explicitly sets it.
 
-If the task prompt contains `ACCOUNT=<a|b|c>`, pass it through
-`TRINITY_CLAUDE_CODE_ACCOUNT` (same pattern as `EFFORT=`). The wrapper selects
-one of three Claude Code seats; unset or empty means `b`. Each seat reads its
-own token from `~/.claude/fleet-token.<a|b|c>` — the same files every other
-Claude seat reads. These token files are read-only inputs: the wrapper never
-creates, copies, modifies or prints them, and hands the token to the nested
-`claude` only via `CLAUDE_CODE_OAUTH_TOKEN`. The wrapper fails closed (exit 1
-before `claude` runs, naming the account, file and failed check) when the
-account is invalid, or the token file is missing, empty, or readable/writable by
-group or other; it never falls back to another account or an inherited token.
+If the task prompt contains an `ACCOUNT=` token, its whole value must be exactly
+`a`, `b` or `c` (lowercase); pass it through `TRINITY_CLAUDE_CODE_ACCOUNT` (same
+pattern as `EFFORT=`). Any other value — empty, `a=bad`, `=a`, `B`, `ab` — is an
+error (non-zero, no account passed). No `ACCOUNT=` token leaves it unset, which
+means the wrapper default `b`. The wrapper selects one of three Claude Code
+seats. Each seat reads its own token from `~/.claude/fleet-token.<a|b|c>` — the
+same files every other Claude seat reads. These token files are read-only
+inputs: the wrapper never creates, copies, modifies or prints them, and hands
+the token to the nested `claude` only via `CLAUDE_CODE_OAUTH_TOKEN`. The wrapper
+fails closed (exit 1 before `claude` runs, naming the account, file and failed
+check) when the account is invalid, or the token file is missing, empty, or
+readable/writable by group or other; it never falls back to another account or
+an inherited token.
 
 ```bash
 run_claude_code() {
@@ -78,7 +81,13 @@ run_claude_code() {
 
 EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(low|medium|high|xhigh|max)' | head -1 | cut -d= -f2)
 
-ACCOUNT=$(printf '%s\n' "$PROMPT" | grep -oE 'ACCOUNT=[^[:space:]]+' | head -1 | cut -d= -f2)
+ACCOUNT=$(printf '%s\n' "$PROMPT" | grep -oE 'ACCOUNT=[^[:space:]]*' | head -1 | cut -d= -f2-)
+if printf '%s\n' "$PROMPT" | grep -qE 'ACCOUNT='; then
+  case "$ACCOUNT" in
+    a|b|c) ;;
+    *) echo "trinity-claude-code: invalid ACCOUNT '$ACCOUNT' (expected a|b|c)" >&2; exit 1 ;;
+  esac
+fi
 
 # Session directory (scoped to project)
 if ! PROJECT_SLUG=$(python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"); then

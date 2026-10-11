@@ -39,6 +39,7 @@
   missing, empty, or readable/writable by group or other; the token is never
   printed and inherited `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` /
   `ANTHROPIC_AUTH_TOKEN` no longer reach the nested process (D2596-FIX3).
+- `providers/bin/claude-code`: hardened — on Darwin a failed `ls -lde` now refuses (cannot inspect ACL) instead of falling open, and the `ACCOUNT=` prompt token must be exactly a/b/c (empty or malformed errors instead of silently defaulting to b).
 
 ### Removed
 - `scripts/_compat.py` — the shared guarded-`fcntl` helper (TRN-3041). Reverses
