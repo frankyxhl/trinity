@@ -17,7 +17,7 @@ In — one adapter per harness family (provider names map per METHOD §2.1):
 | Adapter | Harness | Billing | At baseline | Change |
 | --- | --- | --- | --- | --- |
 | claude-code | `claude -p` (isolated config dir) | subscription via setup-token | wrapper, fixed model/effort, one login | credential and model from profile (one profile per account) |
-| codex | `codex exec` / `experimental resume` | subscription | model id pinned in registry | model from profile (vendor's current models) |
+| codex | `codex exec` / `exec resume` | subscription | model id pinned in registry | model from profile (vendor's current models) |
 | droid | `droid exec --auto medium` (glm, minimax) | subscription | model ids pinned | model from profile; glm path re-specified in WO-002 (RSK-01) |
 | agy | Antigravity CLI | subscription | wrapper with run lock | keep |
 | anthropic-compat | `claude` pointed at a compatible endpoint | metered | deepseek and openrouter wrappers | one adapter; endpoint and model from profile; openrouter is a profile of it |
@@ -56,17 +56,18 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 | ADP-013 | **Honest thinking.** When the harness gives thinking only as a summary or encrypted, the reader returns it with `thinking_form = summary | encrypted | absent`, and never presents it as full text. |
 | ADP-014 | **Gone transcripts.** If the transcript at the ref no longer exists, the reader returns `gone` with the time it was found missing and, when the profile states vendor retention (PRF-009), the expected expiry time. |
 | ADP-015 | A repeated identical call (same prompt, same session) is a new call: new node, new output; the adapter never returns a cached earlier answer. |
-| ADP-016 | **Session-id source per adapter** (DSP-020), in the table below. "Pre-assign" = the adapter passes Trinity's id to the harness; "capture" = it reads the id from the harness's first output that carries one. "Confirm" items are settled by fixture before the adapter is built. |
+| ADP-016 | **Session-id source per harness** (DSP-020), in the table below. "Pre-assign" = the adapter passes Trinity's id to the harness; "capture" = it reads the id from the harness's first output that carries one. Pre-assign: claude-code, anthropic-compat (both wrappers), deepseek-api. Capture: codex, droid, agy, opencode. Capture follows DSP-020 layers (b) first-stream-event id and (c) one session file in a per-call session directory; the "If no" column names both where (c) exists. Each capture source (the event field) is confirmed by fixture before the adapter is built. Evidence is the installed CLI's own `--help`, re-checked when the CLI version changes (ADP-R1). |
 
-| Adapter | New session id | Continue |
-| --- | --- | --- |
-| claude-code | pre-assign (`--session-id <uuid>`) | `--resume <id>` |
-| anthropic-compat | pre-assign (same CLI) | `--resume <id>` |
-| deepseek-api | pre-assign (Trinity owns the local transcript, OPEN-R1) | Trinity replays its own transcript |
-| codex | capture: thread id in the first JSON event of `codex exec --json` (confirm) | `experimental resume <id>` |
-| droid | capture from first output (confirm) | `-s <id>` |
-| agy | capture (confirm) | to probe |
-| opencode | capture (OPEN-A2) | to probe (OPEN-A2) |
+| Harness (adapter) | CLI + version | Evidence (`--help`) | New session takes caller id? | If no, id comes from | Resume accepts |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code (claude-code) | `claude` 2.1.296 | `--session-id <uuid>  Use a specific session ID for the conversation (must be a valid UUID)` | yes (UUID) | — | `-r, --resume [value]` by session id |
+| GLM wrapper (anthropic-compat) | shell wrapper over `claude` 2.1.296 via a local Anthropic-compatible bridge | wrapper ends `exec claude … --model glm-5.3 "$@"`: every caller flag passes through | yes (`--session-id`, passed through) | — | `--resume <id>` (passed through) |
+| DeepSeek wrapper (anthropic-compat) | shell wrapper over `claude` 2.1.296 with DeepSeek's Anthropic-compatible endpoint | wrapper ends `exec claude … "$@"`: every caller flag passes through | yes (`--session-id`, passed through) | — | `--resume <id>` (passed through) |
+| DeepSeek direct API (deepseek-api) | no CLI: Trinity is the HTTP client of the vendor API | — | yes: Trinity mints the id (UUID v4); the vendor API keeps no session | — | Trinity replays its own transcript (RDR-015) |
+| Codex (codex) | `codex-cli` 0.160.0 | no id or name flag in `exec --help` (`--thread-source` is a source classification, not an id); `--json  Print events to stdout as JSONL` | no | (b) thread id in the first `--json` event (confirm by fixture); (c) per-call `CODEX_HOME`: the one `sessions/…/rollout-<time>-<uuid>.jsonl` file, whose line 1 is `type: session_meta` with `payload.id` (checked on a real rollout) | `exec resume [SESSION_ID]`: "Conversation/session id (UUID) or thread name" |
+| droid (glm, minimax profiles) | `droid` 0.223.0 | `exec --help`: `-s, --session-id <id>  Existing session to continue (requires a prompt)`; no flag names a new session | no | (b) session id in `-o, --output-format` JSON output (confirm by fixture); (c) per-call session directory: to probe | `exec -s, --session-id <id>` |
+| agy (agy) | `agy` 1.3.3 | no session-id flag in `--help`; `--conversation  Resume a previous conversation by ID` | no | (b) conversation id in `--output-format json` / `stream-json` output (confirm by fixture); (c) per-call session directory: to probe | `--conversation <id>` |
+| OpenCode (opencode) | `opencode` 1.18.32 | `run --help`: `-s, --session  session id to continue`; no flag names a new session | no | (b) session id in `run --format json` raw events (confirm by fixture, OPEN-A2); (c) per-call session directory: to probe | `run -s, --session <id>` |
 
 ## 4. Environment assumptions
 
@@ -79,13 +80,14 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 
 | ID | Risk | Caught by |
 | --- | --- | --- |
-| ADP-R1 | Vendor CLI flag changes (codex `experimental resume`, droid `-s`) break resume silently | ADP-004 case per adapter (WO-002) |
+| ADP-R1 | Vendor CLI flag changes (codex `experimental resume` is now `exec resume`; droid `-s`) break resume silently | ADP-004 case per adapter (WO-002) |
 | ADP-R2 | `claude -p` with a setup-token behaves differently from the isolated-config login | claude-code new + continue cases per profile (WO-002) |
 | ADP-R3 | opencode session id / transcript format unknown today; heartbeat may be stdout-only | OPEN-A2 probe before WO-002 |
 | ADP-R4 | Compatible endpoints accept the request but ignore model/effort fields | none yet; candidate: compare reported model in usage |
 | ADP-R5 | Folding deepseek-api into anthropic-compat hides its own error classes (rate limit vs balance) | OPEN-A3; ADP-002 mapping test |
 | ADP-R6 | Removing gemini breaks users with an old gemini agent installed | installer test in WO-002 |
 | ADP-R7 | A reader shows summary thinking as full thinking | ADP-013 |
+| ADP-R8 | A per-call session directory (DSP-020 layer c) lacks the profile's login or config, so the harness fails or runs under the wrong account | per-adapter fixture before build; profile-check case per capture adapter |
 
 ## 6. Open items
 
