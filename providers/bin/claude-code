@@ -85,12 +85,15 @@ if ACL_LIST=$(ls -lde -- "$TOKEN_FILE" 2>/dev/null); then
     esac
 else
     # GNU ls has no `-e`, so elsewhere a failure just means the `+` check above
-    # is the only signal. On Darwin `-lde` is the ONLY way to see an ACL, so a
-    # failure to inspect is fail-closed: refuse rather than assume there is none.
-    if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
-        echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: cannot inspect ACL" >&2
-        exit 1
-    fi
+    # is the only signal. But if the OS can't be determined (`uname` fails or
+    # prints nothing) or is Darwin, the ACL could not be inspected: fail closed.
+    OS_NAME=$(uname -s 2>/dev/null) || OS_NAME=
+    case "$OS_NAME" in
+        ""|Darwin)
+            echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: cannot inspect ACL" >&2
+            exit 1
+            ;;
+    esac
 fi
 
 # Read without echoing. Drop any inherited exported TOKEN first so the secret
