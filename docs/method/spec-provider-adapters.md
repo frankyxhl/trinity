@@ -1,6 +1,6 @@
 # Component spec: provider adapters (提供方适配) — draft 0.2
 
-Status: **draft, WO-001 boundary spec.** Requirements are unverified. Full contract + acceptance cases are WO-002.
+Status: **draft, WO-001 boundary spec.** Requirements are unverified. Reader contract: `../contracts/transcript-reader.md`; call contract: `../contracts/dispatch-core.md`.
 Terms: METHOD.md §2. Laws that bind this component: LAW-01, 04, 05, 07, 08, 11.
 
 ## 1. Purpose
@@ -42,7 +42,7 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 | ID | Requirement |
 | --- | --- |
 | ADP-001 | Every adapter accepts the same input shape and returns the same output shape, including `harness`. |
-| ADP-002 | `exit_class` is one of: `ok`, `harness_error`, `auth_error`, `quota_exhausted`, `timeout`, `interrupted`, `session_not_found`, `lock_unavailable` and `check_failed` (both set by the core for pre-start stops, CHK-002/003), `unknown`. `unknown` comes with the last 2 KB of stderr, redacted as in ADP-012, in the core's error log (a store in METHOD §7), never in the journal. |
+| ADP-002 | `exit_class` is one of: `ok`, `harness_error`, `auth_error`, `quota_exhausted`, `timeout`, `interrupted`, `session_not_found`, `unknown`; plus the classes only the core sets for stops before or around the adapter (`check_failed`, `lock_unavailable`, `profile_refused`, `dependency_failed`, `dependency_cycle`, `journal_unavailable`). The complete list, with cause and retry owner, is DSP-010. `unknown` comes with the last 2 KB of stderr, redacted as in ADP-012, in the core's error log (a store in METHOD §7), never in the journal. |
 | ADP-003 | `session=new` returns the new session id, found by an exact marker or a harness-reported id — never by newest-mtime (keeps the existing trace-marker fix). |
 | ADP-004 | `session=<id>` on a missing/expired session returns `session_not_found`; the adapter never starts a new session in its place (CHK-007). |
 | ADP-005 | Credentials are passed by env or by a file read inside the wrapper process; never on argv; never echoed. Observable: a process listing during a call shows no credential value. |
@@ -52,7 +52,7 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 | ADP-009 | On timeout or interrupt the adapter kills only the process group it started and reports partial output (existing `terminate_process_group`). |
 | ADP-010 | Model id comes from the profile; an id on the retired list is refused before any process starts (list and mechanism specified in WO-002). |
 | ADP-011 | `usage` is copied from what the harness reports. If the harness reports nothing, `usage` is **absent** (not 0, not an estimate). |
-| ADP-012 | **Reader.** Each adapter has one reader: input `transcript_ref`; output an ordered list of unified events `{t, type ∈ prompt|thinking|tool|output|heartbeat, text, raw_ref}`. It runs on demand (when a view asks), never at journal-write time. Lines it does not understand become `output` events marked `raw`, never dropped. It redacts secret-pattern matches before returning text. |
+| ADP-012 | **Reader.** Each adapter has one reader: input `transcript_ref`; output an ordered list of unified events `{t, type ∈ prompt|thinking|tool|output|heartbeat, text, raw_ref}`. It runs on demand (when a view asks), never at journal-write time. Lines it does not understand become `output` events marked `raw`, never dropped. It redacts secret-pattern matches before returning text. Full reader contract: RDR-001..012. |
 | ADP-013 | **Honest thinking.** When the harness gives thinking only as a summary or encrypted, the reader returns it with `thinking_form = summary | encrypted | absent`, and never presents it as full text. |
 | ADP-014 | **Gone transcripts.** If the transcript at the ref no longer exists, the reader returns `gone` with the time it was found missing and, when the profile states vendor retention (PRF-009), the expected expiry time. |
 | ADP-015 | A repeated identical call (same prompt, same session) is a new call: new node, new output; the adapter never returns a cached earlier answer. |

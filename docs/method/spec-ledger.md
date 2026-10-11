@@ -11,7 +11,7 @@ Record every run, call, round, check and heartbeat as a tree, so that views, sta
 
 In:
 
-- Record kinds: `run` (start/end), `node` (one call), `edge` (`child` or `retry` with reason), `check` (quota/lock result), `heartbeat` (time + source kind), `state` (node state change). Prune lines go to a separate prune log, not the journal (LED-013).
+- Record kinds: `run` (start/end), `node` (one call), `edge` (`depends`, `round` with reason, `revises`; the `parent` edge is the node's own `parent` field — `../contracts/graph.md`), `check` (quota/lock result), `heartbeat` (time + source kind), `state` (node state change). Prune lines go to a separate prune log, not the journal (LED-013).
 - Append API used by the core; read API used by views and metrics.
 - 90-day retention prune.
 
@@ -38,7 +38,7 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 ```
 
 ```json
-{"v":1,"kind":"edge","run":"r-…","from":"n-…","to":"n-…","type":"retry","reason":"review_rejection","reason_ref":{"path":"…","offset":88}}
+{"v":1,"kind":"edge","run":"r-…","from":"n-…","to":"n-…","type":"round","reason":"review_rejection","reason_ref":{"path":"…","offset":88}}
 ```
 
 ```json
@@ -46,7 +46,15 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 ```
 
 ```json
+{"v":1,"kind":"check","run":"r-…","node":"n-…","check":"quota","result":"override","override_reason":"source_outage","override_ref":{"path":"…","offset":0},"t":"…"}
+```
+
+```json
 {"v":1,"kind":"check","run":"r-…","node":"n-…","check":"heavy_lock","result":"ok|unavailable|override","waited_s":12,"t":"…"}
+```
+
+```json
+{"v":1,"kind":"check","run":"r-…","node":"n-…","check":"dependency","result":"waiting|ok|failed|cycle","target":"n-…","t":"…"}
 ```
 
 ```json
@@ -58,10 +66,10 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 | ID | Requirement |
 | --- | --- |
 | LED-001 | No in-place edits. A correction is a new line naming the line it corrects. The only removal is the retention prune (LED-013). |
-| LED-002 | Run ids and node ids are generated, unique and stable; display labels (any language) are never keys. |
+| LED-002 | Run ids and node ids are generated, unique, stable and flat: an id never encodes parent, position, step or round. Display labels (any language) are never keys (GRF-001). |
 | LED-003 | In every run present in the journal, each node has exactly one parent except the run root, and the parent appears earlier. Pruning removes whole runs only, so this holds after a prune. |
-| LED-004 | A further attempt at a step is a new node with `round = previous + 1` and a `retry` edge whose `reason` is one of `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (with an optional `reason_ref` pointer to the rejection text). Rounds of one step may use different profiles (a step may switch author after repeated rejection); a round on another profile is a new session (PRF-010). |
-| LED-005 | Node state moves only along `queued → running → (done | failed | interrupted)`, or `queued → failed` when a pre-start check stops the node (exit class `check_failed` or `lock_unavailable`). `stuck` is never written; readers derive it from heartbeat age and stall limit. |
+| LED-004 | A further attempt at a step is a new node with `round = previous + 1` and a `round` edge whose `reason` is one of `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (with an optional `reason_ref` pointer to the rejection text). Rounds of one step may use different profiles (a step may switch author after repeated rejection); a round on another profile is a new session (PRF-010). |
+| LED-005 | Node state moves only along `queued → running → (done | failed | interrupted)`, or `queued → failed` when a pre-start stop ends the node (exit class `check_failed`, `lock_unavailable`, `profile_refused` or `dependency_failed`), or `queued → interrupted` when a caller or person cancels a node that has not started (DSP-013). `stuck` is never written; readers derive it from heartbeat age and stall limit. |
 | LED-006 | Each line is written by one `write()` of one line under an exclusive lock, so parallel children cannot interleave. |
 | LED-007 | A partial last line (crash mid-write) is skipped by readers and reported, never fatal. |
 | LED-008 | No credential value is ever written. Since no text field exists (LED-009), redaction duty sits with the readers (ADP-012), not the journal. |
@@ -69,8 +77,8 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 | LED-010 | The journal alone is enough to rebuild the tree, each node's wall time, reported token totals, rounds and retry reasons, and the per-step count of rejection rounds. |
 | LED-011 | Format carries a version `v`; readers refuse unknown major versions with a clear error. |
 | LED-012 | A repeated call is always a new node; two calls are never merged, even with identical prompt and session. Two `node` records with the same node id are a defect (state, check and heartbeat lines repeat the id by design): readers keep the first and report the second. |
-| LED-013 | **Retention: 90 days.** A prune removes whole runs whose end time — or, for a run with no end record, its last record time — is older than 90 days, and appends a `prune` line (run ids, count, time) to a separate prune log that is itself never pruned. |
-| LED-014 | `check` and `heartbeat` lines are written by the core (CHK-001..006); every quota `check` line names result, source kind and read time; every heavy-lock `check` line names result and wait time. `node` lines carry nesting `depth` (CHK-005). |
+| LED-013 | **Retention: 90 days.** A prune removes whole runs whose end time — or, for a run with no end record, its last record time — is older than 90 days, and appends a `prune` line (run ids, count, time) to a separate prune log that is itself never pruned. The same pass prunes the error log (CHK-009). Edges are pruned with their run; an edge never points into another run (GRF-002). |
+| LED-014 | `check` and `heartbeat` lines are written by the core (CHK-001..006); every quota `check` line names result, source kind and read time; every heavy-lock `check` line names result and wait time; every dependency `check` line names result and target node (DSP-007, GRF-006); an `override` result carries a closed `override_reason` code and an optional `override_ref` pointer (CHK-004), never free text. `node` lines carry nesting `depth` (CHK-005). |
 | LED-015 | `output_kind` is a closed enum (`commit`, `verdict`, `none`), never free text; the commit id or verdict word itself is read from `output_ref` on demand. |
 
 ## 5. Environment assumptions

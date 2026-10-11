@@ -33,11 +33,11 @@ Out:
 | --- | --- |
 | VIEW-001 | Given the same journal bytes, the CLI tree and the web tree show the same nodes, parents, states and numbers. Event detail (`show --events`, web detail pane) is outside this rule: it comes from readers via refs (LAW-02). |
 | VIEW-002 | No tmux needed; CLI output is plain lines that work over ssh and in pipes. With `--ascii` (or a non-UTF-8 locale) glyphs ✓ ● ! ↺ and box lines are replaced by ASCII. |
-| VIEW-003 | States shown: done, running, stuck, failed, interrupted. Stuck = running and last heartbeat row older than the node's stall limit; the view shows the age ("6 分钟无心跳"). Both views use the same core function to derive state (NG-06). |
+| VIEW-003 | States shown: done, running, stuck, failed, interrupted. Stuck = running and last heartbeat row older than the node's stall limit; the view shows the age ("6 分钟无心跳"). A queued node on a `depends` cycle is also stuck, shown as "互相等待" (GRF-006). Both views use the same core function to derive state (NG-06). |
 | VIEW-004 | A step with more than one round renders folded as one line with "第 N 轮 · 退回 M 次" (M = rounds with reason `review_rejection`); expanded, each round shows its ↺ reason. On the web page a step with any rejection round gets the amber ring. |
 | VIEW-005 | Live mode reads appended journal lines only (including heartbeat rows written by the core, CHK-006); views never poll vendors or child processes themselves. |
 | VIEW-006 | The web view is read-only and binds to 127.0.0.1 only. Observable: no listening socket on a non-loopback address; the page and its data contain no credential value; it requires no credential to open. |
-| VIEW-007 | Event text is inserted as text, never as HTML (child output is untrusted, CraftCode §8.4). |
+| VIEW-007 | Event text is inserted as text, never as HTML (child output is untrusted). |
 | VIEW-008 | When a reader returns `gone`, the view shows "原始记录已不存在 · since <time found missing>" and, if known, "vendor retention ended <time>" (ADP-014). It never shows an empty event list as if the node had no events. |
 | VIEW-009 | Terminal columns align with East Asian wide characters. Observable: a fixture run with 5 Chinese step labels and 5 ASCII labels renders with the duration column starting at the same display column on every line. |
 | VIEW-010 | Header totals (elapsed, total tokens, subscription/metered count, running/stuck count) are sums over journal records; if any node has no `usage`, the token total is marked "partial". |
