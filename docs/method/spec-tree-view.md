@@ -33,15 +33,17 @@ Out:
 | --- | --- |
 | VIEW-001 | Given the same journal bytes, the CLI tree and the web tree show the same nodes, parents, states and numbers. Event detail (`show --events`, web detail pane) is outside this rule: it comes from readers via refs (LAW-02). |
 | VIEW-002 | No tmux needed; CLI output is plain lines that work over ssh and in pipes. With `--ascii` (or a non-UTF-8 locale) glyphs ✓ ● ! ↺ and box lines are replaced by ASCII. |
-| VIEW-003 | States shown: done, running, stuck, failed, interrupted. Stuck = running and last heartbeat row older than the node's stall limit; the view shows the age ("6 分钟无心跳"). A queued node on a `depends` cycle is also stuck, shown as "互相等待" (GRF-006). Both views use the same core function to derive state (NG-06). |
+| VIEW-003 | States shown: done, running, stuck, failed, interrupted. Stuck = running and last heartbeat row older than the node's stall limit; the view shows the age ("6 分钟无心跳"). A queued node on a wait-for cycle is also stuck, shown as "互相等待" with the other members listed in node detail (GRF-006). Both views use the same core function to derive state (NG-06). |
 | VIEW-004 | A step with more than one round renders folded as one line with "第 N 轮 · 退回 M 次" (M = rounds with reason `review_rejection`); expanded, each round shows its ↺ reason. On the web page a step with any rejection round gets the amber ring. |
 | VIEW-005 | Live mode reads appended journal lines only (including heartbeat rows written by the core, CHK-006); views never poll vendors or child processes themselves. |
 | VIEW-006 | The web view is read-only and binds to 127.0.0.1 only. Observable: no listening socket on a non-loopback address; the page and its data contain no credential value; it requires no credential to open. |
-| VIEW-007 | Event text is inserted as text, never as HTML (child output is untrusted). |
+| VIEW-007 | Event text is inserted as text, never as HTML (child output is untrusted). In the terminal, every child-derived string (event text, labels) is printed with control characters escaped: C0 controls other than newline and tab, ESC and every sequence it starts, and C1 controls are shown as visible escapes, so child output cannot move the cursor, rewrite lines or reach the terminal's clipboard. |
 | VIEW-008 | When a reader returns `gone`, the view shows "原始记录已不存在 · since <time found missing>" and, if known, "vendor retention ended <time>" (ADP-014). It never shows an empty event list as if the node had no events. |
 | VIEW-009 | Terminal columns align with East Asian wide characters. Observable: a fixture run with 5 Chinese step labels and 5 ASCII labels renders with the duration column starting at the same display column on every line. |
 | VIEW-010 | Header totals (elapsed, total tokens, subscription/metered count, running/stuck count) are sums over journal records; if any node has no `usage`, the token total is marked "partial". |
 | VIEW-011 | Thinking events with `thinking_form = summary` or `encrypted` carry a visible label ("摘要" / "已加密"); absent thinking shows "无思考记录". Never rendered as if complete (LAW-11). |
+| VIEW-012 | **Live delay: 2 s.** A line appended to the journal shows in both views within 2 s (settles OPEN-V2). Reason: a person watching a run should see a state change while still looking at it; a journal tail is cheap at that rate. |
+| VIEW-013 | **CLI exit status** for view commands: 0 = rendered clean; 2 = usage error; 3 = rendered, with defects reported (LED-007, LED-011, LED-012, GRF-002) or a mutual wait present (GRF-006, with a message that a person must decide); 1 = could not render (journal unreadable or unknown major version). |
 
 ## 4. Environment assumptions
 
@@ -64,7 +66,7 @@ Out:
 | ID | Question | Status |
 | --- | --- | --- |
 | OPEN-V1 | Live web: short-lived local server started by `trinity open`, or a static file regenerated on each append? | Open — WO-002 |
-| OPEN-V2 | Live update delay target (seconds from journal append to screen) | Open — WO-002 |
+| OPEN-V2 | Live update delay target (seconds from journal append to screen) | **Closed:** 2 s (VIEW-012) |
 | OPEN-V3 | Shareable page or strictly local? | Open — owner; strictly local until decided (VIEW-006) |
 | OPEN-V4 | Is `trinity resume <run>/<node>` in scope for this rework? | Open — WO-002 (dispatch core) |
 | OPEN-V5 | One shared state-derivation function for both views | **Decided by NG-06 / VIEW-003:** yes |

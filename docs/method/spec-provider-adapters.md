@@ -42,7 +42,7 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 | ID | Requirement |
 | --- | --- |
 | ADP-001 | Every adapter accepts the same input shape and returns the same output shape, including `harness`. |
-| ADP-002 | `exit_class` is one of: `ok`, `harness_error`, `auth_error`, `quota_exhausted`, `timeout`, `interrupted`, `session_not_found`, `unknown`; plus the classes only the core sets for stops before or around the adapter (`check_failed`, `lock_unavailable`, `profile_refused`, `dependency_failed`, `dependency_cycle`, `journal_unavailable`). The complete list, with cause and retry owner, is DSP-010. `unknown` comes with the last 2 KB of stderr, redacted as in ADP-012, in the core's error log (a store in METHOD §7), never in the journal. |
+| ADP-002 | `exit_class` is one value from the closed list in DSP-010 (`contracts/dispatch-core.md` §4); that table says which classes an adapter sets and which only the core sets. `unknown` comes with the last 2 KB of stderr, redacted as in ADP-012, in the core's error log (a store in METHOD §7), never in the journal. |
 | ADP-003 | `session=new` returns the new session id, found by an exact marker or a harness-reported id — never by newest-mtime (keeps the existing trace-marker fix). |
 | ADP-004 | `session=<id>` on a missing/expired session returns `session_not_found`; the adapter never starts a new session in its place (CHK-007). |
 | ADP-005 | Credentials are passed by env or by a file read inside the wrapper process; never on argv; never echoed. Observable: a process listing during a call shows no credential value. |

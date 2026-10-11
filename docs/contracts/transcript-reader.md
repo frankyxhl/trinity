@@ -1,4 +1,4 @@
-# Contract: transcript reader (原始记录读取器) — draft 0.1
+# Contract: transcript reader (原始记录读取器) — draft 0.2
 
 Status: **draft, WO-002 contract.** Requirements are unverified until the independent acceptance cases exist.
 Terms: `../method/METHOD.md` §2. Binds: LAW-04, 08, 11; ADP-012..014; VIEW-008, 011. Unified event schema: OPEN-05 (pointers in the journal, text only on demand).
@@ -17,7 +17,7 @@ harness = the node's journal `harness` field          # picks the reader; the re
 page    = {from_seq?: int, max_events?: int}         # max_events ≤ 2000
 
 result = {
-  status:            "ok" | "gone" | "unreadable" | "ref_mismatch",
+  status:            "ok" | "gone" | "unreadable" | "ref_mismatch" | "withheld",
   events:            [event, …],                     # empty unless status = ok
   thinking:          "present" | "absent",
   next_seq:          int | null,                     # more events after this page
@@ -50,11 +50,13 @@ event = {
 | RDR-005 | **Honest thinking.** `thinking_form` is `summary` when the harness gives a summary, `encrypted` when it gives ciphertext — then `text` is empty, never the ciphertext. When the transcript has no thinking at all, `thinking` is `absent` and no thinking events are returned (VIEW-011 labels it). Never `full` unless the transcript holds full text (LAW-11). |
 | RDR-006 | **Gone.** If nothing exists at the ref's path, status is `gone`, `found_missing_at` is the time of this read, and `expected_expiry` is node start + the profile's `transcript_retention` when that is known, else `null` (ADP-014, VIEW-008). |
 | RDR-007 | **Changed under the ref.** If the ref carries a content hash and the bytes at the ref do not match, or the offset is past the end, status is `ref_mismatch` with no events; the reader never guesses where the content moved. Permission or read errors give `unreadable`. |
-| RDR-008 | **Redaction duty.** Every `text` (including raw lines and tool arguments and results) passes one shared redaction function before it is returned. Patterns: known provider key prefixes; `Authorization`/bearer headers; private-key blocks; assignments to the env names the profile declares (value replaced, name kept); long high-entropy strings — except pure hex of 7–64 characters, so commit ids and content hashes survive. A match is replaced by `[redacted:<kind>]` and counted in `redactions`. Best-effort (LAW-04); the bar is the leak-test fixture owned by the acceptance author. |
+| RDR-008 | **Redaction duty.** Every `text` (including raw lines and tool arguments and results) passes one shared redaction function before it is returned, and before any cut (RDR-009), so a secret on a cut boundary is never half-shown. Kinds, each replaced by `[redacted:<kind>]` and counted in `redactions`: (1) `key` — known provider key prefixes (for example `sk-`) followed by 16 or more characters from `[A-Za-z0-9_-]`; (2) `bearer` — the value after `Authorization:` or `Bearer `; (3) `private_key` — PEM private-key blocks; (4) `assignment` — the value in `NAME=value`, `NAME: value` or `export NAME=value` where NAME, ignoring case, ends in or contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL` or `AUTH`, or is an env name the profile declares (name kept, value masked); (5) `member` — the string value of a JSON or YAML member whose key matches the same names (`"api_key": "…"`); (6) `url_password` — the password in URL userinfo (`scheme://user:<masked>@host`); (7) `credential` — the profile's own credential value (RDR-013); (8) `entropy` — a run of 32 or more characters from `[A-Za-z0-9_+=-]` with letters and digits and at least 4.2 bits of entropy per character, and any pure-hex run longer than 64. **Hex rule:** a pure-hex run of 7 to 64 characters on its own is never masked by kind 8, so commit ids and content hashes survive; a secret that is bare hex of that length therefore survives (a known limit), while the same hex in an assignment or member (kinds 4–5) is masked. Best-effort (LAW-04); the bar is the leak-test fixture owned by the acceptance author. |
 | RDR-009 | **Size limits.** One event's `text` is at most 64 KiB; longer text is cut, `truncated: true`, and the rest is reachable through `raw_ref`. One read returns at most 2000 events; `next_seq` pages on. Reason: long tool results (test logs) are common, and the detail pane must open quickly on large runs (VIEW-R2). |
 | RDR-010 | **Heartbeat events** come only from progress or keep-alive markers inside the transcript. Journal heartbeat rows are not the reader's input; a view may merge them into the same timeline, labelled as journal rows. |
 | RDR-011 | **Read-only.** A reader opens transcripts read-only, never moves, locks or deletes them, and reads a transcript that is still being written up to its last complete line. |
 | RDR-012 | A reader never returns a credential source (path or env name) of the profile, only the redacted text (PRF-002). |
+| RDR-013 | **The profile's own value without the core holding it.** The adapter's wrapper process, which reads the credential anyway (PRF-001), writes a verifier per profile: value length, a random salt, and SHA-256 of salt + value — never the value — to a mode-600 file in Trinity's state directory. The reader slides a window of that length over every run of non-space characters and masks a window whose salted hash matches (kind `credential`). The core and the reader never read the credential source. The verifier is replaced when the wrapper sees a different value. Reason: the value is high-entropy, so the salted hash does not reveal it, and exact matching catches it even with no pattern shape. |
+| RDR-014 | **Secret-shaped paths.** Before the core appends a `transcript_ref`, `output_ref` or `reason_ref`, it runs the path through the redaction function. If anything would be masked, the ref is not stored: the record holds `{"withheld": "secret_pattern"}` instead, the call itself still runs, and the reader returns status `withheld` with no events; the view says the pointer was withheld. Reason: relative paths still carry the vendor's project directory name, and a lookup table kept elsewhere would itself hold the secret. |
 
 ## 4. Per-harness readers
 
@@ -78,6 +80,8 @@ What each reader starts from. "Known" items are visible in the baseline code; th
 | Vendor changed its format | Unknown lines arrive as `raw` output events; nothing is dropped; no crash. |
 | Vendor compacted or rewrote the file | `ref_mismatch`; no events shown as if they belonged to the node. |
 | Secret in a tool result | Replaced by `[redacted:<kind>]`, counted; a miss is a defect against the leak-test fixture. |
+| A bare 40-digit hex secret | Survives (hex rule, RDR-008); recorded as a known limit, not a pass. |
+| Transcript path carries a key-shaped directory name | Ref withheld (RDR-014); no event detail for that node; journal clean. |
 | Huge tool output | Cut at 64 KiB with `truncated`; rest via `raw_ref`. |
 | Transcript still growing (live) | Events up to the last complete line; the next read picks up from `next_seq`. |
 | Encrypted thinking | One thinking event per block, `encrypted`, empty text, labelled in the view. |
@@ -86,7 +90,8 @@ What each reader starts from. "Known" items are visible in the baseline code; th
 
 | ID | Risk | Caught by |
 | --- | --- | --- |
-| RDR-R1 | The entropy rule redacts useful ids, or the hex exception lets a hex-shaped secret through | RDR-008 pattern list; leak-test fixture includes a hex-shaped secret |
+| RDR-R1 | The entropy rule redacts useful ids, or the hex exception lets a hex-shaped secret through | RDR-008 hex rule stated; leak-test fixture holds a hex-shaped secret in assignment and bare form |
+| RDR-R4 | The verifier file is read by someone who brute-forces it | Mode 600 and a salt per profile; a low-entropy credential's verifier can still be guessed — none yet |
 | RDR-R2 | A reader is chosen by sniffing and misreads another harness's file | RDR-001 |
 | RDR-R3 | In-memory view caches outlive the page and hold redacted text longer than needed | RDR-002 (memory only, for the open page) |
 

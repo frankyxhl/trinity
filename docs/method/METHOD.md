@@ -70,7 +70,7 @@ Component specs use these terms and do not redefine them.
 | Event | 事件 | Unified view item produced by a reader: `prompt`, `thinking`, `tool`, `output`, `heartbeat`. Not stored in the journal. |
 | Heartbeat | 心跳 | Evidence a node is alive (transcript growth or process alive). The core writes a heartbeat row (time + source, no text). |
 | Stall limit | 停顿上限 | Heartbeat age after which a running node is shown as stuck. |
-| Stuck | 卡住 | A running node whose last heartbeat is older than its stall limit, or a queued node on a `depends` cycle (mutual wait). Display state only. |
+| Stuck | 卡住 | A running node whose last heartbeat is older than its stall limit, or a queued node on a wait-for cycle (mutual wait, GRF-006). Display state only. |
 | Exit class | 结束类别 | Normalised outcome of one call (list in ADP-002). |
 | Heavy lock | 重型锁 | A host-wide lock that heavy jobs (full test suites) must hold. |
 | Released | 已发布 | See §8 (working definition). |
@@ -99,7 +99,7 @@ Component specs use these terms and do not redefine them.
 | LAW-04 | **No secret in any Trinity output.** Credential values never appear in the journal, logs, argv, prompts or views. Profiles name a credential *source*, not a value. Credential text that reaches a reader through a transcript is caught by pattern redaction (ADP-012), which is best-effort; the WO-002 leak-test fixture defines the bar. |
 | LAW-05 | **Model ids are data.** A model id appears in profile data only, never in adapter code or agent prose. Retired ids are refused (mechanism to be specified in WO-002; TRN-1006). |
 | LAW-06 | **Fail closed on checks.** If the quota or heavy-lock check cannot get an answer, dispatch stops with a stated reason unless the caller passes an explicit override, which is journaled. |
-| LAW-07 | **Recursion guard.** A child harness must not dispatch Trinity again unless the run explicitly allows nesting; nesting depth is journaled. |
+| LAW-07 | **Recursion guard.** A child harness must not dispatch Trinity again unless the run explicitly allows nesting, and then only up to the run's depth limit (DSP-015); nesting depth is journaled. |
 | LAW-08 | **Pointers, never text.** The journal stores ref + harness type only. It never stores prompt, thinking, tool or output text — no per-run option, no archive exception (decided, OPEN-05). |
 | LAW-09 | **Deployment facts stay outside the repo.** Real accounts, token locations, status-board locations, lock paths and host names live in the private profile pack, which this repo never names or points to. The repo ships neutral examples only. |
 | LAW-10 | **Compatibility.** `/trinity <provider> "task"` and `trinity review` keep working through the rework; presets and plan mode stay as they are until WO-006 rebuilds them (SCO-09). |
@@ -149,7 +149,7 @@ Component specs use these terms and do not redefine them.
 - WR-01 Every work order names: goal, baseline sha, allowed paths, forbidden changes, acceptance, budget, stop/escalate conditions, deliverables.
 - WR-02 The author of a component does not write or change its acceptance cases. WO-002 acceptance cases are written by someone who is neither the contracts author nor the WO-003+ author (OPEN-06).
 - WR-03 Every requirement ID — families `SCO`, `NG`, `LAW`, `CHK`, `ADP`, `PRF`, `LED`, `VIEW`, `SUC`, `DSP`, `RDR`, `GRF` — is traced to a test or marked unverified. A requirement whose number is still open is unverified until the number is set. Risks (`RSK`, `ADP-R`, `PRF-R`, `LED-R`, `VIEW-R`, `DSP-R`, `RDR-R`, `GRF-R`) each name the requirement or test meant to catch them, or say "none yet".
-- WR-04 Work happens on a non-public pilot branch. A public release (§8) is **exported as one new commit on top of the public default branch**, whose tree is the release tree; the pilot branch's history, earlier commit messages and author fields are never pushed. Public history is never rewritten. The public commit message carries only the version and a neutral summary (no work-order ids, names or paths); its author and committer are the project's public identity, never a personal address. Before export, a secret and private-reference scan over the exported tree and the commit message must find nothing. The export is a release-time action.
+- WR-04 Work happens on a non-public pilot branch. A public release (§8) is **exported as one new commit on top of the public default branch**, whose tree is the release tree; the pilot branch's history, earlier commit messages and author fields are never pushed. Public history is never rewritten. The public commit message carries only the version and a neutral summary (no work-order ids, names or paths); in the docs, work-order ids are plan stage names and may appear; its author and committer are the project's public identity, never a personal address. Before export, a secret and private-reference scan over the exported tree and the commit message must find nothing. The export is a release-time action.
 - WR-05 Retro per work order: wall time, rejection rounds, defects, human minutes, filed in the method project's retro record (outside this repo).
 
 ## 7. Environment limits and comparison record
@@ -187,7 +187,7 @@ A Trinity release is an **annotated version tag on the public default branch** w
 | RSK-09 | Changing harness set, profile model and views at once hides what helped | One change class per work order (WR-01) |
 | RSK-10 | "Stuck" judged wrong (busy session, no transcript growth) | Per-adapter stall limit (ADP-008); stuck is display only (LED-005, VIEW-003), never an automatic kill |
 | RSK-11 | Readers show partial thinking as if complete | LAW-11, ADP-013, VIEW-011, RDR-005 |
-| RSK-12 | Two nodes wait on each other forever | GRF-006 (cycle marked stuck, handed to a person) |
+| RSK-12 | Two nodes wait on each other forever | GRF-010 (no `depends` on an ancestor), GRF-006 (wait-for cycle marked stuck, handed to a person) |
 
 ## 10. Open items (未决事项)
 
@@ -203,7 +203,7 @@ A Trinity release is an **annotated version tag on the public default branch** w
 | OPEN-08 | Dispatch core full contract (call signature, error classes) beyond the §5 summary | **Closed:** `contracts/dispatch-core.md` (DSP-001..014) | author + reviewer |
 | OPEN-09 | Presets and plan mode | **Decided:** rebuilt on the journal in WO-006 (SCO-09) | owner |
 | OPEN-10 | Release semantics refinement beyond §8 | Open — WO-006 | project lead |
-| OPEN-11 | Heavy-lock wait limit (CHK-003) | **Closed:** default 1200 s, caller may lower, capped by the call time limit (DSP-008) | author + reviewer |
+| OPEN-11 | Heavy-lock wait limit (CHK-003) | **Closed:** default 1200 s; a caller may set 0 to 3600 s; the wait does not count against the call time limit (DSP-008) | author + reviewer |
 | OPEN-12 | Heartbeat poll interval (CHK-006) | **Closed:** 15 s; a stall limit below 60 s is refused (DSP-009) | author + reviewer |
 | OPEN-13 | How to cite the method text | **Decided:** named once, by title and version, in this file's first line; no other citation | owner |
 
@@ -212,6 +212,6 @@ Component open items: adapters OPEN-A1..A6, profiles OPEN-P1..P5, journal OPEN-L
 ## 11. Success conditions for the pilot
 
 - SUC-01 A run with ≥2 nodes is dispatched through one profile, journaled, and shown in the CLI tree with correct parents, sessions (new/continued) and states.
-- SUC-02 A further round shows as ↺ with its reason, from journal data only; a `depends` cycle shows as stuck (mutual wait).
+- SUC-02 A further round shows as ↺ with its reason, from journal data only; a wait-for cycle shows as stuck (mutual wait).
 - SUC-03 A scan over the journal and both views finds no credential value from the leak-test fixture and no transcript text in the journal.
 - SUC-04 Retro numbers per work order exist and can be compared as §7 describes.
