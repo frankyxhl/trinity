@@ -220,11 +220,14 @@ def build_record(repo, docs, registry_path, approvals_path) -> dict:
         "source": source,
         "checks": checks,
         "overall_status": overall,
-        "missing_checks": [c["id"] for c in checks if c["reason"] == "no check"],
+        "missing_checks": [
+            c["id"] for c in checks if c["status"] == "not_run" and c["command"] is None
+        ],
         "exceptions": [],
         "approvals": [a for a in approvals if a["id"] not in registry],
         "known_limitations": [
-            "Record is written by a local run; it is not signed or stored tamper-proof."
+            "Record is written by a local run; it is not signed or stored tamper-proof.",
+            "A timed-out check's pytest process is killed, but processes it started are not.",
         ],
     }
 
