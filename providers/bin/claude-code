@@ -40,25 +40,59 @@ if [ ! -e "$TOKEN_FILE" ]; then
     exit 1
 fi
 
-# Reject any group/other permission bit (077) without depending on stat(1)
-# flavour: `ls -ld` is POSIX and its first field is always
-# `<type><user-rwx><group-rwx><other-rwx>` at characters 5-10 (a trailing ACL
-# or xattr marker, if any, sits after character 10). Empty output (ls failed
-# unexpectedly) is refused to stay fail-closed.
-GROUP_OTHER=$(ls -ld "$TOKEN_FILE" 2>/dev/null | cut -c5-10)
-case "$GROUP_OTHER" in
-    ------)
-        ;;
-    *)
-        echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: readable or writable by group or other" >&2
-        exit 1
-        ;;
-esac
+# Refuse symlinks and non-regular files before inspecting permissions: `cat`
+# follows a symlink, so a permissive-looking link could expose the real target.
+if [ -L "$TOKEN_FILE" ] || [ ! -f "$TOKEN_FILE" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: not a regular file" >&2
+    exit 1
+fi
 
-# Read without echoing; command substitution strips trailing newlines, then
-# trim any remaining surrounding whitespace. Tokens contain no internal spaces.
+# Reject any group/other permission bit (077) without depending on stat(1)
+# flavour. `ls -ld` is POSIX: its first field is
+# `<type><user-rwx><group-rwx><other-rwx>` at characters 5-10, then an ACL
+# marker `+` (or an xattr marker `@`) at character 11. Capture the listing AND
+# its exit status so a failed or partial listing can never be read as "safe".
+if ! PERM_LINE=$(ls -ld -- "$TOKEN_FILE" 2>/dev/null); then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: cannot determine permissions" >&2
+    exit 1
+fi
+
+GROUP_OTHER=$(printf '%s\n' "$PERM_LINE" | cut -c5-10)
+ACL_MARK=$(printf '%s\n' "$PERM_LINE" | cut -c11)
+
+if [ "$GROUP_OTHER" != "------" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: readable or writable by group or other" >&2
+    exit 1
+fi
+
+# A trailing `@` (extended attributes) is harmless. `+` means an ACL is present
+# and could grant group/other access even when the mode bits read 0600.
+if [ "$ACL_MARK" = "+" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: has an ACL" >&2
+    exit 1
+fi
+
+# macOS keeps the `+` marker hidden behind `@` in the short listing, so also ask
+# for ACL entries with `ls -lde`: a file with an ACL prints the mode line plus
+# one line per entry. GNU ls has no `-e`, so a failure here just means we fall
+# back to the `+` check above. The listing is never printed.
+if ACL_LIST=$(ls -lde -- "$TOKEN_FILE" 2>/dev/null); then
+    case "$ACL_LIST" in
+        *"
+"*)
+            echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: has an ACL" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Read without echoing. Drop any inherited exported TOKEN first so the secret
+# is never re-exported under that name; then trim ONLY leading/trailing
+# whitespace (POSIX parameter expansion) and keep internal characters.
+unset TOKEN
 TOKEN=$(cat "$TOKEN_FILE")
-TOKEN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
+TOKEN=${TOKEN#"${TOKEN%%[![:space:]]*}"}
+TOKEN=${TOKEN%"${TOKEN##*[![:space:]]}"}
 
 if [ -z "$TOKEN" ]; then
     echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: empty" >&2

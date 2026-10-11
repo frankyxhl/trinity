@@ -64,7 +64,7 @@ run_claude_code() {
 
 EFFORT=$(printf '%s\n' "$PROMPT" | grep -oE 'EFFORT=(low|medium|high|xhigh|max)' | head -1 | cut -d= -f2)
 
-ACCOUNT=$(printf '%s\n' "$PROMPT" | grep -oE 'ACCOUNT=[abc]' | head -1 | cut -d= -f2)
+ACCOUNT=$(printf '%s\n' "$PROMPT" | grep -oE 'ACCOUNT=[^[:space:]]+' | head -1 | cut -d= -f2)
 
 # Session directory (scoped to project)
 if ! PROJECT_SLUG=$(python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"); then

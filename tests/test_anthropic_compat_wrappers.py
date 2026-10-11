@@ -22,6 +22,7 @@ T14 (make verify-built after .delta.md edit) is enforced by `make test` itself.
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ CAPTURED_ENV_KEYS = (
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
     "TRINITY_DISABLE_DISPATCH",
+    "TOKEN",
 )
 
 # Fake fleet tokens used by the claude-code account tests (D2596-FIX3). Never
@@ -127,6 +129,12 @@ def _write_token_file(home, account, content, mode=0o600):
     p.write_text(content)
     p.chmod(mode)
     return p
+
+
+def _assert_token_absent(res, token):
+    """R4: the token must never appear on stdout OR stderr on any path."""
+    assert token not in res.stdout, "token leaked to stdout"
+    assert token not in res.stderr, "token leaked to stderr"
 
 
 # --- DeepSeek wrapper tests (T1-T6, T6b, T8) ---
@@ -372,6 +380,7 @@ def test_t15_claude_code_defaults_to_account_b_token_via_env(stub_env):
     assert res.returncode == 0, res.stderr
     e = json.loads(rec.read_text())["env"]
     assert e["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_B
+    _assert_token_absent(res, FLEET_TOKEN_B)
 
 
 def test_t15_claude_code_account_a_selects_its_token_file(stub_env):
@@ -384,6 +393,8 @@ def test_t15_claude_code_account_a_selects_its_token_file(stub_env):
     assert (
         json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
     )
+    _assert_token_absent(res, FLEET_TOKEN_A)
+    _assert_token_absent(res, "fake-token-acct-b-decoy")
 
 
 def test_t15_claude_code_account_c_selects_its_token_file(stub_env):
@@ -395,6 +406,7 @@ def test_t15_claude_code_account_c_selects_its_token_file(stub_env):
     assert (
         json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_C
     )
+    _assert_token_absent(res, FLEET_TOKEN_C)
 
 
 def test_t15_claude_code_empty_account_env_defaults_to_b(stub_env):
@@ -405,6 +417,7 @@ def test_t15_claude_code_empty_account_env_defaults_to_b(stub_env):
     assert (
         json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_B
     )
+    _assert_token_absent(res, FLEET_TOKEN_B)
 
 
 def test_t15_claude_code_invalid_account_rejected_before_invoking_claude(stub_env):
@@ -416,6 +429,7 @@ def test_t15_claude_code_invalid_account_rejected_before_invoking_claude(stub_en
     assert "a|b|c" in res.stderr
     assert "z" in res.stderr
     assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
 
 
 def test_t15_claude_code_missing_token_file_rejected_before_invoking_claude(stub_env):
@@ -425,8 +439,8 @@ def test_t15_claude_code_missing_token_file_rejected_before_invoking_claude(stub
     assert res.returncode == 1
     assert "fleet-token.a" in res.stderr
     assert "missing" in res.stderr.lower()
-    assert FLEET_TOKEN_A not in res.stderr
     assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
 
 
 def test_t15_claude_code_empty_token_file_rejected_before_invoking_claude(stub_env):
@@ -438,6 +452,7 @@ def test_t15_claude_code_empty_token_file_rejected_before_invoking_claude(stub_e
     assert "fleet-token.a" in res.stderr
     assert "empty" in res.stderr.lower()
     assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
 
 
 def test_t15_claude_code_group_or_other_readable_token_rejected(stub_env):
@@ -448,8 +463,8 @@ def test_t15_claude_code_group_or_other_readable_token_rejected(stub_env):
     assert res.returncode == 1
     assert "fleet-token.a" in res.stderr
     assert "group or other" in res.stderr.lower()
-    assert "fake-token-acct-a-secret" not in res.stderr
     assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, "fake-token-acct-a-secret")
 
 
 def test_t15_claude_code_group_writable_token_rejected(stub_env):
@@ -460,8 +475,134 @@ def test_t15_claude_code_group_writable_token_rejected(stub_env):
     assert res.returncode == 1
     assert "fleet-token.a" in res.stderr
     assert "group or other" in res.stderr.lower()
-    assert "fake-token-acct-a-secret" not in res.stderr
     assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, "fake-token-acct-a-secret")
+
+
+def test_t15_claude_code_symlink_token_file_rejected(stub_env):
+    """P1: a symlink is rejected before permissions (cat would follow it)."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    real = Path(env["HOME"]) / ".claude" / "real-token"
+    real.write_text(FLEET_TOKEN_A)
+    real.chmod(0o600)
+    os.symlink(real, Path(env["HOME"]) / ".claude" / "fleet-token.a")
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "not a regular file" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_directory_token_path_rejected(stub_env):
+    """P1: any non-regular file (here a directory) is rejected."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    (Path(env["HOME"]) / ".claude" / "fleet-token.a").mkdir()
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "not a regular file" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_token_file_with_acl_marker_rejected(stub_env):
+    """P1: char 11 '+' (ACL present) is rejected even when mode bits are 0600.
+
+    A fake `ls` on PATH deterministically emits the ACL marker, so this branch
+    is covered on every OS (macOS 27 surfaces ACLs as '@', not '+')."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    ls_stub.write_text("#!/bin/sh\nprintf '%s\\n' '-rw-------+ 1 u g 0 tok'\n")
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "has an ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="chmod +a ACLs are macOS-only")
+def test_t15_claude_code_token_file_with_real_acl_rejected(stub_env):
+    """P1: a real 0600 file whose ACL grants group read is rejected.
+
+    macOS 27 hides the ACL behind the xattr marker `@` in `ls -ld`, so this
+    exercises the `ls -lde` extra-line detection, not the `+` marker."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    p = _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    add = subprocess.run(
+        ["chmod", "+a", "group:staff allow read", str(p)],
+        capture_output=True,
+        text=True,
+    )
+    if add.returncode != 0:
+        pytest.skip(f"chmod +a unavailable: {add.stderr.strip()}")
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "has an ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_acl_listing_extra_line_rejected(stub_env):
+    """P1: `ls -lde` printing an ACL entry (extra line) is rejected."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) printf '%s\\n' '-rw------- 1 u g 0 tok' ' 0: group:staff allow read';;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "has an ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_ls_without_dash_e_still_accepts(stub_env):
+    """P1/R7: `ls -lde` unsupported (GNU ls exits non-zero) falls back to the
+    `+` check, so a clean 0600 file is accepted."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) exit 2;;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    )
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_unreadable_ls_rejected(stub_env):
+    """P2: an ls that fails (even with permission-shaped output) must not pass."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    ls_stub.write_text("#!/bin/sh\nprintf '%s\\n' '-rw------- 1 u g 0 tok'\nexit 1\n")
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "cannot determine permissions" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
 
 
 def test_t15_claude_code_inherited_tokens_do_not_reach_claude(stub_env):
@@ -482,6 +623,26 @@ def test_t15_claude_code_inherited_tokens_do_not_reach_claude(stub_env):
     assert e["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
     assert e["ANTHROPIC_API_KEY"] is None
     assert e["ANTHROPIC_AUTH_TOKEN"] is None
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_inherited_exported_token_not_reused(stub_env):
+    """P2: an inherited exported TOKEN must not be re-exported carrying the
+    secret; the value reaches claude only as CLAUDE_CODE_OAUTH_TOKEN."""
+    env, rec = stub_env(
+        {"TRINITY_CLAUDE_CODE_ACCOUNT": "a", "TOKEN": "inherited-token-xyz"}
+    )
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    e = json.loads(rec.read_text())["env"]
+    assert e["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    assert e["TOKEN"] is None
+    leaked = [
+        k for k, v in e.items() if v == FLEET_TOKEN_A and k != "CLAUDE_CODE_OAUTH_TOKEN"
+    ]
+    assert leaked == [], f"token re-exported under {leaked}"
+    _assert_token_absent(res, FLEET_TOKEN_A)
 
 
 def test_t15_claude_code_token_never_in_argv(stub_env):
@@ -493,6 +654,7 @@ def test_t15_claude_code_token_never_in_argv(stub_env):
     rec_data = json.loads(rec.read_text())
     assert rec_data["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
     assert FLEET_TOKEN_A not in " ".join(rec_data["argv"])
+    _assert_token_absent(res, FLEET_TOKEN_A)
 
 
 def test_t15_claude_code_strips_surrounding_whitespace_from_token(stub_env):
@@ -504,6 +666,17 @@ def test_t15_claude_code_strips_surrounding_whitespace_from_token(stub_env):
     assert (
         json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
     )
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_preserves_internal_whitespace(stub_env):
+    """P2: only surrounding whitespace is trimmed; internal characters stay."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", "  fake a b  \n", mode=0o600)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "fake a b"
+    _assert_token_absent(res, "fake a b")
 
 
 # --- Sanity check on installed bits (these are the obvious RED indicators) ---
