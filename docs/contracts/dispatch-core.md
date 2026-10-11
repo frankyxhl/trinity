@@ -28,7 +28,7 @@ request = {
   depends:       ["n-…", …],              # 0..32 ids; never an ancestor (GRF-010)
   revises:       "n-…" | null,
   override:      {check: "quota" | "heavy_lock", reason: <override code>, ref?} | null,
-  allow_nesting: false | {max_depth: 1..5} # set on the run root only; children inherit (DSP-015)
+  allow_nesting: false | true | {max_depth: 1..5} # true = max_depth 2; set on the run root only; children inherit (DSP-015)
 }
 
 result = {
