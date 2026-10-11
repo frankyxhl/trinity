@@ -1,4 +1,4 @@
-# Acceptance cases: call graph, nesting, loops (ACC-300 .. ACC-323)
+# Acceptance cases: call graph, nesting, loops (ACC-300 .. ACC-324)
 
 Companion to `ACCEPTANCE.md` (conventions, test doubles, seams and the coverage table are defined there; read its section 0 first).
 Author role: independent case author. The contract author may not change these cases; a case that cannot run because a seam is missing is reported as failed, not skipped.
@@ -6,9 +6,9 @@ Author role: independent case author. The contract author may not change these c
 ## G0. Graph model the cases assume
 
 - Nodes and runs have **flat ids**. An id carries no hierarchy and no meaning; the shape of the graph lives only in edges.
-- There are exactly four **edge kinds**: `parent` (a call made under another call), `depends` (a node may not start until another node is done), `round` (a back-edge, `from` the further attempt `to` the attempt before it, with a reason; depends on contract fix P1-1, because the contract text currently says the opposite), `revises` (a later node supersedes part of an earlier node's work without being a retry of the same step).
+- There are exactly four **edge kinds**: `parent` (a call made under another call), `depends` (a node may not start until another node is done), `round` (a back-edge, `from` the further attempt `to` the attempt before it, with a reason; GRF-004, DSP-018), `revises` (a later node supersedes part of an earlier node's work without being a retry of the same step).
 - A loop is **unrolled in the journal** (every attempt is its own node, joined by `round` edges) and **folded in the views** (one line per step with a round count).
-- A **mutual wait** is derived as `stuck` and handed to a person. Nothing breaks it automatically. `depends` targets must already exist when a call is made, so a pure cycle of `depends` edges cannot be built through `call`; the two ways a mutual wait exists are (i) a hand-built or damaged journal holding a `depends` cycle, and (ii) a nested child that `depends` on a running ancestor, which cannot end until the child's call returns (depends on contract fix P1-2: the contract must refuse the second form at validation or detect it as a cycle).
+- A **mutual wait** is derived as `stuck` and handed to a person. Nothing breaks it automatically. `depends` targets must already exist when a call is made, so a pure cycle of `depends` edges cannot be built through `call`; the two ways a mutual wait exists are (i) a hand-built or damaged journal holding a `depends` cycle, and (ii) a nested child that `depends` on a running ancestor, which cannot end until the child's call returns (the contract refuses the direct form at validation, GRF-010, and detects indirect loops as cycles, GRF-006).
 - Draft-spec names map as `child` -> `parent`, `retry` -> `round`. Spelling of the kinds is bound by the contract; the behaviour below is not.
 - Stuck is derived by readers and never written (the state set in ACC-016 stays closed).
 
@@ -45,7 +45,6 @@ When: the child harness (fake) tries to call Trinity again, and the test also in
 Then: the child environment carries the recursion guard; the inner call is refused before any process starts; the refusal is visible to the caller (result class `nesting_refused`).
 Observable: guard variable present in the captured child environment; the fake harness invocation count for the inner call is 0; no node is written for the refused call (DSP-004); one error-log line records the refusal with the depth and the reason; CLI exit status of the inner call is non-zero.
 Fails if: an inner harness process starts, or the guard is absent, or the refusal leaves no trace in the error log, or a node is written.
-Depends on contract fix P2-4 (the contract writes one error-log line for a refusal; until then the contract says "writes nothing" and this case fails the contract).
 
 ### ACC-304 Nesting depth limit
 Covers: LAW-07, CHK-005, LED-014
@@ -54,7 +53,7 @@ When: the call chain tries to reach depth L + 1.
 Then: depths 0..L run; the call at depth L + 1 is refused before start with a stated reason that names the depth and the limit; no harness process starts for it; the refusal is recorded in the error log (one line, depth and limit; no node is written); sibling branches at allowed depths are unaffected.
 Observable: fake harness invocation count for the refused call is 0; the error log holds a line for the refusal with depth L + 1 and limit L, and the journal holds no node for it; CLI exit status non-zero with the reason text; a sibling call at depth L still completes.
 Fails if: the (L + 1)th call runs, the refusal is silent (no error-log line), the limit is off by one in either direction, or a refusal in one branch stops other branches.
-Note: depends on contract fix P1-7 and P2-4. The contract must state the limit's default and where it is configured, and the refusal class (`nesting_refused` naming depth and limit); if it states "no limit", this case fails the contract, not the implementation.
+Note: the limit is 1 to 5 with default 2 when `allow_nesting: true` is given without a number (DSP-015); the refusal is `nesting_refused` with one error-log line and no node (DSP-004). ACC-162 covers the default and inheritance.
 
 ### ACC-305 Retry rounds are back-edges, unrolled in the ledger
 Covers: LED-004, LED-010, CHK-008, SUC-02
@@ -63,7 +62,6 @@ When: the run completes.
 Then: the journal holds 3 node records for the step with rounds 1, 2, 3; 2 `round` edges, each with `from` = the later node and `to` = the earlier one, each with a reason; the first node is never edited.
 Observable: count of nodes with step = review is 3; round numbers are 1,2,3; edge count is 2; reasons are both `review_rejection`; the prefix of the journal that existed before round 2 started is byte-identical afterwards.
 Fails if: fewer than 3 node records (attempts overwritten or merged), round numbers skip or repeat, a round edge points forward (`from` the earlier node), or a reason is missing.
-Depends on contract fix P1-1 (GRF-004 and the ledger example name the direction).
 
 ### ACC-306 Loop folded in the tree view
 Covers: VIEW-004, VIEW-001, SUC-02
@@ -108,12 +106,12 @@ Fails if: C is hidden, edited or deleted, D appears as a further round, or only 
 
 ### ACC-311 Revises edge refusals
 Covers: LED-001, LED-003
-Given: a revision request that names (a) itself, (b) a node of another run, (c) a node that does not exist, (d) a node that is still queued, (e) a node of the same step (a round, which already says the same thing).
+Given: a revision request that names (a) itself, (b) a node of another run, (c) a node that does not exist, (d) a node that has not ended (queued or running), (e) a node of the same step (a round, which already says the same thing).
 When: each is attempted.
-Then: each is refused with `bad_request` and a stated reason and writes no edge; (d) is either refused or accepted only when the target state is `done`, `failed` or `interrupted`, as the contract states, but never creates a dangling edge; (e) is refused (GRF-007, GRF-R1).
+Then: each is refused with `bad_request` and a stated reason and writes no edge; (d) and (e) are refused (GRF-007, DSP-003); a node in another step that has ended as `done`, `failed` or `interrupted` is accepted as a control; no dangling edge is ever written.
 Observable: edge count unchanged; error text names the reason.
 Fails if: any of the five writes an edge, or the reader later crashes on a dangling edge.
-Depends on contract fix P2-9 for (d); (e) follows GRF-007 and is not yet in DSP-003 (reported to the contract author).
+Note: GRF-007 and DSP-003 name both refusals.
 
 ### ACC-312 Depends edge holds a node back
 Covers: LED-005, CHK-001, SCO-05
@@ -132,22 +130,21 @@ Observable: harness invocation count for B is 0; the tree line for B names A; no
 Fails if: B runs, B hangs in `queued` with no reason shown, or A is retried by the core.
 
 ### ACC-314 A `depends` cycle in a journal is stuck and handed to a person
-Covers: LED-005, VIEW-003, GRF-006, RSK-10, RSK-12
+Covers: LED-005, VIEW-003, VIEW-013, GRF-006, RSK-10, RSK-12
 Given: hand-built journals (a `depends` cycle cannot be created through `call`, because `depends` names an existing node and the graph is built forward): (a) A depends on B and B depends on A; (b) a 3-node cycle A->B->C->A; (c) a self-dependency A->A; every member is `queued` or `running`, none ended.
 When: each journal is loaded by the readers, and the dependency check of GRF-006 is run over it.
-Then: every member of the cycle is shown `stuck` with the reason "互相等待" (or the contract's wording) in both views, derived and never written; each member's detail lists the other members of the cycle (the contract states what the view lists, P3-7); the check names cycle members and nothing outside the cycle; the CLI exits non-zero with a message that says a person must decide; nothing is killed, cancelled or edited automatically; after a person interrupts one member (a new `state` line), its dependents end `dependency_failed`, and the other members leave the cycle.
+Then: every member of the cycle is shown `stuck` with the reason "互相等待" (or the contract's wording) in both views, derived and never written; each member's detail lists the other members of the cycle (`members`, at most 64, GRF-006); the check names cycle members and nothing outside the cycle (the dependency `check` line has result `cycle` and `members`, LED-014); the CLI exits with status 3 (rendered, with a mutual wait present, VIEW-013) and a message that says a person must decide; nothing is killed, cancelled or edited automatically; after a person interrupts one member (a new `state` line), its dependents end `dependency_failed`, and the other members leave the cycle.
 Observable: no `stuck` state line in the journal; the rendered tree and the web data carry the same stuck marker and member list (shared derivation, VIEW-003); the message text; states after the interrupt.
 Fails if: any member starts, a member is dropped or edited by the core, one view shows stuck and the other does not, a `stuck` state line is written, or the core breaks the cycle on its own.
-Note: depends on contract fix P1-2 (GRF-006 as written cannot be reached through `call`; it stays testable here as a defect check on hand-built journals) and P3-7.
+Note: through `call` a cycle can arise only via nesting arcs (GRF-006), so this case is a defect check on hand-built journals; ACC-316 is the nesting form.
 
 ### ACC-314b Dependencies that cannot form a cycle are refused at the door
 Covers: LED-005, DSP-003, GRF-005, GRF-006
 Given: a request whose `depends` names (a) a node that does not exist, (b) the node being created (a self-reference cannot be named: its id is not yet issued), (c) a node of another run, (d) one of its own ancestors, while the ancestor is running (nesting allowed).
 When: each is submitted.
-Then: (a) and (c) are refused `bad_request`, nothing written; (b) is impossible by construction (the case checks that no way exists to name the new node's own id); (d) is either refused `bad_request` at validation, or accepted and the pair is detected as a cycle at once (both call results `dependency_cycle`, check line `cycle`, shown stuck), as the contract states, never left waiting with no mark.
+Then: (a) and (c) are refused `bad_request`, nothing written; (b) is impossible by construction (the case checks that no way exists to name the new node's own id); (d) is refused `bad_request` at validation (GRF-010), with nothing written and nothing waiting; the case also covers the indirect form: a nested child that `depends` on a node that itself waits on the child's ancestor is not caught by GRF-010 and must return `dependency_cycle` (check line `cycle` with `members`), stay `queued`, and be shown stuck.
 Observable: result class; check lines; stuck marker.
-Fails if: (d) leaves a node waiting silently on an ancestor that waits for it.
-Depends on contract fix P1-2.
+Fails if: (d) is accepted, or the indirect form leaves a node waiting silently on a loop.
 
 ### ACC-315 Mutual wait is not over-detected
 Covers: LED-005, VIEW-003
@@ -158,13 +155,12 @@ Observable: no stuck marker with the mutual-wait reason; all nodes reach `done`.
 Fails if: any shape is flagged. (Round back-edges point backwards by design and are not waits.)
 
 ### ACC-316 Nested child waits on its running ancestor
-Covers: LED-005, VIEW-003, LAW-07, GRF-006, RSK-12
+Covers: LED-005, VIEW-003, LAW-07, GRF-006, GRF-010, RSK-12
 Given: nesting allowed; root P calls child C (a `parent` edge); C then submits a call whose `depends` names P (still running, and it cannot end until C's call returns); and a variant where it names a higher ancestor (P's parent).
 When: the calls are submitted.
-Then: the same outcome as ACC-314b(d): refused at validation, or detected at once as a mutual wait with every waiting call returning `dependency_cycle`; the views show the waiting node and the ancestor as stuck with the reason "互相等待" and the member list; the process of P is not touched; a person's interrupt of the waiting node ends it, and P then continues.
-Observable: as ACC-314.
-Fails if: treated as an ordinary parent/child relationship and left `queued` without a mark, or the ancestor is killed.
-Depends on contract fix P1-2.
+Then: both forms are refused `bad_request` at validation (GRF-010), nothing is written and nothing waits; P is not touched and continues once C's call returns. The indirect form (C `depends` on a node W that in turn `depends` on P) is not an ancestor reference: it returns `dependency_cycle`, the views show C, W and P as stuck ("互相等待") with the member list, P is not touched, and a person's interrupt of C ends it, its dependents end `dependency_failed`, and P then continues.
+Observable: as ACC-314, plus result class `bad_request` for the direct forms.
+Fails if: an ancestor `depends` is accepted, the indirect loop is left `queued` without a mark, or the ancestor is killed.
 
 ### ACC-317 Edges stay inside one run
 Covers: LED-003, LED-002
@@ -175,12 +171,12 @@ Observable: refusal text; edge count unchanged; each run still satisfies the one
 Fails if: any cross-run edge is stored.
 
 ### ACC-318 The one-parent rule and its detection
-Covers: LED-003, LED-007, LED-012
+Covers: LED-003, LED-007, LED-012, VIEW-013
 Given: a hand-built journal in which one node has two `parent` edges, another has a parent that appears later in the file, a third has a parent that does not exist.
 When: readers load it.
 Then: each defect is reported by node id; the reader does not crash; unaffected nodes in the same run still render; for the duplicate-parent case the first edge in file order wins and the second is reported.
-Observable: report lines; exit status distinguishes "rendered with defects" from clean (the contract binds the code, P2-10: until it does, any non-zero status that differs from the clean one passes); rendering continues.
-Fails if: a crash, a silent acceptance, or the whole run blanked.
+Observable: report lines; exit status is exactly 3 for "rendered, with defects reported" and 0 only for a clean journal (VIEW-013); rendering continues.
+Fails if: a crash, a silent acceptance, an exit status other than 3, or the whole run blanked.
 
 ### ACC-319 Rebuild from the journal alone
 Covers: LED-010, LAW-02, SUC-04
@@ -205,7 +201,6 @@ When: written and counted.
 Then: the cross-step `revises` is accepted; the within-step `revises` is refused (a round already says the same); supersessions counted from `revises` edges equal 1; rejection rounds are counted from `round` edges only; nothing is counted twice.
 Observable: edge counts by kind; metric values; refusal text.
 Fails if: a within-step `revises` lands, or a supersession is double-counted.
-Depends on contract fix: DSP-003 does not yet list the within-step refusal (reported with review item P2-9).
 
 ### ACC-322 The cycle check reads one run's unended nodes
 Covers: GRF-R2, GRF-006
@@ -221,5 +216,12 @@ Given: nesting allowed; a heavy node P holds the heavy lock; its child C is also
 When: C asks for the lock.
 Then: C fails at once (not after the 1200 s default) with `lock_unavailable` whose lock check line shows the holder is an ancestor; no waiter takes the lock by force; P is untouched.
 Observable: time to the failure; check line.
-Fails if: C waits out the limit for a lock its ancestor holds.
-Depends on contract fix P3-6 (the contract does not yet say so; if the owner rejects the rule in writing, this case is retired with the reason).
+Fails if: C waits out the limit for a lock its ancestor holds, or the check line does not say the holder is an ancestor (`holder: ancestor`, DSP-008).
+
+### ACC-324 A nested call the harness does not wait for can only add a conservative wait arc
+Covers: GRF-R4, GRF-006, DSP-007
+Given: nesting allowed; root P runs and its harness starts a nested call C without waiting for it; W is a node outside P's subtree that `depends` on P; C then asks for `depends` on W.
+When: C is submitted, and P's harness exits without waiting for C.
+Then: the wait-for check sees P waiting for C (the nesting arc), C waiting for W, W waiting for P, and flags C as a mutual wait (`dependency_cycle`, shown stuck with members) even though P is able to end; no node starts early: W stays `queued` until P is `done`, and C stays `queued`; nothing is killed, edited or interrupted by the core; after P ends, a person decides (interrupts C, or calls again) and the journal shows the person's `interrupted` line, not a core-written one.
+Observable: result class of C; check line `cycle` with `members`; start times of W and C relative to P's end; absence of any core-written `interrupted` or `stuck` line.
+Fails if: C or W starts before its target is `done`, the core cancels or kills a node on its own, or the false arc is hidden (C left `queued` with no mark).

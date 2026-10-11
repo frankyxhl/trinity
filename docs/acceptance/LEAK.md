@@ -1,4 +1,4 @@
-# Acceptance cases: credential leak set and honest transcripts (ACC-200 .. ACC-225)
+# Acceptance cases: credential leak set and honest transcripts (ACC-200 .. ACC-227)
 
 Companion to `ACCEPTANCE.md` (conventions, doubles and seams are in its section 0). This file defines the **bar** for "no secret in any output" (the requirement says pattern redaction is best-effort, so the bar must be written down: it is the must-catch list in L1 plus the surfaces in L2).
 
@@ -23,9 +23,9 @@ Variants of one value for the scanner: raw; JSON-escaped; URL-encoded; HTML-enti
 
 **Must-catch** (the reader's redaction has to remove these wherever they appear in an event text; a hit is a failure): S1, S2, S3, S4, S5, S6, S7 and the assignment form of S8 as raw text, including when they sit inside a longer line, at the very start or end of a text, in a tool-call argument, inside a stack trace, and repeated 100 times in one event.
 
-**Depends on contract fix P1-4.** The reader's pattern list (RDR-008) does not yet cover S3 with generic names (`*_API_KEY=`, `*_TOKEN=`, `*_SECRET=`, `*_PASSWORD=`), S4 (JSON member), S5 (URL userinfo) or S6 (the profile's own credential value); the bar above is what the contract must reach. A reader that keeps only the current list fails ACC-201 by design. For S6 the contract must also say who reads the credential value and how (a reader must not pull the value into the core, NG-05, PRF-001); if it chooses not to match the profile's own value, S6 moves to Report-only and the contract states why.
+**Contract bar.** The reader's pattern list (RDR-008) covers S1 to S5 by kinds 1 to 6 (known prefixes, bearer values, PEM blocks, assignments with generic names such as `*_API_KEY=`, `*_TOKEN=`, `*_SECRET=`, `*_PASSWORD=`, JSON/YAML members, URL userinfo) and S6, the profile's own credential value, by the salted verifier (RDR-013; kind 7): the wrapper writes the verifier and the core and reader never read the credential source (NG-05, PRF-001). ACC-226 checks the verifier.
 
-**Report-only** (known limits of best-effort redaction; the case records the result and never fails on it, but the *journal, logs, argv and the profile listing must still be clean*, because those surfaces never hold text at all): the bare form of S8 (a 7 to 64 digit hex string survives by design so that commit ids and hashes do; depends on contract fix P2-13 to state the outcome); a secret split across two lines; base64, URL-encoded or HTML-entity variants of a value in event text; a value with zero-width characters inserted.
+**Report-only** (known limits of best-effort redaction; the case records the result and never fails on it, but the *journal, logs, argv and the profile listing must still be clean*, because those surfaces never hold text at all): the bare form of S8 (a 7 to 64 digit hex string survives by design so that commit ids and hashes do, RDR-008 hex rule); a secret split across two lines; base64, URL-encoded or HTML-entity variants of a value in event text; a value with zero-width characters inserted.
 
 **Scanner** `scan(root_list, secret_set)`: reads every file and every captured byte stream below the given roots as bytes, decodes entity, URL and base64 layers one level deep, and reports each (file or stream, variant) hit. Hits in files named in the explicit allow-list for a case (the credential file itself, vendor-owned fake transcripts, which are test inputs) are ignored; everything else is a failure.
 
@@ -50,7 +50,7 @@ When: a run records a call that points at the transcript, then the reader is ask
 Then: the journal holds no part of any secret; the events returned by the reader, printed by the CLI and shown by the web page contain none of the must-catch values (redacted in place, with a visible mask `[redacted:<kind>]`, and the result's `redactions` count equals the number of plantings); event count and order are unchanged by redaction; the `raw_ref` of a redacted event still resolves to the unredacted source bytes in the vendor file (the file is not modified).
 Observable: scan of the journal and of all view outputs is empty; the transcript fixture file's hash is unchanged; event count equals fixture event count.
 Fails if: any hit, or a redacted event was dropped instead of masked, or the transcript file was rewritten.
-Depends on contract fix P1-4 for S3 (generic names), S4, S5 and S6.
+Note: S3 generic names, S4, S5 and S6 are RDR-008 kinds 4 to 7.
 
 ### ACC-202 Secret in stderr
 Covers: LAW-04, ADP-002, ADP-012
@@ -126,22 +126,20 @@ Observable: scan.
 Fails if: the prompt text is stored or shown unmasked.
 
 ### ACC-211 Secret in caller-supplied free-text fields
-Covers: LAW-04, LED-009, CHK-004, LED-004
+Covers: LAW-04, LED-009, CHK-004, LED-004, DSP-017
 Given: S1 placed in each caller-supplied field the core accepts: step name, node label, run name, `override_ref`, `reason_ref` (retry), any `--note`-like option. The override reason itself is a closed code (CHK-004, DSP-003) and is tested in ACC-113: a secret placed in the code position is refused as an unlisted code.
 When: each is written.
-Then: for each field the core either refuses the value with a stated reason or stores it masked; `override_ref` and `reason_ref` are pointers (a ref, never text), and a value shaped like text is refused; the journal never holds S1; text longer than the contract's per-field limit is refused or cut; no field accepts prompt-sized text (fixture: 100 KB refused or cut to the limit).
-Observable: journal scan; behaviour per field recorded (refused / masked) with the field name and the limit.
-Fails if: any field stores the raw value, or any field accepts 100 KB of text.
-Depends on contract fix P2-8 (the contract states each field's limit and the mask-or-refuse rule; until then the fixture limit is 256 characters).
+Then: `step` and `label` holding S1 are refused `bad_request` naming the field, never stored masked (DSP-017); a `step` or `label` of 64 characters is accepted, of 65 is refused, of 0 is refused; `override_ref` and `reason_ref` are pointers (a ref, never text), and a value shaped like text or like a secret is refused or stored as a withheld ref (RDR-014); no other field accepts text; the journal never holds S1; no field accepts prompt-sized text (fixture: 100 KB is refused).
+Observable: journal scan; behaviour per field recorded (refused / withheld) with the field name and the limit.
+Fails if: any field stores the raw value or a masked form of it, any field accepts 100 KB of text, or a 65-character `step` is accepted.
 
 ### ACC-212 Secret in a path the journal must store
-Covers: LAW-04, LED-009, LED-R1
-Given: a transcript whose directory name contains S1 (a project slug built from a key-like string), so that `transcript_ref.path` would carry the secret.
-When: the call is recorded.
-Then: the contract's chosen strategy applies and no secret reaches the journal: the ref is stored relative to a root, or hashed with a lookup kept outside the journal and outside any view, or the call is refused with a stated reason; the reader can still resolve the ref when the strategy keeps it resolvable.
-Observable: journal scan; reader success or the documented refusal.
-Fails if: the path with the key is written. Any of the three strategies passes.
-Depends on contract fix P2-7 (the contract picks one strategy; once it does, only that strategy passes).
+Covers: LAW-04, LED-009, LED-R1, RDR-014, LED-016, RDR-R5
+Given: a transcript whose directory name contains S1 (a project slug built from a key-like string), so that `transcript_ref.path` would carry the secret; the same for an `output_ref` and a `reason_ref`; and, as controls, a transcript with an ordinary path, a path holding a generated 40-character random file name (entropy-shaped, no key prefix), and a path with a directory `my-task-runner-implementation` or `risk-` followed by 20 letters.
+When: the call is recorded, then the reader and both views are asked for the node.
+Then: for the secret-shaped refs the journal holds `{"withheld": "secret_pattern"}` instead of the path; the call itself still runs and ends normally; the reader returns status `withheld` with no events; the CLI and web detail say the pointer was withheld; no secret and no path fragment reaches the journal, the error log or a view; the three controls keep their refs and resolve normally (RDR-014 applies the shape kinds 1 to 7 only, never the entropy kind, and the key-prefix boundary of RDR-008); every withheld ref can be counted from the journal by its `withheld` marker.
+Observable: journal scan and the ref record; reader status; view text.
+Fails if: the path with the key is written, the call is refused or fails because of the path, the reader returns events from a withheld ref, a different strategy (relative path, hashed lookup) is used, or a control ref is withheld.
 
 ### ACC-213 Summary-only thinking is labelled, never faked
 Covers: ADP-013, LAW-11, VIEW-011, RSK-11
@@ -235,10 +233,10 @@ Fails if: an event is dropped, the reader raises, or raw events skip redaction.
 Covers: LED-009, LED-008, LAW-08
 Given: a harness double that emits a 5 MB output and 5 MB of thinking and tool text per call, with marker strings spread throughout.
 When: ten such calls run.
-Then: the journal stays small (each record below a bounded size the contract states; fixture bound 4 KB per line) and contains no marker string.
+Then: the journal stays small (each record at most 4 KiB, DSP-017) and contains no marker string.
 Observable: maximum line length; scan for markers.
 Fails if: any line exceeds the bound or holds a marker.
-Depends on contract fix P2-8 for the bound (fixture 4 KB until the contract sets one).
+Note: the bound is 4 KiB per journal line (DSP-017).
 
 ### ACC-225 The entropy rule and the hex exemption are both exercised
 Covers: RDR-008, RDR-R1, LAW-04
@@ -247,4 +245,20 @@ When: the reader returns the events.
 Then: S7 with the prefix and the assignment form of S8 are masked (must-catch); the 40-character random string with no prefix is masked by the entropy rule; hex strings of 7 to 64 digits in plain text (git ids, content hashes) survive unmasked; a 65-digit hex string is treated as high-entropy and masked; the bare S8 outcome is recorded in the run report (ACC-219) and does not fail the case.
 Observable: masked or not, per fixture line; `redactions` count.
 Fails if: S7 or the assignment form of S8 survives, a 7 to 64 digit hex id is masked, or the 65-digit string survives.
-Depends on contract fix P2-13 (the contract states the hex-shaped outcome; the 7 to 64 hex exemption itself is in RDR-008).
+Note: the hex-shaped outcome is the RDR-008 hex rule: 7 to 64 hex digits alone survive, the same hex in an assignment or member is masked, a longer run is masked.
+
+### ACC-226 The profile's own credential value is matched without the core holding it
+Covers: RDR-013, RDR-008, RDR-R4, PRF-001, NG-05
+Given: two profiles, each with a credential value of random shape (no known prefix, 24 characters, not entropy-flagged by length) written to its credential file; the wrapper run for each; a transcript that carries profile A's value in plain text, inside a longer line, at the start and end of a text, right after each of `=`, `:`, `"`, `'`, `/`, `,`, `;`, `@`, `(`, `[` and `{`, next to profile B's value, and once glued to preceding letters (`abc` + value, no separator); and one 64 KiB event made of a single non-space run.
+When: the reader returns the events; then profile A's credential is changed and the wrapper runs again; then the file system and the process of the core and the reader are inspected.
+Then: both values are masked as `[redacted:credential]` wherever they sit; the verifier file for each profile is mode 600, holds a length, a salt and a hash, and neither the value nor any 6-character piece of it; the two profiles have different salts (the same value under both would give different hashes); after the change the old value is no longer masked as a credential (it may still be masked by shape rules) and the new value is; a spy on file opens shows the core and the reader never open the credential source, only the verifier; a value that is not in the profile (a random string of the same length) is not masked as `credential`; the value glued to preceding letters is not caught by this kind (RDR-013), though kinds 1 and 8 still apply if its shape matches; the 64 KiB single-run event costs a few hashes, not one per character (a spy on the hash call counts at most 64 for the event, against about 65 000 for a window at every offset).
+Observable: reader output; verifier files (mode, contents scan); open-file trace of the core and reader.
+Fails if: the value survives, the verifier file holds the value or has a wider mode, the two profiles share a salt, the old value stays masked as `credential` after replacement, the core or reader opens the credential source, or the hash count for the single-run event grows with its length.
+
+### ACC-227 Key prefixes need a boundary and name rules match whole segments
+Covers: RDR-008, RDR-R1, RDR-R5, LAW-04
+Given: event text holding (a) `sk-` plus 20 letters at the start of the text, after a space, after `=`, after `"` and after `(`; (b) the same 20 letters behind `risk-`, `desk-`, `disk-` and in the words `my-task-runner-implementation`; (c) assignments `API_KEY=`, `apiKey=`, `x-auth-token:`, `db.password=`, `CLIENT_SECRET=`, each with a 12-character value; (d) lines `max_tokens: 4096`, `Author: someone`, `monkey=banana`, `keyboard=us`, `tokenizer=bpe`.
+When: the reader returns the events.
+Then: every (a) form is masked as `[redacted:key]`; no (b) text is changed; every (c) value is masked with the name kept; no (d) line is changed; `redactions` counts only the masks of (a) and (c).
+Observable: output text per fixture line; `redactions` count.
+Fails if: a (b) word is masked, a (d) value is masked, a (c) value survives, or an (a) key survives.

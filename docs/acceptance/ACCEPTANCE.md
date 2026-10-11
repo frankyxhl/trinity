@@ -1,12 +1,12 @@
-# Acceptance cases for the Trinity rework (ACC-001 .. ACC-157, plus GRAPH.md and LEAK.md)
+# Acceptance cases for the Trinity rework (ACC-001 .. ACC-163, plus GRAPH.md and LEAK.md)
 
 Written by an author who did not write the contracts and who may not be changed by the contracts' author. Code that follows these specs must pass every case. Files:
 
 | File | Cases |
 | --- | --- |
 | `ACCEPTANCE.md` (this file) | conventions, end-to-end path, ledger, profiles, adapters, dispatch core, reader, views, coverage table, spec gaps |
-| `GRAPH.md` | ACC-300 .. ACC-323: nesting, depth limit, loops, revises, depends, mutual wait |
-| `LEAK.md` | ACC-200 .. ACC-224: credential leak set, honest thinking, deleted transcripts |
+| `GRAPH.md` | ACC-300 .. ACC-324: nesting, depth limit, loops, revises, depends, mutual wait |
+| `LEAK.md` | ACC-200 .. ACC-227: credential leak set, honest thinking, deleted transcripts |
 
 ## 0. Conventions
 
@@ -16,9 +16,9 @@ Every case has: an id, the requirement ids it covers, **Given / When / Then**, t
 
 ### 0.2 Logical field names
 
-The journal's field names are not final. Cases use logical names and the contract binds the spelling: `run`, `node`, `parent`, `step`, `round`, `depth`, `harness`, `profile`, `profile_reason`, `session{id,mode}`, `transcript_ref`, `output_ref`, `state`, `exit_class`, `output_kind`, `usage`, `edge{kind,from,to,reason}`, `check`, `heartbeat`. Edge kinds are `parent`, `depends`, `round`, `revises` (the earlier draft's `child` is `parent`, `retry` is `round`). A `round` edge runs from the later node to the earlier one (depends on contract fix P1-1; the contract text must say so).
+The journal's field names are not final. Cases use logical names and the contract binds the spelling: `run`, `node`, `parent`, `step`, `round`, `depth`, `harness`, `profile`, `profile_reason`, `session{id,mode}`, `transcript_ref`, `output_ref`, `state`, `exit_class`, `output_kind`, `usage`, `edge{kind,from,to,reason}`, `check`, `heartbeat`. Edge kinds are `parent`, `depends`, `round`, `revises` (the earlier draft's `child` is `parent`, `retry` is `round`). A `round` edge runs from the later node to the earlier one (GRF-004, DSP-018).
 
-Marker "depends on contract fix <id>" means the case is written against the behaviour the independent review names; until the contract says so the case is expected to fail the contract, not the implementation.
+A case carries a **Note** only where it follows a contract choice that could have gone another way; the note names the contract id. The contracts are at draft 0.2 and every case below is written against that text.
 
 ### 0.3 Seams the cases rely on
 
@@ -57,8 +57,8 @@ These files contain no tokens, accounts, host names, paths of any deployment, wo
 
 ### ACC-001 One profile, new session, one child, journal and CLI tree
 Covers: SUC-01, SCO-03, SCO-05, SCO-06, SCO-08, LED-010, VIEW-001, ADP-003, PRF-006
-Given: one neutral example profile for the claude-code adapter (subscription billing, quota stub reporting 20% used, fresh), DBL-H scripted for a root call and one child call, a clean temporary root.
-When: through the CLI, the caller makes the root call with `session=new`, and the root's task makes one child call; both finish; then `trinity tree <run>` runs.
+Given: one neutral example profile for the claude-code adapter (subscription billing, quota stub reporting 20% used, fresh), DBL-H scripted for a root call and one child call, a clean temporary root; the root request sets `allow_nesting: {max_depth: 1}` (without it the root's own child call is refused, ACC-303).
+When: through the CLI, the caller makes the root call with `session=new`, and the root's task makes one child call from inside the root harness; both finish; then `trinity tree <run>` runs.
 Then: the journal holds one run start and end, two nodes (root depth 0, child depth 1 with exactly one `parent` edge to the root), a quota check record before each node, at least one heartbeat row per node that ran longer than one poll interval, state lines `queued -> running -> done`, `exit_class` ok, `profile_reason` recorded; the tree shows two lines with correct indentation, 新 session mark with a short id for both, state glyph done, wall time, tokens, exit class and output kind; the journal contains none of the fixture's prompt, thinking, tool or output text.
 Observable: parsed journal; the tree text; marker-string scan of the journal.
 Fails if: a node missing, a wrong parent, session shown as 续, a number not equal to the journal's, or any text in the journal.
@@ -138,7 +138,6 @@ When: both write.
 Then: the results are rounds 3 and 4 in some order, never two round 3 nodes; the number is assigned by the core under the journal lock (highest existing round of the step + 1), not taken from the caller; each new attempt has its own `round` edge, from the new node to the node holding the round number just before it in assigned order (round 4 points at round 3, round 3 at round 2), whatever node the caller named in `round_of`.
 Observable: round numbers and edges.
 Fails if: a duplicate round number, a lost attempt, a caller-chosen number, or both new nodes pointing at the same earlier node.
-Depends on contract fix P2-6 (who assigns the number and which node the edge targets).
 
 ### ACC-016 State machine
 Covers: LED-005, DSP-013, RSK-10
@@ -168,10 +167,9 @@ Fails if: a crash, silence, or the appended line parsing as garbage because it j
 Covers: LED-011
 Given: a journal with `v` = 1 lines; a file with a line `v` = 2; a line without `v`.
 When: readers load each.
-Then: the v1 file loads; the unknown major version is refused with a clear message naming the version found and the versions supported; a missing version is refused or treated as a defect with a message (the contract binds which, see P2-10), never guessed; for v2 the core returns `journal_unavailable` and writes nothing in the old format.
+Then: the v1 file loads; the unknown major version is refused with a clear message naming the version found and the versions supported; a line with no `v` is a defect: reported by line number and skipped, never guessed (LED-011); for v2 the core returns `journal_unavailable` and writes nothing in the old format.
 Observable: messages; journal bytes unchanged.
-Fails if: silent acceptance of v2, a stack trace in place of a message, or a line written in v1 form into a v2 file.
-Depends on contract fix P2-10 for the missing-`v` outcome.
+Fails if: silent acceptance of v2, a stack trace in place of a message, a line written in v1 form into a v2 file, a line without `v` parsed as if it had one, or a missing-`v` line not reported by number.
 
 ### ACC-020 No text in the journal
 Covers: LED-009, LAW-08
@@ -372,7 +370,7 @@ When: each runs.
 Then: the adapter-set classes are exactly `ok`, `quota_exhausted`, `auth_error`, `session_not_found`, `timeout`, `harness_error`, `unknown`, each mapped from its script; the core-set classes (`bad_request`, `nesting_refused`, `journal_unavailable`, `profile_refused`, `check_failed`, `lock_unavailable`, `dependency_failed`, `dependency_cycle`, `interrupted`) never come from an adapter; every result carries exactly one class from the full 16-class list in DSP-010 and no other value is ever written or returned; `unknown` comes with the last 2 KB of redacted stderr in the error log and nothing in the journal.
 Observable: class per script; the set of every class value seen in journal and results is a subset of DSP-010's list; error log; journal scan.
 Fails if: a value outside the 16, an adapter returning a core-set class, a wrong mapping, or stderr in the journal.
-Note: the contract's adapter spec lists the adapter-set classes inconsistently (review P2-3); this case follows dispatch-core section 4 (depends on contract fix P2-3).
+Note: the adapter-set classes are the §4 table of dispatch-core (ADP-002 points to DSP-010); `interrupted` is set by the core, not an adapter.
 
 ### ACC-072 New session id by marker or reported id, never by newest file **[per adapter]**
 Covers: ADP-003, SCO-03
@@ -595,21 +593,20 @@ Observable: output equivalence; file access trace.
 Fails if: behaviour changed or they touch the journal.
 
 ### ACC-122 Fail-closed checks are bounded
-Covers: LAW-06, CHK-002
+Covers: LAW-06, CHK-002, DSP-016, DSP-008
 Given: a quota source that hangs; a lock location that is unreachable.
-When: a node is requested.
-Then: the check gives up after a bounded time (the contract's limit), counts as unknown, the node fails closed with a reason; the CLI does not hang.
-Observable: time to the failure; state.
-Fails if: unbounded waiting or a start without an answer.
-Depends on contract fix P2-10: the contract sets the quota-read timeout; fixture bound 10 s until then.
+When: a node is requested (test clock).
+Then: the quota read gives no answer at 10 s (9 s still waiting, 10 s ends), counts as unknown (CHK-002), and the node ends `queued -> failed` with `check_failed`; the unreachable lock location ends the node `lock_unavailable` at once, without waiting out `lock_wait_s` (DSP-008); the CLI does not hang.
+Observable: time to the failure on the test clock; state; exit class.
+Fails if: unbounded waiting, a different timeout, a wait on the unreachable lock, or a start without an answer.
 
 ### ACC-123 Order of the steps in one call
 Covers: DSP-002, CHK-001, CHK-002
-Given: a call that fails the quota check, a call that fails the heavy lock, a call that is refused at validation, and a call that passes everything; a spy sees each step.
+Given: a call that fails the quota check, a call whose journal append fails at step 3, a call that fails the heavy lock, a call that is refused at validation, and a call that passes everything; a spy sees each step.
 When: they run.
-Then: the order is validate, journal lock, profile, node record `queued` with its edges, profile check, dependency gate, quota check, heavy lock, adapter call, end state; a stop at validation or at the lock step leaves no node; a stop at profile check, dependency gate, quota check or heavy lock ends the node `queued -> failed` with the class of that step (exception: a dependency cycle, see ACC-314b and ACC-316), and no later step is reached.
-Observable: step trace; node lines.
-Fails if: a step runs out of order, a node exists after a validation stop, or a step after the stopping one runs.
+Then: the order is (1) validate, (2) resolve the profile, (3) under the journal lock: assign the round number, append the node record `queued` with its edges, release the lock, (4) profile check, (5) dependency gate, (6) quota check, (7) heavy lock, (8) adapter call, (9) end state; a stop at validation, or a journal failure at step 3 (lock or append), leaves no node; the lock is released before step 4 and never held across a check, a wait or the adapter call; a stop at profile check, dependency gate, quota check or heavy lock ends the node `queued -> failed` with the class of that step (exception: a dependency cycle, see ACC-314b and ACC-316), and no later step is reached.
+Observable: step trace (including lock acquire and release marks); node lines.
+Fails if: a step runs out of order, a node exists after a validation stop or a step-3 journal failure, the lock is held while a check or the adapter runs, or a step after the stopping one runs.
 
 ### ACC-124 Validation refuses with `bad_request` and writes nothing
 Covers: DSP-003, DSP-001
@@ -634,7 +631,7 @@ When: a heavy node waits for the lock (test clock).
 Then: with no value the waiter ends `lock_unavailable` at 1200 s, not before and not after (1199 s still waiting, 1200 s ends); `lock_wait_s` = 0 fails at once when the lock is held; 3600 is accepted; 3601 is refused `bad_request`; the lock check line records `waited_s`; the wait does not count against `time_s` (a node with `time_s` = 60 still waits past 60 s); no waiter takes the lock by force.
 Observable: state and time of the end; check line `waited_s`.
 Fails if: a different default, a wait limited by `time_s`, a forced take, or a value out of range accepted.
-Note: the contract text for this limit differs between the method file ("may lower") and dispatch-core ("0..3600"); this case follows dispatch-core (depends on contract fix P2-1).
+Note: the heavy-lock wait range is 0..3600 s (DSP-008, OPEN-11).
 
 ### ACC-127 Heartbeat poll interval default and the stall floor
 Covers: DSP-009, CHK-006, DSP-003
@@ -748,9 +745,57 @@ Fails if: a half line shown, the file touched, or a journal row presented as a t
 Covers: RDR-012, PRF-002
 Given: a profile with a credential path and a variable name; a transcript that mentions the variable name.
 When: the reader runs for that node.
-Then: neither the path nor the variable name of the profile comes back in `events`, in `raw_ref.path` strategy aside (see ACC-212), or in an error; only redacted text is returned.
+Then: neither the path nor the variable name of the profile comes back in `events`, in `raw_ref.path` (a withheld ref returns no path at all, see ACC-212), or in an error; only redacted text is returned.
 Observable: scan of the result.
 Fails if: either string appears.
+
+### ACC-158 View command exit status
+Covers: VIEW-013, LED-007, LED-011, LED-012, GRF-002, GRF-006
+Given: five journals: clean; one with a defect (a line without `v`, a duplicate parent, or a fifth edge kind); one with a mutual wait (hand-built `depends` cycle); one with an unknown major version; one that cannot be read (permission removed); and a view command with an unknown option.
+When: `trinity tree <run>` and `trinity show <run>/<node> --events` run on each.
+Then: exit status 0 for the clean journal; 3 for the defect journal (rendered, defects reported by line) and for the mutual-wait journal (rendered, with a message that a person must decide); 1 for the unknown major version and for the unreadable journal (nothing rendered, message names the cause); 2 for the usage error; the four statuses are pairwise distinct for these five situations (clean, defects or wait, could not render, usage).
+Observable: exit status and the first message line of each run.
+Fails if: any status other than the one listed, a defect journal that exits 0 or 1, two of the situations sharing a status, or a stack trace in place of a message.
+
+### ACC-159 The clock is one function
+Covers: DSP-019, CHK-006, LED-013
+Given: seam S-2 and the production source tree.
+When: (a) a static scan lists every read of a system clock (wall or monotonic, any language call that returns the current time) outside the clock function; (b) the clock is replaced and moved by 91 days, 61 s and 1201 s in separate runs.
+Then: (a) the scan finds none outside the one clock function; (b) the prune treats 91-day-old data as expired, a running node with no new heartbeat for 61 s shows stuck at its stall limit, and a heavy-lock waiter ends at 1201 s, all without real waiting.
+Observable: scan list; behaviour on the replaced clock; real elapsed time of the test.
+Fails if: any direct clock read remains, or any of the three needs real time to pass.
+
+### ACC-160 Per-line bound and `depends` count
+Covers: DSP-017, DSP-003, LED-009
+Given: a valid baseline request and these mutations, one each: `depends` with 32 targets (control) and with 33; a `step` of 64 characters (control) and of 65; an empty `step`; a `label` containing a control character; a request whose node line, or any edge or check line it would cause, would exceed 4 KiB (built from the longest allowed fields plus 32 `depends` ids and a long profile name).
+When: each is submitted.
+Then: the controls are accepted; every other mutation returns `bad_request` naming the field (or the line), writes nothing, and starts no process; no journal line anywhere is longer than 4 KiB after the controls run.
+Observable: result class and reason; maximum line length in the journal; journal hash after each refusal.
+Fails if: a refused mutation lands, an over-long line is written, or a control is refused.
+
+### ACC-161 Round number under the lock, edge to the highest round
+Covers: DSP-018, DSP-002, LED-004
+Given: a step at round 2 (nodes R1, R2); a retry request naming R1 in `round_of` (an earlier round, not the highest).
+When: it is written, then two further retries naming R1 are submitted at the same moment.
+Then: the first gets round 3 with its `round` edge to R2 (the highest recorded), not to R1; the two concurrent ones get rounds 4 and 5, edge 4 to 3 and edge 5 to 4; the step, the parent and the reason come from the request, the number and the target do not.
+Observable: round numbers and edge targets.
+Fails if: an edge points at the node named in `round_of`, a number is repeated, or a number comes from the caller.
+
+### ACC-162 Depth limit inheritance
+Covers: DSP-015, DSP-004, DSP-003, LAW-07
+Given: nesting allowed on the root with `allow_nesting: true` (no number; the signature is `false | true | {max_depth: 1..5}`), then with `{max_depth: 5}`, then with `{max_depth: 0}` and `{max_depth: 6}`; a child that tries to raise the limit with its own `allow_nesting: {max_depth: 5}` under a root limited to 2.
+When: calls are made down the chain.
+Then: `true` alone gives a limit of 2 (depth 2 runs, depth 3 is `nesting_refused`); `{max_depth: 5}` runs to depth 5 and refuses depth 6; 0 and 6 are refused `bad_request` at validation; the child cannot raise the limit (the attempt is `bad_request`, "set below the run root" or equivalent, and the limit stays 2); every refusal writes one error-log line and no node.
+Observable: result class per depth; error-log lines; node count.
+Fails if: a default other than 2, a child that raises the limit, a limit of 0 or 6 accepted, or an off-by-one at any limit.
+
+### ACC-163 Result shape is the contract's, through both front ends
+Covers: DSP-001, DSP-005
+Given: any case of section 5 run through both front ends.
+When: the result shape of `call` is compared with the contract's `result` fields.
+Then: both front ends return exactly the fields `run, node, exit_class, session_id, output_kind, output_ref, transcript_ref, usage, started_at, ended_at, journal_complete`; a refusal that writes no node has `node: null`, a `null` start and a real `ended_at`; none adds or drops a field.
+Observable: key set of the result.
+Fails if: a field is added, dropped or renamed, or `journal_complete` is missing.
 
 ---
 
@@ -845,13 +890,12 @@ Observable: process table.
 Fails if: a process outlives the page.
 
 ### ACC-141 Live update delay
-Covers: SCO-06, VIEW-005
-Given: a view on a running node and the contract's target delay D.
+Covers: SCO-06, VIEW-005, VIEW-012
+Given: a view on a running node; the target delay is 2 s (VIEW-012).
 When: a state line is appended.
-Then: both views show it within D (fixture D = 2 s unless the contract sets another; the contract has to set one).
+Then: both views show it within 2 s.
 Observable: measured delay.
-Fails if: the delay exceeds D, or no target exists.
-Depends on contract fix P2-10 (the contract has to set D).
+Fails if: the delay exceeds 2 s.
 
 ---
 
@@ -889,8 +933,8 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | LAW-04 | 200 to 225 (all) |
 | LAW-05 | 056, 078 |
 | LAW-06 | 111, 112, 113, 122 |
-| LAW-07 | 302, 303, 304, 316, 323 |
-| LAW-08 | 020, 215, 222, 224 |
+| LAW-07 | 302, 303, 304, 316, 323, 162 |
+| LAW-08 | 020, 215, 222, 224, 160 |
 | LAW-09 | 057 |
 | LAW-10 | 085, 121 |
 | LAW-11 | 213, 214, 216 |
@@ -904,7 +948,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | CHK-003 | 112 |
 | CHK-004 | 113, 128 |
 | CHK-005 | 302, 303, 304 |
-| CHK-006 | 114 |
+| CHK-006 | 114, 159 |
 | CHK-007 | 073 |
 | CHK-008 | 115, 144, 305, 313 |
 | CHK-009 | 221, 025 |
@@ -913,20 +957,25 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 
 | ID | Cases / status |
 | --- | --- |
-| DSP-001 | 002, 120, 124 |
-| DSP-002 | 123 |
-| DSP-003 | 124, 076, 113, 311, 314b, 317 |
-| DSP-004 | 303, 304 |
-| DSP-005 | 125 |
+| DSP-001 | 002, 120, 124, 163 |
+| DSP-002 | 123, 161 |
+| DSP-003 | 124, 076, 113, 160, 162, 311, 314b, 317, 321 |
+| DSP-004 | 303, 304, 162 |
+| DSP-005 | 125, 163 |
 | DSP-006 | 143, 054, 059 |
 | DSP-007 | 129, 312, 313 |
-| DSP-008 | 126, 112 |
+| DSP-008 | 126, 112, 122, 323 |
 | DSP-009 | 127, 114 |
 | DSP-010 | 071, 144 |
 | DSP-011 | 144, 115 |
 | DSP-012 | 077, 116, 142 |
 | DSP-013 | 142, 129, 016, 314 |
 | DSP-014 | 128, 113 |
+| DSP-015 | 304, 162 |
+| DSP-016 | 122 |
+| DSP-017 | 160, 211, 224 |
+| DSP-018 | 015, 161 |
+| DSP-019 | 159 |
 
 ### 7.3c Transcript-reader contract (RDR)
 
@@ -939,11 +988,13 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | RDR-005 | 153, 213 |
 | RDR-006 | 154, 214 |
 | RDR-007 | 081 |
-| RDR-008 | 201, 219, 220, 223, 225 |
+| RDR-008 | 201, 219, 220, 223, 225, 226, 227 |
 | RDR-009 | 155 |
 | RDR-010 | 156 |
 | RDR-011 | 156 |
 | RDR-012 | 157, 205 |
+| RDR-013 | 226 |
+| RDR-014 | 212, 227 |
 
 ### 7.3d Graph contract (GRF)
 
@@ -958,6 +1009,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | GRF-007 | 310, 311, 321 |
 | GRF-008 | 306, 310, 314, 132 |
 | GRF-009 | 305, 307, 129, 319 |
+| GRF-010 | 314b, 316 |
 
 ### 7.4 Adapters
 
@@ -1004,15 +1056,16 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | LED-004 | 014, 015, 305, 307, 308 |
 | LED-005 | 016, 116, 142, 312, 313, 314, 315, 316 |
 | LED-006 | 015, 017, 026, 029 |
-| LED-007 | 018, 318 |
+| LED-007 | 018, 318, 158 |
 | LED-008 | 218, 224 |
 | LED-009 | 020, 215, 224 |
 | LED-010 | 004, 300, 319 |
-| LED-011 | 019 |
-| LED-012 | 021, 022 |
+| LED-011 | 019, 158 |
+| LED-012 | 021, 022, 158 |
 | LED-013 | 023, 024, 025, 026, 221 |
-| LED-014 | 013, 027, 110, 112, 114, 302, 304 |
+| LED-014 | 013, 027, 110, 112, 114, 302, 304, 314 |
 | LED-015 | 028, 119 |
+| LED-016 | 212 |
 
 ### 7.7 Views
 
@@ -1020,7 +1073,7 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | --- | --- |
 | VIEW-001 | 130, 138, 306 |
 | VIEW-002 | 131 |
-| VIEW-003 | 116, 132, 314 |
+| VIEW-003 | 116, 132, 314, 158 |
 | VIEW-004 | 003, 306, 307, 309 |
 | VIEW-005 | 114, 133, 141 |
 | VIEW-006 | 134, 217 |
@@ -1029,6 +1082,8 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | VIEW-009 | 136 |
 | VIEW-010 | 079, 137 |
 | VIEW-011 | 139, 153, 213 |
+| VIEW-012 | 141 |
+| VIEW-013 | 158, 314, 318 |
 
 ### 7.8 Pilot success conditions and process rules
 
@@ -1086,28 +1141,31 @@ Every requirement id in the five specs and the three contracts (families SCO, NG
 | DSP-R2 | 129 |
 | DSP-R3 | 128 (the metrics output counts overrides by code from the journal) |
 | DSP-R4 | 126 |
-| RDR-R1 | 220, 225 |
+| RDR-R1 | 220, 225, 227 |
 | RDR-R2 | 150 |
 | RDR-R3 | 151, 215 |
+| RDR-R4 | 226 |
+| RDR-R5 | 212 |
 | GRF-R1 | 321 |
 | GRF-R2 | 322 |
 | GRF-R3 | 317 |
+| GRF-R4 | 324 |
 
 ---
 
 ## 8. Gaps in the specs found while writing the cases
 
-These need a decision from the contract author or the project lead. None of them lets a case be dropped; each case states the behaviour it expects until the contract says otherwise.
+These need a decision from the contract author or the project lead. None of them lets a case be dropped; each case states the behaviour it expects.
 
-Status after review R1 (gaps 2, 6, 7, 10 and the open parts of 1 and 3 are contract-side: they stay open here and the cases carry "depends on contract fix <id>").
+Status against the contracts at draft 0.2: gaps 1 to 4 and 6 to 10 are closed by the contract text (ids below) and the cases follow it; gap 5 stays open.
 
-1. **Free-text fields in the journal.** The override reason is now a closed code (CHK-004, DSP-003; ACC-113). Caller-supplied labels, step names and run names are still text, while LED-009 says no free-text field exists. No length limit or redaction rule is stated (P2-8). ACC-211 expects refuse-or-mask and a limit.
-2. **Paths as refs.** `transcript_ref.path` can contain whatever the vendor or the project directory name contains, including a key-shaped string. ACC-212 accepts any of three strategies; the contract must pick one.
-3. **Edge kinds.** Settled by the graph contract: four kinds. `depends` on a failed target is settled (`dependency_failed`, DSP-007; ACC-313, ACC-129). `revises` on a queued target is still unspecified (P2-9); ACC-311(d) accepts refusal, or recording only after the target left `queued`. `revises` inside the same step is unspecified; ACC-321 expects refusal.
-4. **Stuck.** Closed: the graph contract (GRF-006) shows a mutual wait as stuck, derived and never written. What remains open is the shape of the cycle: `depends` targets must already exist, so a pure `depends` cycle cannot form through `call` (P1-2). ACC-314 is a hand-built journal case; ACC-316 is the nesting deadlock.
-5. **The older session store and per-review metadata** (LED-R5, OPEN-L3) are still open; until they are settled there is no case that proves they are derived caches.
-6. **Depth limit** has no default or location (P1-7). ACC-304 requires one.
-7. **Live update delay** has no target (OPEN-V2, P2-10). ACC-141 requires one. Also open (P2-10): quota-read timeout (ACC-122), missing `v` (ACC-019), exit code for "rendered with defects" (ACC-318).
-8. **Clock injection** is assumed (seam S-2); without it the 90-day, freshness and stall cases cannot run. The contracts have not adopted or rejected it in writing (P3-8).
-9. **Terminal control sequences.** VIEW-007 covers HTML only; ACC-135 extends the same rule to the terminal, because child output is untrusted there too. Not yet adopted by a contract (P3-8).
-10. **Which fields are "length-limited".** ACC-224 assumes a per-line bound; the contract must state it.
+1. **Free-text fields in the journal.** Closed: `step` and `label` are 1 to 64 printable characters and are refused, never masked, when redaction would change them; no other caller field holds text (DSP-017; ACC-211, ACC-113, ACC-160).
+2. **Paths as refs.** Closed: a ref whose path redaction would change is stored as `{"withheld": "secret_pattern"}`; the call still runs and the reader returns status `withheld` (RDR-014, LED-016; ACC-212).
+3. **Edge kinds.** Closed: four kinds (GRF-002); `depends` on a failed or interrupted target is `dependency_failed` (DSP-007); `revises` needs a target in another step that has ended, otherwise `bad_request` (GRF-007, DSP-003; ACC-311, ACC-321).
+4. **Stuck.** Closed: a mutual wait is derived, never written (GRF-006); a `depends` on an ancestor is refused at validation (GRF-010); indirect loops through nesting return `dependency_cycle` (ACC-314, ACC-314b, ACC-316).
+5. **The older session store and per-review metadata** (LED-R5, OPEN-L3) are still open in the specs; until they are settled there is no case that proves they are derived caches.
+6. **Depth limit.** Closed: default 2 when `allow_nesting: true`, 1 to 5, inherited and not raisable (DSP-015; ACC-304, ACC-162).
+7. **Live update delay, quota-read timeout, missing `v`, exit status.** Closed: 2 s (VIEW-012), 10 s (DSP-016), a defect by line (LED-011), exit 0/1/2/3 (VIEW-013); ACC-141, ACC-122, ACC-019, ACC-158.
+8. **Clock injection.** Closed: one replaceable clock function (DSP-019; seam S-2, ACC-159).
+9. **Terminal control sequences.** Closed: VIEW-007 covers the terminal as well as HTML (ACC-135).
+10. **Length bound.** Closed: a journal line is at most 4 KiB (DSP-017; ACC-224, ACC-160).
