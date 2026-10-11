@@ -64,6 +64,8 @@ Round reasons: `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (LED-
 | DSP-017 | **Caller-text limits.** `step` and `label` are 1–64 characters, printable, no control characters, and must pass the redaction function (RDR-008) unchanged; a value it would change is refused (`bad_request`, naming the field), never stored masked. No other caller field holds text: refs are pointers, the override reason is a code. A journal line is at most 4 KiB; a request whose node line or any edge or check line would exceed that is refused at validation. Reason: labels are display names, and a bound per line keeps the journal a small index (LAW-08). |
 | DSP-018 | **Round numbers.** Under the journal lock, the core gives the new node round = (highest round already recorded for that parent and step) + 1, and points its `round` edge at the node that holds that highest round — whatever node `round_of` named. `round_of` identifies the step and parent and carries the reason only. Two concurrent retries therefore get consecutive numbers, each edge pointing at the round just before it. |
 | DSP-019 | **One clock.** Every time the core reads — ages, freshness, stall, lock wait, quota timeout, retention, prune — comes from one clock function (wall and monotonic) that a test can replace. Production code never reads the system clock elsewhere. |
+| DSP-020 | **Session id (owner rule).** Trinity pre-assigns the node id (step 3). For `session: new`: when the adapter can take a caller-chosen session id (ADP-016), the core generates one (UUID v4), passes it to the adapter, and records it in the `node` record (`source: assigned`) before the harness starts. Otherwise the adapter captures the id from the harness's first output that carries it (a harness-reported id or exact marker, never the newest file, ADP-003), and the core appends a `session` line (`source: captured`, LED-017) as soon as the adapter reports it, while the harness still runs. If neither yields an id by the end, the core appends a `session` line with `source: session_unknown`, and the node can never end in success: a harness end that would be `ok` is recorded as `harness_error` (output ref kept), and `result.session_id` is `null`. For `session: <id>` (continue), the node records that id (`source: caller`); if the harness reports a different id, the core appends a `session` line with the reported id (`source: captured`), and later continues use that one (DSP-006 finds either). Reason: an id taken from the newest file can belong to a parallel call; a node with no id cannot be continued, resumed or matched to its transcript. |
+| DSP-021 | **Resume (OPEN-D1, decided).** `trinity resume <run>/<node> "<prompt>"` is sugar for `call` with that node's run, session id, profile, step and parent; nothing else differs (same validation, checks, journal lines; round number per DSP-018). Resuming a node whose session is `session_unknown` is `bad_request`. |
 
 ## 4. Exit classes (complete list)
 
@@ -85,7 +87,7 @@ Round reasons: `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (LED-
 | `session_not_found` | adapter | continue on a missing or expired session (ADP-004) | `running → failed` | caller: `session: new` as a new round (`failure`), CHK-007 |
 | `timeout` | adapter | `time_s` reached; process group killed (ADP-009) | `running → failed`, partial `output_ref` if any | caller: a new round (`timeout`), possibly with a larger `time_s` |
 | `interrupted` | core | caller or person interrupt (DSP-013) | `running → interrupted` or `queued → interrupted` | caller decides; a retry is a new round (`manual`) |
-| `harness_error` | adapter | harness exited with a recognised error | `running → failed` | caller: a new round (`failure`); repeated → person (DSP-011) |
+| `harness_error` | adapter, or core under DSP-020 | harness exited with a recognised error, or ended normally with no session id (`session_unknown`, DSP-020) | `running → failed` | caller: a new round (`failure`); repeated → person (DSP-011) |
 | `unknown` | adapter | anything not recognised | `running → failed`; redacted stderr tail in the error log (ADP-002) | person reads the error log; caller may retry once |
 
 ## 5. Failure expectations
@@ -102,6 +104,7 @@ Round reasons: `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (LED-
 | An indirect wait loop through nesting (a nested child waits on a node that waits on the child's ancestor) | Every waiting call on the loop returns `dependency_cycle`; the nodes stay queued, shown stuck with the member list; a person interrupts one; its dependents end `dependency_failed` (DSP-007); the ancestor then continues. |
 | Too deep a nesting chain | `nesting_refused` at depth `max_depth` + 1, one error-log line; sibling branches unaffected. |
 | Credential value in harness stderr | Only in the error log, redacted (ADP-002); never in the journal or result. |
+| Harness never reports a session id | `session` line `session_unknown`; node ends `failed` (`harness_error`) even if the harness ended normally; it cannot be resumed (DSP-020, DSP-021). |
 | Journal on a newer major version | `journal_unavailable`; nothing written in the old format. |
 
 ## 6. Risks
@@ -117,4 +120,4 @@ Round reasons: `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (LED-
 
 | ID | Question | Status |
 | --- | --- | --- |
-| OPEN-D1 | Is `trinity resume <run>/<node>` sugar for `call` with that node's session, profile, step and parent (OPEN-V4)? | Open — proposed yes; owner to confirm scope |
+| OPEN-D1 | Is `trinity resume <run>/<node>` sugar for `call` with that node's session, profile, step and parent (OPEN-V4)? | **Decided: yes** (owner) — DSP-021 |

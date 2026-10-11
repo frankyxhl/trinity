@@ -68,5 +68,5 @@ Out:
 | OPEN-V1 | Live web: short-lived local server started by `trinity open`, or a static file regenerated on each append? | Open — WO-002 |
 | OPEN-V2 | Live update delay target (seconds from journal append to screen) | **Closed:** 2 s (VIEW-012) |
 | OPEN-V3 | Shareable page or strictly local? | Open — owner; strictly local until decided (VIEW-006) |
-| OPEN-V4 | Is `trinity resume <run>/<node>` in scope for this rework? | Open — WO-002 (dispatch core) |
+| OPEN-V4 | Is `trinity resume <run>/<node>` in scope for this rework? | **Decided: yes** (owner) — a dispatch command, DSP-021 |
 | OPEN-V5 | One shared state-derivation function for both views | **Decided by NG-06 / VIEW-003:** yes |

@@ -57,6 +57,7 @@ event = {
 | RDR-012 | A reader never returns a credential source (path or env name) of the profile, only the redacted text (PRF-002). |
 | RDR-013 | **The profile's own value without the core holding it.** The adapter's wrapper process, which reads the credential anyway (PRF-001), writes a verifier per profile: value length, a random salt, and SHA-256 of salt + value — never the value — to a mode-600 file in Trinity's state directory. The reader hashes only windows of that length that start at the beginning of a non-space run or right after one of `= : " ' / , ; @ ( [ { - _ .`, and only where the run has at least that many characters left; a window whose salted hash matches is masked (kind `credential`). This keeps the cost to a few hashes per token instead of one per character (about 64 K per 64 KiB event). A value glued to preceding letters or digits is not caught by this kind; kinds 1 and 8 still apply. The core and the reader never read the credential source. The verifier is replaced when the wrapper sees a different value. Reason: the value is high-entropy, so the salted hash does not reveal it, and exact matching catches it even with no pattern shape. |
 | RDR-014 | **Secret-shaped paths.** Before the core appends a `transcript_ref`, `output_ref`, `reason_ref` or caller-supplied `override_ref`, it runs the path through the redaction function with the shape kinds only (1–7, not the entropy kind 8, so generated file names and id-bearing slugs are not withheld). If anything would be masked, the ref is not stored: the record holds `{"withheld": "secret_pattern"}` instead, the call itself still runs, and the reader returns status `withheld` with no events; the view says the pointer was withheld. Reason: relative paths still carry the vendor's project directory name, and a lookup table kept elsewhere would itself hold the secret. A false withhold that remains is accepted: it loses that pointer for good (the journal is append-only), and it is visible and countable as a `withheld` ref. |
+| RDR-015 | **Adapter-written transcript (OPEN-R1, decided).** An adapter whose harness keeps no vendor-side transcript (the direct-HTTP adapter: Trinity is the HTTP client of the vendor API; there is no Trinity server) writes a local JSONL transcript per session, outside the journal, mode 600 under Trinity's state directory, removed per the profile's `transcript_retention`. Every text is passed through the redaction function (RDR-008) before it is written, and the credential is sent in a request header only, never written. The file is Trinity's own output, so the leak test scans it with no allow-list entry. Its reader follows RDR-001..014 like any other. |
 
 ## 4. Per-harness readers
 
@@ -70,7 +71,7 @@ What each reader starts from. "Known" items are visible in the baseline code; th
 | droid | vendor session record | to probe | to probe | fixture needed |
 | agy | vendor session record | to probe | to probe | fixture needed |
 | opencode | to probe (OPEN-A2) | to probe | to probe | fixture needed |
-| deepseek-api | no vendor-side transcript (OPEN-R1) | path + byte offset of an adapter-written JSONL file | summary or absent | proposal |
+| deepseek-api | no vendor-side transcript; the adapter writes its own (RDR-015) | path + byte offset of the adapter-written JSONL file | summary or absent | decided (OPEN-R1) |
 
 ## 5. Failure expectations
 
@@ -100,4 +101,4 @@ What each reader starts from. "Known" items are visible in the baseline code; th
 
 | ID | Question | Status |
 | --- | --- | --- |
-| OPEN-R1 | Direct HTTP API has no vendor transcript: may its adapter write a local JSONL transcript (outside the journal, kept per profile retention)? | Open — proposed yes; owner to confirm, since it makes Trinity hold transcript text for that adapter |
+| OPEN-R1 | Direct HTTP API has no vendor transcript: may its adapter write a local JSONL transcript (outside the journal, kept per profile retention)? | **Decided: yes** (owner) — RDR-015 |

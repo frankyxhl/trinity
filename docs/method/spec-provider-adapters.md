@@ -35,7 +35,7 @@ Out:
 
 ## 3. Boundary contract (draft)
 
-Call input (from the core): resolved profile (credential *source* only), `session` = `new` or a session id, prompt text or prompt file, working dir, time limit, stall limit, run id + node id.
+Call input (from the core): resolved profile (credential *source* only), `session` = `new` (with a pre-assigned id when the adapter can take one, ADP-016) or a session id, prompt text or prompt file, working dir, time limit, stall limit, run id + node id.
 
 Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to final output in the transcript), `exit_class`, `transcript_ref` (path + offset or hash), `usage` (or absent), start/end times.
 
@@ -43,7 +43,7 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 | --- | --- |
 | ADP-001 | Every adapter accepts the same input shape and returns the same output shape, including `harness`. |
 | ADP-002 | `exit_class` is one value from the closed list in DSP-010 (`contracts/dispatch-core.md` §4); that table says which classes an adapter sets and which only the core sets. `unknown` comes with the last 2 KB of stderr, redacted as in ADP-012, in the core's error log (a store in METHOD §7), never in the journal. |
-| ADP-003 | `session=new` returns the new session id, found by an exact marker or a harness-reported id — never by newest-mtime (keeps the existing trace-marker fix). |
+| ADP-003 | `session=new` returns the new session id: the pre-assigned one, or one captured by an exact marker or a harness-reported id, reported to the core as soon as seen — never by newest-mtime (keeps the existing trace-marker fix). No id → the adapter reports none, and the core applies `session_unknown` (DSP-020). |
 | ADP-004 | `session=<id>` on a missing/expired session returns `session_not_found`; the adapter never starts a new session in its place (CHK-007). |
 | ADP-005 | Credentials are passed by env or by a file read inside the wrapper process; never on argv; never echoed. Observable: a process listing during a call shows no credential value. |
 | ADP-006 | The child env is built from an allow-list (existing `build_provider_env`) plus only the profile's declared variables. |
@@ -52,10 +52,21 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 | ADP-009 | On timeout or interrupt the adapter kills only the process group it started and reports partial output (existing `terminate_process_group`). |
 | ADP-010 | Model id comes from the profile; an id on the retired list is refused before any process starts (list and mechanism specified in WO-002). |
 | ADP-011 | `usage` is copied from what the harness reports. If the harness reports nothing, `usage` is **absent** (not 0, not an estimate). |
-| ADP-012 | **Reader.** Each adapter has one reader: input `transcript_ref`; output an ordered list of unified events `{t, type ∈ prompt|thinking|tool|output|heartbeat, text, raw_ref}`. It runs on demand (when a view asks), never at journal-write time. Lines it does not understand become `output` events marked `raw`, never dropped. It redacts secret-pattern matches before returning text. Full reader contract: RDR-001..012. |
+| ADP-012 | **Reader.** Each adapter has one reader: input `transcript_ref`; output an ordered list of unified events `{t, type ∈ prompt|thinking|tool|output|heartbeat, text, raw_ref}`. It runs on demand (when a view asks), never at journal-write time. Lines it does not understand become `output` events marked `raw`, never dropped. It redacts secret-pattern matches before returning text. Full reader contract: RDR-001..015. |
 | ADP-013 | **Honest thinking.** When the harness gives thinking only as a summary or encrypted, the reader returns it with `thinking_form = summary | encrypted | absent`, and never presents it as full text. |
 | ADP-014 | **Gone transcripts.** If the transcript at the ref no longer exists, the reader returns `gone` with the time it was found missing and, when the profile states vendor retention (PRF-009), the expected expiry time. |
 | ADP-015 | A repeated identical call (same prompt, same session) is a new call: new node, new output; the adapter never returns a cached earlier answer. |
+| ADP-016 | **Session-id source per adapter** (DSP-020), in the table below. "Pre-assign" = the adapter passes Trinity's id to the harness; "capture" = it reads the id from the harness's first output that carries one. "Confirm" items are settled by fixture before the adapter is built. |
+
+| Adapter | New session id | Continue |
+| --- | --- | --- |
+| claude-code | pre-assign (`--session-id <uuid>`) | `--resume <id>` |
+| anthropic-compat | pre-assign (same CLI) | `--resume <id>` |
+| deepseek-api | pre-assign (Trinity owns the local transcript, OPEN-R1) | Trinity replays its own transcript |
+| codex | capture: thread id in the first JSON event of `codex exec --json` (confirm) | `experimental resume <id>` |
+| droid | capture from first output (confirm) | `-s <id>` |
+| agy | capture (confirm) | to probe |
+| opencode | capture (OPEN-A2) | to probe (OPEN-A2) |
 
 ## 4. Environment assumptions
 

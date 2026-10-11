@@ -200,7 +200,7 @@ A Trinity release is an **annotated version tag on the public default branch** w
 | OPEN-05 | Journal content and retention | **Decided:** refs + harness type only, never text (LAW-08); journal rows kept 90 days (LED-013); transcript retention per profile (PRF-009) | owner |
 | OPEN-06 | Owner of WO-002 acceptance cases (not the WO-003+ author) | **Decided:** an author other than the contracts author and the WO-003+ author (WR-02) | project lead |
 | OPEN-07 | First end-to-end path (suggest: claude-code, one account profile, new session, one child, journal + CLI tree) | Open — WO-004 | project lead |
-| OPEN-08 | Dispatch core full contract (call signature, error classes) beyond the §5 summary | **Closed:** `contracts/dispatch-core.md` (DSP-001..019) | author + reviewer |
+| OPEN-08 | Dispatch core full contract (call signature, error classes) beyond the §5 summary | **Closed:** `contracts/dispatch-core.md` (DSP-001..021) | author + reviewer |
 | OPEN-09 | Presets and plan mode | **Decided:** rebuilt on the journal in WO-006 (SCO-09) | owner |
 | OPEN-10 | Release semantics refinement beyond §8 | Open — WO-006 | project lead |
 | OPEN-11 | Heavy-lock wait limit (CHK-003) | **Closed:** default 1200 s; a caller may set 0 to 3600 s; the wait does not count against the call time limit (DSP-008) | author + reviewer |

@@ -29,7 +29,7 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 {"v":1,"kind":"node","run":"r-…","node":"n-…","parent":"n-…|null",
  "step":"review","round":1,"label":"review","depth":0,
  "harness":"codex","profile":"codex","profile_reason":"named","model":"…",
- "session":{"id":"…","mode":"new|continue"},
+ "session":{"id":"…|null","mode":"new|continue","source":"assigned|caller|null"},
  "transcript_ref":{"path":"…","offset":0},"t":"…"}
 ```
 
@@ -60,6 +60,10 @@ A `round` edge runs `from` the new round `to` the round before it; `revises` lik
 ```
 
 ```json
+{"v":1,"kind":"session","run":"r-…","node":"n-…","id":"…|null","source":"captured|session_unknown","t":"…"}
+```
+
+```json
 {"v":1,"kind":"heartbeat","run":"r-…","node":"n-…","source":"transcript_growth","t":"…"}
 ```
 
@@ -83,6 +87,7 @@ A `round` edge runs `from` the new round `to` the round before it; `revises` lik
 | LED-014 | `check` and `heartbeat` lines are written by the core (CHK-001..006); every quota `check` line names result, source kind and read time; every heavy-lock `check` line names result and wait time; every dependency `check` line names result and target node, and a `cycle` result also names its `members` (DSP-007, GRF-006); an `override` result carries a closed `override_reason` code and an optional `override_ref` pointer (CHK-004), never free text. `node` lines carry nesting `depth` (CHK-005). |
 | LED-015 | `output_kind` is a closed enum (`commit`, `verdict`, `none`), never free text; the commit id or verdict word itself is read from `output_ref` on demand. |
 | LED-016 | A ref whose path the redaction function's shape kinds (RDR-008 kinds 1–7) would change is stored as `{"withheld": "secret_pattern"}`, never as the path (RDR-014). |
+| LED-017 | A node's session id is the one in its `node` record, or, if that is `null` or a later `session` line names another, the last `session` line's id. `session_unknown` (id `null`) is final for that node. The core writes `session` lines only per DSP-020. |
 
 ## 5. Environment assumptions
 
