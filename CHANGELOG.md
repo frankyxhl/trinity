@@ -56,6 +56,9 @@
   #245.
 
 ### Changed
+- Codex default pin `gpt-5.6-sol` → `gpt-6.1-sol`; documented `gpt-6-luna`
+  as an optional alternative through the existing `trinity.json` CLI overlay.
+  Both models verified on codex-cli 0.160.0.
 - Rules status-hygiene sweep: TRN-3034/3035/3036/3037/3038/3040
   `Proposed` → `Approved` (all implemented and merged — PRs #102/#105/#109/
   #114/#117/#119, each cited in the doc's Change History); TRN-2001/2003/
