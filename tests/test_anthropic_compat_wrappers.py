@@ -21,6 +21,8 @@ T14 (make verify-built after .delta.md edit) is enforced by `make test` itself.
 
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +33,7 @@ REPO_ROOT = Path(__file__).parent.parent
 DEEPSEEK_BIN = REPO_ROOT / "providers" / "bin" / "deepseek"
 OPENROUTER_BIN = REPO_ROOT / "providers" / "bin" / "openrouter"
 CLAUDE_CODE_BIN = REPO_ROOT / "providers" / "bin" / "claude-code"
+CLAUDE_CODE_DELTA = REPO_ROOT / "providers" / "claude-code.delta.md"
 
 CAPTURED_ENV_KEYS = (
     "ANTHROPIC_BASE_URL",
@@ -569,11 +572,16 @@ def test_t15_claude_code_acl_listing_extra_line_rejected(stub_env):
 
 
 def test_t15_claude_code_ls_without_dash_e_still_accepts(stub_env):
-    """P1/R7: `ls -lde` unsupported (GNU ls exits non-zero) falls back to the
-    `+` check, so a clean 0600 file is accepted."""
+    """P1/R7: on non-Darwin, `ls -lde` unsupported (GNU ls exits non-zero) falls
+    back to the `+` check, so a clean 0600 file is accepted. Pinned to Linux so
+    it keeps meaning "GNU ls" after the Darwin fail-closed fix."""
     env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
     _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
-    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    bin_dir = Path(env["HOME"]) / "bin"
+    uname_stub = bin_dir / "uname"
+    uname_stub.write_text("#!/bin/sh\nprintf '%s\\n' Linux\n")
+    uname_stub.chmod(0o755)
+    ls_stub = bin_dir / "ls"
     ls_stub.write_text(
         "#!/bin/sh\n"
         'case "$1" in\n'
@@ -587,6 +595,32 @@ def test_t15_claude_code_ls_without_dash_e_still_accepts(stub_env):
     assert (
         json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
     )
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_darwin_acl_listing_failure_refuses(stub_env):
+    """P1 fail-closed: on Darwin `ls -lde` is the only way to see an ACL, so a
+    failure to inspect must REFUSE rather than fall through to the `+` check."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    bin_dir = Path(env["HOME"]) / "bin"
+    uname_stub = bin_dir / "uname"
+    uname_stub.write_text("#!/bin/sh\nprintf '%s\\n' Darwin\n")
+    uname_stub.chmod(0o755)
+    ls_stub = bin_dir / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) exit 1;;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    assert "fleet-token.a" in res.stderr
+    assert "cannot inspect ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
     _assert_token_absent(res, FLEET_TOKEN_A)
 
 
@@ -677,6 +711,84 @@ def test_t15_claude_code_preserves_internal_whitespace(stub_env):
     assert res.returncode == 0, res.stderr
     assert json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "fake a b"
     _assert_token_absent(res, "fake a b")
+
+
+# --- claude-code ACCOUNT parse in providers/claude-code.delta.md (P2) ---
+#
+# The orchestrator snippet documented in the delta file parses the task
+# prompt's `ACCOUNT=<a|b|c>` token. These tests extract that snippet verbatim
+# from the doc and run it, so they fail if the doc's parse diverges from the
+# contract: exactly a/b/c is accepted; any `ACCOUNT=` token with any other value
+# (empty, `a=bad`, `=a`, `B`, `ab`) must error and never silently default to b;
+# no `ACCOUNT=` token at all leaves the account to the wrapper default b.
+#
+# Extraction: the ACCOUNT assignment line plus the contiguous non-blank lines
+# after it (a validation `if`/`case` must be adjacent to the assignment).
+
+
+def _code_blocks(text):
+    blocks, cur, in_block = [], [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            if in_block:
+                blocks.append(cur)
+                cur = []
+            in_block = not in_block
+            continue
+        if in_block:
+            cur.append(line)
+    return blocks
+
+
+def _extract_account_snippet():
+    for block in _code_blocks(CLAUDE_CODE_DELTA.read_text()):
+        for i, line in enumerate(block):
+            if re.match(r"\s*ACCOUNT=", line):
+                snippet = [line]
+                for nxt in block[i + 1 :]:
+                    if nxt.strip() == "":
+                        break
+                    snippet.append(nxt)
+                return "\n".join(snippet)
+    raise AssertionError(
+        "no `ACCOUNT=` snippet found in providers/claude-code.delta.md"
+    )
+
+
+def _run_account_snippet(prompt):
+    snippet = _extract_account_snippet()
+    script = (
+        f"PROMPT={shlex.quote(prompt)}\n"
+        + snippet
+        + "\n"
+        + "printf 'ACCOUNT=[%s]\\n' \"${ACCOUNT-<unset>}\"\n"
+    )
+    return subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("account", ["a", "b", "c"])
+def test_t15_delta_account_snippet_accepts_valid(account):
+    res = _run_account_snippet(f"ACCOUNT={account}")
+    assert res.returncode == 0, res.stderr
+    assert f"ACCOUNT=[{account}]" in res.stdout
+
+
+def test_t15_delta_account_snippet_no_token_leaves_account_unset():
+    """No `ACCOUNT=` token at all: no account is chosen here (wrapper default b)."""
+    res = _run_account_snippet("please review the code")
+    assert res.returncode == 0, res.stderr
+    assert ("ACCOUNT=[<unset>]" in res.stdout) or ("ACCOUNT=[]" in res.stdout)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["ACCOUNT=a=bad", "ACCOUNT==a", "ACCOUNT=", "ACCOUNT=B", "ACCOUNT=ab"],
+)
+def test_t15_delta_account_snippet_rejects_invalid(prompt):
+    """An `ACCOUNT=` token with an invalid value must error, not fall to b."""
+    res = _run_account_snippet(prompt)
+    assert res.returncode != 0, (res.stdout, res.stderr)
+    assert "ACCOUNT=[b]" not in res.stdout
 
 
 # --- Sanity check on installed bits (these are the obvious RED indicators) ---
