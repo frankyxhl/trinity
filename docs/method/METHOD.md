@@ -94,7 +94,7 @@ Component specs use these terms and do not redefine them.
 | ID | Rule |
 | --- | --- |
 | LAW-01 | **One call path.** Every harness is reached through the same `call(profile, session=new|<id>, prompt, cwd, limits)` contract. Harness differences live only inside its adapter. |
-| LAW-02 | **The journal is the only record of runs.** Tree shape, states and numbers in every view, status and retro count come from the journal. Event *detail* comes from readers via journal refs (LAW-08). No view keeps its own state of record. |
+| LAW-02 | **The journal is the only record of runs.** Tree shape, states and numbers in every view, status and retro count come from the journal. Event *detail* comes from readers via journal refs (LAW-08); while a node runs, a view may also show the core's live file for it (DSP-022), which is redacted, removed at node end and never a record. No view keeps its own state of record. |
 | LAW-03 | **No in-place edits.** Journal lines are never edited. Corrections are new lines. The only removal is the retention prune of whole runs older than 90 days (LED-013), and every prune is logged. |
 | LAW-04 | **No secret in any Trinity output.** Credential values never appear in the journal, logs, argv, prompts or views. Profiles name a credential *source*, not a value. Credential text that reaches a reader through a transcript is caught by pattern redaction (ADP-012), which is best-effort; the WO-002 leak-test fixture defines the bar. |
 | LAW-05 | **Model ids are data.** A model id appears in profile data only, never in adapter code or agent prose. Retired ids are refused (mechanism to be specified in WO-002; TRN-1006). |
@@ -200,7 +200,7 @@ A Trinity release is an **annotated version tag on the public default branch** w
 | OPEN-05 | Journal content and retention | **Decided:** refs + harness type only, never text (LAW-08); journal rows kept 90 days (LED-013); transcript retention per profile (PRF-009) | owner |
 | OPEN-06 | Owner of WO-002 acceptance cases (not the WO-003+ author) | **Decided:** an author other than the contracts author and the WO-003+ author (WR-02) | project lead |
 | OPEN-07 | First end-to-end path (suggest: claude-code, one account profile, new session, one child, journal + CLI tree) | Open — WO-004 | project lead |
-| OPEN-08 | Dispatch core full contract (call signature, error classes) beyond the §5 summary | **Closed:** `contracts/dispatch-core.md` (DSP-001..021) | author + reviewer |
+| OPEN-08 | Dispatch core full contract (call signature, error classes) beyond the §5 summary | **Closed:** `contracts/dispatch-core.md` (DSP-001..023) | author + reviewer |
 | OPEN-09 | Presets and plan mode | **Decided:** rebuilt on the journal in WO-006 (SCO-09) | owner |
 | OPEN-10 | Release semantics refinement beyond §8 | Open — WO-006 | project lead |
 | OPEN-11 | Heavy-lock wait limit (CHK-003) | **Closed:** default 1200 s; a caller may set 0 to 3600 s; the wait does not count against the call time limit (DSP-008) | author + reviewer |
