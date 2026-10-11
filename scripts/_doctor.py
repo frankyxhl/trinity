@@ -496,7 +496,7 @@ def _probe_provider(provider, provider_config, root):
     env = _codex.build_provider_env()
     try:
         # Mirror run_provider semantics: the prompt is appended as the final
-        # CLI argument (gemini -p / droid exec / codex exec all take it that
+        # CLI argument (droid exec / codex exec all take it that
         # way), the probe runs from the resolved root so relative
         # executable paths match the static executable_health check, and the
         # probe gets its own session so a timeout can kill the whole process

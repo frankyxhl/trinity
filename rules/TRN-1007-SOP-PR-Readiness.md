@@ -23,7 +23,7 @@ This SOP doesn't replace any of the above — it adds the "before-open" checkpoi
 
 ## Why
 
-Trinity ships moderate-frequency CHGs. Each one passes 4-provider panel review and a Codex-bot review on PR open. None of those gates check whether `README.md` mentions the new behavior or whether `CHANGELOG.md` has an unreleased-section entry. Two recent merges drifted documentation in exactly that way. A short pre-open verification scan prevents the drift; without it, future contributors (or future-you) read stale docs and don't know about merged behavior.
+Trinity ships moderate-frequency CHGs. Each one passes the required GLM/Codex/DeepSeek panel review and a Codex-bot review on PR open. Codex runs with `gpt-6.1-sol`; its CLI review is required in the default and deep panels, and an unavailable reviewer fails the review. None of those gates check whether `README.md` mentions the new behavior or whether `CHANGELOG.md` has an unreleased-section entry. Two recent merges drifted documentation in exactly that way. A short pre-open verification scan prevents the drift; without it, future contributors (or future-you) read stale docs and don't know about merged behavior.
 
 ---
 

@@ -22,7 +22,6 @@ Each provider exposes multiple model variants:
 |--------------|----------|
 | Capability tier | `deepseek-v4-pro` vs `deepseek-v4-flash`; `gpt-5.5` vs `gpt-5.5-mini` |
 | Context-window tier | `deepseek-v4-pro` (default) vs `deepseek-v4-pro[1m]` (1M-context) |
-| Modality | `gemini-3.1-pro-preview`, `gemini-3.1-flash-preview` |
 | Date/snapshot | `claude-opus-4-7`, `claude-opus-4-7[1m]` |
 
 If Trinity defers to the user's CLI default (`~/.codex/config.toml`, `~/.deepseek/config`, etc.), behaviour is non-deterministic across machines and across user reconfigurations — the same `/trinity codex "x"` could pick `gpt-5.4` on one box and `gpt-5.5-mini` on another. We pin explicitly to make `make install` produce the same provider behaviour everywhere.
@@ -81,27 +80,26 @@ Trinity's wrappers always double-quote the assignment (see `providers/bin/deepse
 
 Single source of truth per provider (post-TRN-3020 / TRN-3027):
 
-| Provider | Model pin location | Pinned value (as of 2026-05-08) |
+| Provider | Model pin location | Pinned value |
 |----------|--------------------|----------------------------------|
-| `codex` | `providers/registry.json` → `providers.codex.cli` | `codex exec --skip-git-repo-check -m gpt-5.5` (TRN-2005) |
-| `gemini` | `providers/gemini.delta.md` `### New session` invocation (registry deferred — TRN-3025) | `gemini-3.1-pro-preview` |
+| `codex` | `providers/registry.json` → `providers.codex.cli` + `.agents/trinity.codex.json` + `providers/codex.delta.md` | `codex exec --skip-git-repo-check -m gpt-6.1-sol`; required in both default and deep review panels |
 | `glm` | `providers/registry.json` → `providers.glm.cli` + `.agents/trinity.codex.json` + `providers/glm.delta.md` | Claude Code install + Codex review: `droid exec --auto medium --model custom:GLM-5.2` (BYOK custom model — Z.AI endpoint; `--reasoning-effort` omitted — Factory docs mark it unsupported for `custom:` models, and droid silently ignores it) |
 | `deepseek` | Model: `providers/bin/deepseek` env block. Bin path: `providers/registry.json` → `providers.deepseek.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="deepseek-v4-pro[1m]"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash"` |
 | `openrouter` | Model: `providers/bin/openrouter` env block. Bin path: `providers/registry.json` → `providers.openrouter.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
 
 **Three patterns**:
 
-- **Registry-managed native CLIs** (codex, glm): model is part of the `cli` string in `providers/registry.json`. The `Makefile install` target and `install.sh` both consume the registry via `scripts/install.py`; do NOT edit Makefile or install.sh `register` lines for these — they derive from the registry.
-- **Registry-deferred native CLI** (gemini): registered separately in `Makefile` and `install.sh` as `gemini -p` (no model flag in the registered CLI). The model is selected inside the `.delta.md` prompt (`gemini -m <model>` invocation in the `### New session` block). Gemini joins the registry once TRN-3025 lands a canonical `cli` value.
+- **Registry-managed native CLIs** (codex, glm, minimax): model is part of the `cli` string in `providers/registry.json`. The `Makefile install` target and `install.sh` both consume the registry via `scripts/install.py`; do NOT edit Makefile or install.sh `register` lines for these — they derive from the registry.
+- **Antigravity wrapper** (agy-opus): model selection lives in `providers/bin/agy-opus`; the registry stores the wrapper path. It remains an implementation fallback, not a review-panel member.
 - **Anthropic-compat wrappers** (deepseek, openrouter, claude-code): model lives in `ANTHROPIC_MODEL` env var inside `providers/bin/<name>`. The registry stores the bin-script wrapper path, not the model.
 
 ---
 
 ## Steps
 
-The exact procedure depends on which pin location the provider uses. **Section A** covers registry-managed native-CLI providers (codex, glm). **Section A-bis** covers gemini (registry-deferred). **Section B** covers Anthropic-compat wrappers (deepseek, openrouter, claude-code). **Section C** covers verification after `make install`.
+The exact procedure depends on which pin location the provider uses. **Section A** covers registry-managed native-CLI providers (codex, glm, minimax). **Section B** covers Anthropic-compat wrappers (deepseek, openrouter, claude-code). **Section C** covers verification after `make install`.
 
-### A. Registry-managed native-CLI providers (codex, glm)
+### A. Registry-managed native-CLI providers (codex, glm, minimax)
 
 1. Edit `providers/registry.json` → `providers.<name>.cli` field. The `Makefile install` target and `install.sh` both read this file via `scripts/install.py` — do NOT also edit `register` lines in those files (they no longer hardcode CLI strings for codex/glm post-TRN-3020).
 2. If the provider has caller-side flags in its `.delta.md` or in `.agents/trinity.codex.json`, update there too.
@@ -111,20 +109,6 @@ The exact procedure depends on which pin location the provider uses. **Section A
 6. CHANGELOG `[Unreleased]` entry.
 7. Commit, bump VERSION (TRN-1003), `make release-prep`, push.
 8. Re-run `make install` against `HOME=$(mktemp -d)` to confirm the registered `cli` matches what's in `providers/registry.json`.
-
-### A-bis. Gemini (registry-deferred until TRN-3025)
-
-Gemini is registered separately in `Makefile` (line ~63) and `install.sh` (line ~96) as `gemini -p`. The model itself is selected inside the `.delta.md` prompt, not in the registered CLI string.
-
-1. Edit `providers/gemini.delta.md` — update the model identifier in the `### New session` invocation (e.g. `gemini -m gemini-3.1-pro-preview -p ...`).
-2. Run `make build` (regenerates `providers/gemini.md`).
-3. Run `make verify-built` (must pass).
-4. Update any test asserting the gemini model string.
-5. CHANGELOG `[Unreleased]` entry.
-6. Commit, bump VERSION, `make release-prep`, push.
-7. Re-run `make install` to refresh `~/.claude/agents/trinity-gemini.md`.
-
-When TRN-3025 lands, this section folds back into Section A.
 
 ### B. Anthropic-compat providers (deepseek, openrouter)
 

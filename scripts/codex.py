@@ -504,7 +504,7 @@ def cmd_session_path(args):
 
     Lookup-key normalization (per CHG-3040 Surface 4):
     `<project>/.claude/trinity.json` keys are unsuffixed (`glm`, `codex`,
-    `gemini`). The CLI accepts `<provider>[:<instance>]`; we strip a
+    `deepseek`). The CLI accepts `<provider>[:<instance>]`; we strip a
     `:default` suffix at lookup time so `trinity session-path glm:default`
     is equivalent to `trinity session-path glm`. Other suffixes
     (e.g. `glm:experimental`) pass through verbatim and look up the

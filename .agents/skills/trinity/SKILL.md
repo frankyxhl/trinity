@@ -25,9 +25,9 @@ Also treat `$trinity` as an explicit Codex skill invocation.
 For Codex-native code review from the terminal, use the installed wrapper:
 
 ```bash
-trinity doctor --providers glm,gemini,deepseek
+trinity doctor --providers glm,codex,deepseek
 trinity doctor --preset fast-review
-trinity review --providers glm,gemini,deepseek --scope <path-or-label>
+trinity review --providers glm,codex,deepseek --scope <path-or-label>
 trinity review --preset fast-review --scope <path-or-label>
 trinity review --preset dr --scope <path-or-label>
 trinity review --base main --head HEAD --providers glm,deepseek
@@ -47,12 +47,15 @@ metadata and synthesis are marked with `incomplete.json` in the review
 directory.
 The review preset resolver selects providers from explicit `--providers`,
 explicit `--preset`, `review.default_preset`, then legacy
-`review.default_providers`. `review` expands to `glm`, `gemini`, and
+`review.default_providers`. `review` expands to `glm`, `codex`, and
 `deepseek`; `fast-review` expands to `glm` and `deepseek`; `deep-review`
-expands to `glm`, `gemini`, and `deepseek`. Aliases `r`, `fr`, and `dr` resolve
-to those preset names. Optional providers are skipped with stderr warnings when
-they lack config or a CLI, and skipped providers are recorded in
-`metadata.json`.
+expands to `glm`, `codex`, and `deepseek`. Aliases `r`, `fr`, and `dr` resolve
+to those preset names. Both `review` and `deep-review` require all three vendors;
+Codex runs as `codex exec --skip-git-repo-check -m gpt-6.1-sol`. Missing config,
+an empty CLI, an unavailable executable, or a failed Codex process fails the
+review; never reduce it to two providers. Custom presets may declare optional
+providers, which are skipped with stderr warnings when they lack config or a
+CLI; skipped providers are recorded in `metadata.json`.
 `trinity doctor` and `trinity review --check-providers` validate provider config,
 command lookup, executable permissions, and timeout values without making network
 calls. Use the default review mode for dirty working-tree changes, `--base` /
@@ -85,7 +88,7 @@ For Codex load verification, use these smoke checks after changes are installed 
 - Repo-local skill: restart/start Codex in this repository, open `/skills` or invoke `$trinity`, and confirm `trinity` is visible/loadable.
 - Plugin package: restart Codex, open `/plugins`, select the repo marketplace, and confirm the `trinity` plugin appears and exposes its bundled skill.
 - Local wrapper: run `make install-codex`, then `trinity --version`,
-  `trinity doctor --providers glm,gemini,deepseek`, and a mocked or low-risk
-  `trinity review --providers glm,gemini,deepseek --scope <path>`.
+  `trinity doctor --providers glm,codex,deepseek`, and a mocked or low-risk
+  `trinity review --providers glm,codex,deepseek --scope <path>`.
 
 For Claude Code regression verification, keep using the existing Claude checks: install Trinity, restart Claude Code, and run `/trinity status`.

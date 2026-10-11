@@ -62,12 +62,15 @@ Built-in presets (configurable in `~/.claude/trinity.json` under `presets` /
 
 | Preset | Required providers | Optional providers | Alias |
 |--------|--------------------|--------------------|-------|
-| `review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `r` |
+| `review` | `glm`, `codex`, `deepseek` | none | `r` |
 | `fast-review` | `glm`, `deepseek` | none | `fr` |
-| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` | `dr` |
+| `deep-review` | `glm`, `codex`, `deepseek` | none | `dr` |
 
-Optional providers are only dispatched when discovery marks them usable;
-otherwise Trinity warns and continues with the required set.
+Both `review` and `deep-review` require all three vendors. Codex uses
+`gpt-6.1-sol`; if any required member cannot run, the review fails.
+Custom presets may declare optional providers, which are only dispatched when
+discovery marks them usable; otherwise Trinity warns and continues with that
+preset's required set.
 
 The Codex-native review adapter (`trinity review`, see
 [Codex Compatibility](codex-compatibility.md)) ships these presets out of the
@@ -88,7 +91,7 @@ Visualize task assignments as a sequence diagram before dispatching.
 /trinity plan "Build an e-commerce system with auth, orders, and payment"
 ```
 
-Trinity analyzes the goal, assigns coding tasks to GLM, review tasks to Codex/Gemini, draws the dependency diagram, and asks you to confirm:
+Trinity analyzes the goal, assigns coding tasks to GLM, review tasks to Codex, draws the dependency diagram, and asks you to confirm:
 
 ```
 User    Claude    GLM:auth   GLM:order   Codex

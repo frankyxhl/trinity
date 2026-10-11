@@ -465,7 +465,7 @@ def test_unknown_provider_returns_exit_3(tmp_path, capsys):
     rc = sp.cmd_session_path(str(project), "mystery")
     err = capsys.readouterr().err
     assert rc == 3
-    assert err.strip() == "provider 'mystery' not supported by session-path resolver"
+    assert err.strip() == "unknown provider 'mystery' for session-path resolver"
 
 
 @pytest.mark.parametrize(

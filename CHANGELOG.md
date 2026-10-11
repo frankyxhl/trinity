@@ -30,6 +30,7 @@
   tests). Status: Proposed — awaits the TRN-1008 loop.
 
 ### Removed
+- Removed Gemini provider; Codex joins default review panel
 - `scripts/_compat.py` — the shared guarded-`fcntl` helper (TRN-3041). Reverses
   the over-engineering-audit verdict (2026-06-23, issue #238): `session.py` and
   `install.py` now `import fcntl` directly. Behavior delta: on a platform

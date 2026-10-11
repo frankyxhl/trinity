@@ -48,9 +48,9 @@ body:
         - glm
         - minimax
         - codex
-        - gemini
         - openrouter
         - deepseek
         - claude-code
+        - agy-opus
         - multi-provider (preset / fan-out)
         - N/A (not provider-specific)

@@ -122,21 +122,16 @@ Both run the same task text.
 
 **Expected route:**
 Parse `review` → matched as preset name → expand to required providers
-(`glm`, `gemini`, `deepseek`) + optional providers (`codex`, `claude-code`) →
-for each usable provider, dispatch the same task `"review auth 代码"` → optional
-providers that are missing (config/agent file absent) show a warning and are
-skipped.
+(`glm`, `codex`, `deepseek`) → dispatch the same task `"review auth 代码"` to
+all three. Codex runs with `gpt-6.1-sol` and is a full panel member.
 
 **Pass criteria:**
 
-- [ ] Launch summary shows dispatch to every **required** provider that is usable,
-      e.g. `GLM → review auth 代码 (background)`, `DeepSeek → review auth 代码 (background)`
-- [ ] If `gemini` (a **required** provider) has no agent file → the preset
-      expansion reports it as a required-provider failure (not an optional
-      warning); the run must not silently continue as if the set were complete
-- [ ] If `codex`/`claude-code` (optional) are missing → output shows an
-      `⚠️ (optional)` warning and dispatch continues with the required set
-- [ ] If `codex`/`claude-code` are present → they appear in the dispatch list
+- [ ] Launch summary shows all three required providers, including Codex
+- [ ] If `codex` has no config, agent file, or usable CLI → report a
+      required-provider failure; the review fails instead of dropping Codex
+- [ ] A failed Codex process also fails the review; no two-provider PASS
+- [ ] `deep-review` has the same three required vendors
 - [ ] Each dispatched entry gets the **same task text**
 - [ ] `.claude/trinity.json` records a `task_type: "review"` for each dispatched agent
 

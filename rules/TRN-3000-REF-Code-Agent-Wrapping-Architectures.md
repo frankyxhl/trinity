@@ -10,7 +10,7 @@
 
 ## What this REF is
 
-A reference doc capturing how external coding agents (Claude Code, Codex, Gemini CLI, etc.) can be wrapped by an orchestrator like Trinity, distilled from a study of OpenClaw's architecture. It records **what Trinity adopts, what it deliberately doesn't, and why**, so future contributors don't re-litigate the architectural choice every time the topic comes up.
+A reference doc capturing how external coding agents (Claude Code, Codex, droid, etc.) can be wrapped by an orchestrator like Trinity, distilled from a study of OpenClaw's architecture. It records **what Trinity adopts, what it deliberately doesn't, and why**, so future contributors don't re-litigate the architectural choice every time the topic comes up.
 
 This is a **decision record + architectural map**, not a how-to. For implementation, see the issues this REF informs (TRN-3020 / 3021 / 3022 / 3023 / 3024 / TRN-issue #55).
 

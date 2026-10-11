@@ -6,11 +6,11 @@
       "resume_arg": "-s",
       "timeout": 360
     },
-    "gemini": {
-      "cli": "gemini --model gemini-3.1-pro-preview -p",
+    "codex": {
+      "cli": "codex exec --skip-git-repo-check -m gpt-6.1-sol",
       "supports_resume": true,
-      "resume_arg": "-r",
-      "timeout": 360
+      "resume_arg": "experimental resume",
+      "timeout": 600
     },
     "deepseek": {
       "cli": "~/.codex/skills/trinity/bin/deepseek -p",
@@ -22,7 +22,7 @@
   "review": {
     "default_providers": [
       "glm",
-      "gemini",
+      "codex",
       "deepseek"
     ],
     "output_dir": ".trinity/reviews",
@@ -33,12 +33,8 @@
     "review": {
       "providers": [
         "glm",
-        "gemini",
-        "deepseek"
-      ],
-      "optional_providers": [
         "codex",
-        "claude-code"
+        "deepseek"
       ],
       "task_type": "review"
     },
@@ -52,12 +48,8 @@
     "deep-review": {
       "providers": [
         "glm",
-        "gemini",
-        "deepseek"
-      ],
-      "optional_providers": [
         "codex",
-        "claude-code"
+        "deepseek"
       ],
       "task_type": "review"
     }

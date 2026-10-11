@@ -22,7 +22,6 @@
     {"src": "providers/glm.md", "dest": ".claude/agents/trinity-glm.md"},
     {"src": "providers/minimax.md", "dest": ".claude/agents/trinity-minimax.md"},
     {"src": "providers/codex.md", "dest": ".claude/agents/trinity-codex.md"},
-    {"src": "providers/gemini.md", "dest": ".claude/agents/trinity-gemini.md"},
     {"src": "providers/openrouter.md", "dest": ".claude/agents/trinity-openrouter.md"},
     {"src": "providers/deepseek.md", "dest": ".claude/agents/trinity-deepseek.md"},
     {"src": "providers/claude-code.md", "dest": ".claude/agents/trinity-claude-code.md"},
