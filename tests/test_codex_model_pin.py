@@ -36,4 +36,6 @@ def test_shipped_files_do_not_contain_gpt_5_6_sol():
         if path.is_file() and b"gpt-5.6-sol" in path.read_bytes()
     ]
 
-    assert not offenders, "retired Codex model in shipped files: " + ", ".join(offenders)
+    assert not offenders, "retired Codex model in shipped files: " + ", ".join(
+        offenders
+    )
