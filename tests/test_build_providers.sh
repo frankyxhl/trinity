@@ -14,10 +14,16 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_ROOT"
+# Generate into a disposable copy; RED tests must not rewrite production files.
+BUILD_ROOT=$(mktemp -d)
+trap 'rm -rf "$BUILD_ROOT"' EXIT
+mkdir -p "$BUILD_ROOT/scripts"
+cp -R "$REPO_ROOT/providers" "$BUILD_ROOT/providers"
+cp "$REPO_ROOT/scripts/build_providers.sh" "$BUILD_ROOT/scripts/"
+cd "$BUILD_ROOT"
 
-PROVIDERS=(codex gemini glm minimax openrouter deepseek claude-code)
-NATIVE=(codex gemini glm minimax)
+PROVIDERS=(codex glm minimax openrouter deepseek claude-code agy-opus)
+NATIVE=(codex glm minimax)
 WRAPPER=(openrouter deepseek claude-code)
 PARTIALS=(_base/common-session.md _base/common-tail.md _base/family-wrapper.md)
 
@@ -189,7 +195,8 @@ done
 
 # Provider-specific CLI signatures (delta content survived).
 check "codex CLI signature"      grep -q 'codex exec' providers/codex.md
-check "gemini CLI signature"     grep -q 'gemini --model' providers/gemini.md
+check "gemini generated provider absent" test ! -e providers/gemini.md
+check "gemini provider delta absent" test ! -e providers/gemini.delta.md
 check "glm CLI signature"        grep -q 'droid exec --auto medium --model custom:GLM-5.2' providers/glm.md
 check "minimax CLI signature"    grep -q 'droid exec --auto medium --model custom:MiniMax-M3' providers/minimax.md
 # CHG-3046: droid-family session id must come from `droid exec -o json` (the

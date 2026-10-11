@@ -94,7 +94,8 @@ def test_readme_documents_claude_and_codex_load_smoke_checks():
     assert "/skills" in codex_text
     assert "/plugins" in codex_text
     assert "make install-codex" in codex_text
-    assert "trinity review --providers glm,gemini,deepseek" in codex_text
+    assert "gemini" not in codex_text.lower()
+    assert "trinity review --providers glm,codex,deepseek" in codex_text
     assert "trinity doctor --preset fast-review" in codex_text
     assert "trinity review --preset fast-review" in codex_text
     assert "trinity review --pr 21 --preset deep-review" in codex_text

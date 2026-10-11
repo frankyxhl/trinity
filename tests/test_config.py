@@ -249,14 +249,9 @@ def test_presets_project_key_wins_shallowly(tmp_path):
     write_config(
         global_config,
         {
-            "presets": {
-                "review": {
-                    "providers": ["gemini", "glm"],
-                    "optional_providers": ["codex"],
-                    "task_type": "review",
-                },
-                "deep-review": {"providers": ["glm", "gemini", "deepseek"]},
-            }
+            "presets": json.loads(
+                (SCRIPT.parent.parent / ".agents" / "trinity.codex.json").read_text()
+            )["presets"]
         },
     )
     project_dir = tmp_path / "project"
@@ -276,9 +271,9 @@ def test_presets_project_key_wins_shallowly(tmp_path):
     assert rc == 0
     result = json.loads(out)
     assert result["presets"]["review"] == {"providers": ["glm"]}
-    assert result["presets"]["deep-review"] == {
-        "providers": ["glm", "gemini", "deepseek"]
-    }
+    assert result["presets"]["deep-review"]["providers"] == ["glm", "codex", "deepseek"]
+    assert "codex" not in result["presets"]["deep-review"].get("optional_providers", [])
+    assert "gemini" not in result["presets"]["deep-review"]["providers"]
 
 
 def test_preset_aliases_project_key_wins(tmp_path):

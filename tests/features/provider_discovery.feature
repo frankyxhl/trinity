@@ -20,6 +20,6 @@ Feature: Provider discovery
     Then provider "codex" status is "missing_agent"
 
   Scenario: A provider with agent file but no config shows as missing_config
-    Given an agent file for provider "gemini"
+    Given an agent file for provider "codex"
     When I run provider discovery
-    Then provider "gemini" status is "missing_config"
+    Then provider "codex" status is "missing_config"

@@ -4,7 +4,7 @@ Path-only contract tests:
 
 - 5 happy-path tests: glm, codex-via-index, codex-via-glob-fallback,
   claude-family parameterized over (claude-code, deepseek, openrouter),
-  gemini stub returns exit 3.
+  Unknown providers return nonzero with a clear diagnostic.
 - 5 error-exit tests: no-pointer (exit 2), file-missing (exit 3),
   unknown-provider (exit 3), malformed session_id (exit 3),
   codex multi-glob residual (exit 3).
@@ -403,16 +403,19 @@ def test_droid_family_preserves_underscore_in_project_path(
     assert out.out == f"{transcript}\n"
 
 
-def test_gemini_stub_returns_exit_3(tmp_path, capsys):
+def test_removed_provider_returns_unknown_provider_error(tmp_path, capsys):
     sp = _import_session_path()
     project = tmp_path / "proj"
     project.mkdir()
-    _write_pointer(project, {"gemini": {"session_id": "g-1"}})
+    _write_pointer(
+        project, {"gemini": {"session_id": "g-1"}}
+    )  # Unknown-provider fixture.
 
-    rc = sp.cmd_session_path(str(project), "gemini")
+    rc = sp.cmd_session_path(str(project), "gemini")  # Unknown-provider request.
     err = capsys.readouterr().err
-    assert rc == 3
-    assert err.strip() == "gemini transcript layout not yet supported (TRN-3040)"
+    assert rc != 0
+    assert "unknown provider" in err.lower()
+    assert "gemini" in err.lower()  # Unknown provider must be identified.
 
 
 # ---------------------------------------------------------------------------
