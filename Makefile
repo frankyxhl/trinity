@@ -1,4 +1,4 @@
-.PHONY: setup lock build verify-built install-hooks test lint coverage audit install install-codex pr-update bump release-prep
+.PHONY: setup lock build verify-built install-hooks test acceptance lint coverage audit install install-codex pr-update bump release-prep
 
 # Read VERSION at make invocation time
 CURRENT_VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
@@ -35,6 +35,9 @@ test:           ## Run pytest and shell regression tests
 		[ "$$f" = "tests/test_*.sh" ] && continue; \
 		bash "$$f"; \
 	done
+
+acceptance:     ## Report every acceptance case as pass/fail/not_run/approved_na (WO-003); non-zero until all pass
+	.venv/bin/python scripts/acceptance.py
 
 lint:           ## Check and format code (TRN-1002)
 	.venv/bin/ruff check scripts/ tests/
