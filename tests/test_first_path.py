@@ -1171,6 +1171,80 @@ def _finality_journal(root):
     return run, node, assigned, later, other_run, other_node, other_id
 
 
+def _append_line(root, record):
+    from scripts.trinity_core import journal
+
+    line_no = len(journal.read(root)) + 1
+    journal.append(root, record)
+    return line_no
+
+
+def _override_journal(root):
+    run = "r-override"
+    node = "n-override"
+    _append_line(
+        root,
+        {
+            "kind": "node",
+            "run": run,
+            "node": node,
+            "parent": None,
+            "step": "root",
+            "depth": 0,
+            "profile": PROFILE,
+            "model": MODEL,
+            "session": {
+                "id": "77777777-7777-4777-8777-777777777777",
+                "mode": "new",
+                "source": "assigned",
+            },
+        },
+    )
+    _append_line(
+        root,
+        {
+            "kind": "state",
+            "run": run,
+            "node": node,
+            "state": "failed",
+            "exit_class": "harness_error",
+            "output_kind": "none",
+            "wall_s": 1,
+        },
+    )
+    _append_line(
+        root,
+        {
+            "kind": "session",
+            "run": run,
+            "node": node,
+            "id": None,
+            "source": "session_unknown",
+        },
+    )
+    first = _append_line(
+        root,
+        {
+            "kind": "session",
+            "run": run,
+            "node": node,
+            "id": "88888888-8888-4888-8888-888888888888",
+            "source": "captured",
+        },
+    )
+    second = _append_line(
+        root,
+        {
+            "kind": "session",
+            "run": run,
+            "node": node,
+            "id": "99999999-9999-4999-8999-999999999999",
+            "source": "captured",
+        },
+    )
+    return run, first, second
+
+
 def test_tree_keeps_session_unknown_final_and_flags_later_record(tmp_path):
     from scripts.trinity_core import render_tree
 
@@ -1184,7 +1258,18 @@ def test_tree_keeps_session_unknown_final_and_flags_later_record(tmp_path):
     assert UNKNOWN_SHORT_ID in line.split(), line
     assert assigned[:8] not in line.split(), line
     assert later[:8] not in line.split(), line
-    assert SESSION_DEFECT_MARKER in line.split(), line
+    assert any(token.startswith(SESSION_DEFECT_MARKER) for token in line.split()), line
+
+
+def test_tree_defect_names_offending_journal_lines(tmp_path):
+    from scripts.trinity_core import render_tree
+
+    root = tmp_path / "state"
+    run, first, second = _override_journal(root)
+    lines = render_tree(str(root), run)
+    assert len(lines) == 1, lines
+    expected = f"{SESSION_DEFECT_MARKER}@L{first},L{second}"
+    assert expected in lines[0].split(), (lines[0], expected)
 
 
 def test_tree_session_unknown_defect_is_scoped_to_its_run(tmp_path):
@@ -1198,7 +1283,9 @@ def test_tree_session_unknown_defect_is_scoped_to_its_run(tmp_path):
     assert len(other_lines) == 1, other_lines
     other_line = other_lines[0]
     assert other_id[:8] in other_line.split(), other_line
-    assert SESSION_DEFECT_MARKER not in other_line.split(), other_line
+    assert not any(
+        token.startswith(SESSION_DEFECT_MARKER) for token in other_line.split()
+    ), other_line
     assert len(render_tree(str(root), run)) == 1
 
 

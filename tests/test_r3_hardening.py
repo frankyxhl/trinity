@@ -232,6 +232,81 @@ def test_ordinary_values_stay_accepted():
         assert journal.redact(value) == value, value
 
 
+def _assignment_lines() -> list[dict]:
+    secret = _synthetic_secret()
+    return [
+        {
+            "tag": "ordinary-then-secret",
+            "text": f"status=ok password={secret}",
+            "secret": secret,
+            "keep": ["status=ok", "status", "ok"],
+        },
+        {
+            "tag": "numeric-then-secret",
+            "text": f"max_tokens=100 api_key={secret}",
+            "secret": secret,
+            "keep": ["max_tokens=100"],
+        },
+        {
+            "tag": "secret-in-middle",
+            "text": f"a=1 b=2 token={secret} c=3",
+            "secret": secret,
+            "keep": ["a=1", "b=2", "c=3"],
+        },
+        {
+            "tag": "secret-then-ordinary",
+            "text": f"password={secret} status=ok",
+            "secret": secret,
+            "keep": ["status=ok", "status", "ok"],
+        },
+    ]
+
+
+def test_assignment_masks_only_the_secret_and_keeps_ordinary_pairs():
+    from scripts.trinity_core import journal
+
+    for case in _assignment_lines():
+        out = journal.redact(case["text"])
+        assert journal.would_redact(case["text"]) is True, case["tag"]
+        assert case["secret"] not in out, (case["tag"], out)
+        for token in case["keep"]:
+            assert token in out, (case["tag"], token, out)
+
+
+def test_assignment_lines_are_refused_and_journal_stays_empty(tmp_path, monkeypatch):
+    for case in _assignment_lines():
+        for field in ("step", "label"):
+            _refused(
+                tmp_path, monkeypatch, case["text"], field, f"{case['tag']}-{field}"
+            )
+
+
+def test_ordinary_multi_pair_line_is_unchanged_and_accepted(tmp_path, monkeypatch):
+    from scripts.trinity_core import journal
+    import scripts.trinity_core as core
+
+    line = "status=ok max_tokens=100"
+    assert journal.would_redact(line) is False, line
+    assert journal.redact(line) == line, line
+
+    state = tmp_path / "state"
+    monkeypatch.setenv("TRINITY_ROOT", str(state))
+    monkeypatch.delenv("TRINITY_GUARD", raising=False)
+    profiles = _write_profiles(tmp_path, quota_command=str(tmp_path / "no-such-quota"))
+    result = core.call(
+        {
+            "profiles_path": str(profiles),
+            "profile": PROFILE,
+            "step": "root",
+            "session": "new",
+            "prompt": {"text": "x"},
+            "cwd": str(tmp_path),
+            "label": line,
+        }
+    )
+    assert result["exit_class"] != "bad_request", result
+
+
 def test_ordinary_step_and_label_are_not_refused(tmp_path, monkeypatch):
     import scripts.trinity_core as core
 
