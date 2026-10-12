@@ -16,7 +16,7 @@ In — one adapter per harness family (provider names map per METHOD §2.1):
 
 | Adapter | Harness | Billing | At baseline | Change |
 | --- | --- | --- | --- | --- |
-| claude-code | `claude -p` (isolated config dir) | subscription via setup-token | wrapper, fixed model/effort, one login | credential and model from profile (one profile per account) |
+| claude-code | `claude -p` (isolated config dir) | subscription via setup-token | wrapper, fixed model/effort, one login | one profile per account, each naming its credential wrapper command; model from profile |
 | codex | `codex exec` / `exec resume` | subscription | model id pinned in registry | model from profile (vendor's current models) |
 | droid | `droid exec --auto medium` (glm, minimax) | subscription | model ids pinned | model from profile; glm path re-specified in WO-002 (RSK-01) |
 | agy | Antigravity CLI | subscription | wrapper with run lock | keep |
@@ -45,8 +45,8 @@ Call output: `harness` (adapter name), `session_id`, `output_ref` (pointer to fi
 | ADP-002 | `exit_class` is one value from the closed list in DSP-010 (`contracts/dispatch-core.md` §4); that table says which classes an adapter sets and which only the core sets. `unknown` comes with the last 2 KB of stderr, redacted as in ADP-012, in the core's error log (a store in METHOD §7), never in the journal. |
 | ADP-003 | `session=new` returns the new session id: the pre-assigned one, or one captured by an exact marker or a harness-reported id, reported to the core as soon as seen — never by newest-mtime (keeps the existing trace-marker fix). No id → the adapter reports none, and the core applies `session_unknown` (DSP-020). |
 | ADP-004 | `session=<id>` on a missing/expired session returns `session_not_found`; the adapter never starts a new session in its place (CHK-007). |
-| ADP-005 | Credentials are passed by env or by a file read inside the wrapper process; never on argv; never echoed. Observable: a process listing during a call shows no credential value. |
-| ADP-006 | The child env is built from an allow-list (existing `build_provider_env`) plus only the profile's declared variables. |
+| ADP-005 | The profile names a credential wrapper command; the adapter runs that command in place of the harness, and the command reads the credential (env or file) inside its own process. The core never reads it; it is never on argv and never echoed. Observable: a process listing during a call shows no credential value. |
+| ADP-006 | The child env is built from an allow-list (existing `build_provider_env`) only; the adapter forwards no credential variable to the child. The named wrapper, not the adapter, supplies the credential to the harness. |
 | ADP-007 | The child gets the recursion guard (`TRINITY_DISABLE_DISPATCH=1` or equivalent) unless the run allows nesting. |
 | ADP-008 | Each adapter declares its heartbeat source (transcript growth, stdout, or process alive) and a default stall limit in seconds; a profile may override it (OPEN-A6). |
 | ADP-009 | On timeout or interrupt the adapter kills only the process group it started and reports partial output (existing `terminate_process_group`). |

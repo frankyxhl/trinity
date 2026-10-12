@@ -90,7 +90,7 @@ def _resolve_prompt(request: dict) -> str | None:
                 return None
             try:
                 text = Path(path).read_text(encoding="utf-8")
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 return None
         else:
             value = prompt.get("text")
@@ -172,6 +172,9 @@ def call(request: dict) -> dict:
     if adapter is None:
         journal.append_error(root, {"error": "unknown_adapter"})
         return _result(None, None, "profile_refused", None)
+
+    if not getattr(adapter, "accepts_profile", lambda _profile: True)(profile):
+        return _result(None, None, "bad_request", None)
 
     if is_root:
         run_id = _new_id("r-")

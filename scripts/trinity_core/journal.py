@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -41,7 +42,19 @@ _KEY_PREFIX = re.compile(
 _BEARER = re.compile(r"(?i)(authorization\s*:\s*|bearer\s+)(\S+)")
 _NAME = r"[A-Za-z_][A-Za-z0-9_.\-]*"
 _ASSIGN = re.compile(r"(?i)\b((?:export\s+)?" + _NAME + r")\s*([=:])\s*(\S+)")
-_MEMBER = re.compile(r'"(' + _NAME + r')"\s*:\s*"([^"]*)"')
+_MEMBER = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*([\"'])(.*?)\3", re.DOTALL)
+_URL_PASSWORD = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://[^/\s:@]+):([^/\s@]+)@")
+_ENTROPY_RUN = re.compile(r"[A-Za-z0-9_+=-]{32,}")
+_PURE_HEX = re.compile(r"[0-9A-Fa-f]+\Z")
+_ENTROPY_FLOOR = 4.2
+
+
+def _bits_per_char(text: str) -> float:
+    counts: dict[str, int] = {}
+    for char in text:
+        counts[char] = counts.get(char, 0) + 1
+    total = len(text)
+    return -sum((count / total) * math.log2(count / total) for count in counts.values())
 
 
 def _is_secret_name(name: str) -> bool:
@@ -54,9 +67,10 @@ def _is_secret_name(name: str) -> bool:
 
 
 def _mask_member(match: re.Match) -> str:
-    if _is_secret_name(match.group(1)):
-        return f'"{match.group(1)}": "[redacted:member]"'
-    return match.group(0)
+    if not _is_secret_name(match.group(2)):
+        return match.group(0)
+    quote = match.group(1)
+    return f"{quote}{match.group(2)}{quote}: {quote}[redacted:member]{match.group(3)}"
 
 
 def _mask_assignment(match: re.Match) -> str:
@@ -66,14 +80,31 @@ def _mask_assignment(match: re.Match) -> str:
     return match.group(0)
 
 
+def _mask_entropy(match: re.Match) -> str:
+    run = match.group(0)
+    if _PURE_HEX.match(run):
+        # RDR-008 hex rule: a pure-hex run of 7..64 alone is never masked, so
+        # commit ids and content hashes survive; only longer hex is a secret.
+        return "[redacted:entropy]" if len(run) > 64 else run
+    if not any(char.isalpha() for char in run):
+        return run
+    if not any(char.isdigit() for char in run):
+        return run
+    if _bits_per_char(run) < _ENTROPY_FLOOR:
+        return run
+    return "[redacted:entropy]"
+
+
 def redact(text: str) -> str:
-    """Mask secret-shaped runs (RDR-008 kinds 1, 2, 4, 5)."""
+    """Mask secret-shaped runs (RDR-008 kinds 1, 2, 4, 5, 6, 8)."""
     if not isinstance(text, str):
         return text
     out = _KEY_PREFIX.sub(lambda m: "[redacted:key]", text)
     out = _BEARER.sub(lambda m: m.group(1) + "[redacted:bearer]", out)
     out = _MEMBER.sub(_mask_member, out)
     out = _ASSIGN.sub(_mask_assignment, out)
+    out = _URL_PASSWORD.sub(r"\1:[redacted:url_password]@", out)
+    out = _ENTROPY_RUN.sub(_mask_entropy, out)
     return out
 
 

@@ -23,6 +23,16 @@ def _unknown(source_kind: str | None) -> dict:
     return {"result": "unknown", "source_kind": source_kind, "read_at": None}
 
 
+def _finite(value) -> bool:
+    """True only for a number that converts to a finite float (huge ints fail)."""
+    if isinstance(value, bool) or not isinstance(value, _NUMBER):
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, ValueError):
+        return False
+
+
 def check(profile: dict) -> dict:
     source = profile.get("quota_source") or {}
     source_kind = source.get("kind")
@@ -33,19 +43,11 @@ def check(profile: dict) -> dict:
     if payload is None:
         return _unknown(source_kind)
     used = payload.get("used_pct")
-    if (
-        isinstance(used, bool)
-        or not isinstance(used, _NUMBER)
-        or not math.isfinite(used)
-    ):
+    if not _finite(used):
         return _unknown(source_kind)
     read_at = payload.get("read_at")
     freshness = profile.get("freshness_limit")
-    if (
-        isinstance(freshness, bool)
-        or not isinstance(freshness, _NUMBER)
-        or not math.isfinite(freshness)
-    ):
+    if not _finite(freshness):
         return _unknown(source_kind)
     age = _age_seconds(read_at)
     if age is None or not math.isfinite(age) or age > freshness:

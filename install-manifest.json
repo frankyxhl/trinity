@@ -36,6 +36,9 @@
     {"src": "providers/bin/deepseek", "dest": ".claude/skills/trinity/bin/deepseek", "mode": "755"},
     {"src": "providers/bin/openrouter", "dest": ".claude/skills/trinity/bin/openrouter", "mode": "755"},
     {"src": "providers/bin/claude-code", "dest": ".claude/skills/trinity/bin/claude-code", "mode": "755"},
+    {"src": "providers/bin/claude-code-a", "dest": ".claude/skills/trinity/bin/claude-code-a", "mode": "755"},
+    {"src": "providers/bin/claude-code-b", "dest": ".claude/skills/trinity/bin/claude-code-b", "mode": "755"},
+    {"src": "providers/bin/claude-code-c", "dest": ".claude/skills/trinity/bin/claude-code-c", "mode": "755"},
     {"src": "providers/bin/agy-opus", "dest": ".claude/skills/trinity/bin/agy-opus", "mode": "755"},
     {"src": "providers/registry.json", "dest": ".claude/skills/trinity/providers/registry.json"}
   ],

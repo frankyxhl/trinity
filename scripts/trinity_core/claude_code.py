@@ -6,12 +6,14 @@ the exit class, session id and usage back to the core.
 
 The core owns every journal line, heartbeat rows included (CHK-006): the
 adapter only reports the heartbeat source it actually observed. The child
-environment is built from an allow-list (ADP-006); the profile's credential is
-forwarded by name only, never read.
+environment is built from an allow-list (ADP-006); the profile names a
+credential wrapper command, which the adapter runs in place of the harness
+found on PATH, so the adapter never reads the credential itself.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -44,6 +46,17 @@ _ENV_KEEP = frozenset(
 )
 
 
+def credential_wrapper(profile: dict) -> str | None:
+    """The credential wrapper command this profile names, if any (PRF-001)."""
+    wrapper = (profile.get("credential_source") or {}).get("wrapper")
+    return wrapper if isinstance(wrapper, str) and wrapper else None
+
+
+def accepts_profile(profile: dict) -> bool:
+    """A claude-code profile must name a credential wrapper (PRF-001)."""
+    return credential_wrapper(profile) is not None
+
+
 def run(
     profile: dict,
     *,
@@ -59,7 +72,7 @@ def run(
     poll_s: float = DEFAULT_POLL_S,
     time_s: float | None = None,
 ) -> dict:
-    harness = shutil.which(HARNESS_CLI)
+    harness = shutil.which(credential_wrapper(profile) or HARNESS_CLI)
     if harness is None:
         return _outcome("unknown", None, None, 0)
 
@@ -77,14 +90,13 @@ def run(
         argv += ["--model", str(model)]
 
     env = _build_env(
-        profile,
         {
             "run": run_id,
             "node": node_id,
             "depth": depth,
             "max_depth": max_depth,
             "journal_root": str(root),
-        },
+        }
     )
 
     started = time.monotonic()
@@ -139,13 +151,26 @@ def run(
 
     session_out = session_id
     if exit_class == "ok" and reported != session_id:
-        error = {"error": "session_mismatch"}
+        error = {
+            "error": "session_mismatch",
+            "run": run_id,
+            "node": node_id,
+            "assigned_fp": _fingerprint(session_id),
+            "reported_fp": _fingerprint(reported),
+        }
         if not _valid_session_shape(reported):
             error["reported_shape"] = "invalid"
         journal.append_error(root, error)
         exit_class = "harness_error"
         session_out = None
     return _outcome(exit_class, session_out, usage, wall_s)
+
+
+def _fingerprint(value) -> str | None:
+    """One-way id fingerprint: first 12 hex of SHA-256, never the raw id."""
+    if not isinstance(value, str):
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
 
 
 def _valid_session_shape(value) -> bool:
@@ -156,16 +181,13 @@ def _valid_session_shape(value) -> bool:
     )
 
 
-def _build_env(profile: dict, guard: dict) -> dict:
+def _build_env(guard: dict) -> dict:
     env: dict[str, str] = {
         name: value
         for name, value in os.environ.items()
         if name in _ENV_KEEP or name.startswith("LC_")
     }
     env["TRINITY_GUARD"] = json.dumps(guard)
-    credential = (profile.get("credential_source") or {}).get("env")
-    if credential and credential in os.environ:
-        env[credential] = os.environ[credential]
     return env
 
 

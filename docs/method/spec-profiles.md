@@ -26,7 +26,7 @@ Out:
 
 | ID | Requirement |
 | --- | --- |
-| PRF-001 | A profile names its credential by source (env var name or file path). The core never reads the value; only the adapter's child process does. |
+| PRF-001 | A profile names its credential by a wrapper command it declares (`credential_source.wrapper`, the ready-made per-account command found on PATH). The adapter runs that command in place of the harness; the command alone reads the account's credential, so the core never reads the value. An env-var or file-path credential source, or a claude-code profile with no wrapper, is refused. |
 | PRF-002 | Listings and the journal show `name` and `label` only — never the credential source (path or env name) and never its contents (settles OPEN-P4). |
 | PRF-003 | A credential file with mode wider than 600/400 makes the profile unusable, with the reason shown (same rule as the baseline's compatible-endpoint wrappers). |
 | PRF-004 | Each quota read carries `read_at`. A read older than `freshness_limit` (seconds, required field) counts as unknown. |
@@ -51,7 +51,7 @@ Out:
 
 ## 5. Environment assumptions
 
-- One credential file per account at the source the private pack names, mode 600.
+- One credential file per account at the source the private pack names, mode 600. The account's wrapper command reads it; the core never does.
 - A side-effect-free quota source per provider (vendor CLI status, API balance, or a shared status board).
 - Host clock; read times compared in UTC.
 
