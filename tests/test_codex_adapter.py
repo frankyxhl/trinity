@@ -150,14 +150,14 @@ def test_codex_default_config_has_direct_review_providers():
     assert "{diff}" in data["review"]["prompt_template"]
     assert "{files}" in data["review"]["prompt_template"]
     assert data["presets"]["review"]["providers"] == ["glm", "codex", "deepseek"]
-    assert "codex" not in data["presets"]["review"].get("optional_providers", [])
+    assert "optional_providers" not in data["presets"]["review"]
     assert data["presets"]["review"]["task_type"] == "review"
     assert data["presets"]["fast-review"] == {
         "providers": ["glm", "deepseek"],
         "task_type": "review",
     }
     assert data["presets"]["deep-review"]["providers"] == ["glm", "codex", "deepseek"]
-    assert "codex" not in data["presets"]["deep-review"].get("optional_providers", [])
+    assert "optional_providers" not in data["presets"]["deep-review"]
     assert data["presets"]["deep-review"]["task_type"] == "review"
     assert data["preset_aliases"] == {
         "r": "review",
@@ -194,21 +194,41 @@ def test_bundled_codex_call_uses_required_model(source):
 
 
 @pytest.mark.parametrize("preset", [None, "deep-review"])
-@pytest.mark.parametrize("unavailable", ["missing_config", "empty_cli"])
+@pytest.mark.parametrize(
+    "unavailable", ["missing_config", "empty_cli", "missing_executable", "exit_one"]
+)
 def test_review_fails_when_bundled_codex_is_unavailable(tmp_path, preset, unavailable):
     data = json.loads(CODEX_CONFIG.read_text())
     healthy = tmp_path / "healthy-provider"
-    write_fake_provider(healthy)
+    passing_review = {
+        "decision": "PASS",
+        "weighted_score": 9.9,
+        "blocking": [],
+        "advisories": [],
+    }
+    healthy.write_text(
+        "#!/bin/sh\ncat <<'REVIEW'\n```json\n"
+        + json.dumps(passing_review)
+        + "\n```\nREVIEW\n"
+    )
+    healthy.chmod(0o755)
     # Keep the shipped membership and optionality; replace only external CLIs.
     for entry in data["providers"].values():
         entry["cli"] = str(healthy)
     if unavailable == "missing_config":
         data["providers"].pop("codex", None)
-    else:
+    elif unavailable == "empty_cli":
         data["providers"]["codex"] = {"cli": "", "timeout": 600}
+    elif unavailable == "missing_executable":
+        data["providers"]["codex"]["cli"] = str(tmp_path / "missing-codex")
+    else:
+        failing = tmp_path / "failing-codex"
+        failing.write_text("#!/bin/sh\necho codex-runtime-failed >&2\nexit 1\n")
+        failing.chmod(0o755)
+        data["providers"]["codex"]["cli"] = str(failing)
     config = tmp_path / "config.json"
     config.write_text(json.dumps(data))
-    out_dir = tmp_path / "reviews"
+    out_dir = tmp_path / ".trinity" / "reviews"
     args = [
         "review",
         "--root",
@@ -227,7 +247,53 @@ def test_review_fails_when_bundled_codex_is_unavailable(tmp_path, preset, unavai
     assert rc != 0, "Review must fail when required Codex cannot run; got exit 0"
     assert "codex" in err.lower()
     assert "skipped" not in err.lower(), "Required Codex must never be silently skipped"
-    assert not out_dir.exists(), "Failed preflight must not launch a two-vendor review"
+    if unavailable != "exit_one":
+        assert out == "", "Failed preflight must not publish a completed review"
+        assert not out_dir.exists(), (
+            "Failed preflight must not launch a two-vendor review"
+        )
+        if unavailable == "missing_executable":
+            assert "codex: FAIL - command not found:" in err
+        return
+
+    review_dir = Path(out)
+    assert review_dir.parent == out_dir, "Runtime failure must identify its review"
+    metadata_path = review_dir / "metadata.json"
+    assert metadata_path.is_file(), "Runtime failure must retain review metadata"
+    metadata = json.loads(metadata_path.read_text())
+    assert metadata["providers"] == ["glm", "codex", "deepseek"]
+    results = {
+        result["provider"]: result["returncode"] for result in metadata["results"]
+    }
+    assert results == {"glm": 0, "codex": 1, "deepseek": 0}
+    assert metadata.get("status") == "failed", (
+        "A required Codex runtime failure must mark the whole review failed; "
+        f"got {metadata.get('status')!r}"
+    )
+
+    synthesis_path = review_dir / "synthesis.md"
+    assert synthesis_path.is_file(), "Runtime failure must retain the review result"
+    synthesis = synthesis_path.read_text()
+    assert "- **Verdict**: INCONCLUSIVE" in synthesis, (
+        "Two passing vendors must not produce an overall PASS after Codex fails"
+    )
+    assert "- **Providers**: 2/3 PASS · 0 FIX · 1 FAIL" in synthesis
+    assert "| codex | FAIL 1 |" in synthesis
+    assert "trinity review: INCONCLUSIVE" in err
+
+    status_rc, status_out, status_err = run_codex(
+        ["status", "--root", str(tmp_path)], env=env
+    )
+    assert status_rc == 0, status_err
+    status_lines = [
+        line.strip()
+        for line in status_out.splitlines()
+        if line.strip().startswith("Status:")
+    ]
+    assert status_lines == ["Status: failed"], (
+        "A required Codex runtime failure must not be presented as pass, partial, "
+        f"or completed: {status_lines!r}"
+    )
 
 
 @pytest.mark.parametrize("command", ["doctor", "review"])
