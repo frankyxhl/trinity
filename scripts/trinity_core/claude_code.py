@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -25,6 +26,8 @@ import time
 from . import journal
 
 ADAPTER = "claude-code"
+WRAPPER_AUTH_MARKER = "trinity-claude-code: auth_error:"
+CLAUDE_LOGIN_RESULT = "Not logged in · Please run /login"
 HEARTBEAT_SOURCE = "process_alive"
 DEFAULT_POLL_S = 15.0
 
@@ -145,11 +148,17 @@ def run(
         usage = result.get("usage") if result else None
         return _outcome("timeout", session_id, usage, wall_s)
 
+    auth_hint = _wrapper_auth_hint(proc.returncode, _err)
     result = _last_result(out)
     usage = result.get("usage") if result else None
     is_error = bool(result.get("is_error")) if result else True
+    if auth_hint is None and result is not None:
+        auth_hint = _claude_json_auth_hint(result)
+
     reported = result.get("session_id") if result else None
-    if proc.returncode == 0 and result is not None and not is_error:
+    if auth_hint is not None:
+        exit_class = "auth_error"
+    elif proc.returncode == 0 and result is not None and not is_error:
         exit_class = "ok"
     else:
         exit_class = "unknown"
@@ -168,7 +177,10 @@ def run(
         journal.append_error(root, error)
         exit_class = "harness_error"
         session_out = None
-    return _outcome(exit_class, session_out, usage, wall_s)
+    outcome = _outcome(exit_class, session_out, usage, wall_s)
+    if auth_hint is not None:
+        outcome["hint"] = auth_hint
+    return outcome
 
 
 def _fingerprint(value) -> str | None:
@@ -224,6 +236,27 @@ def _last_result(out: str) -> dict | None:
         if isinstance(parsed, dict) and parsed.get("type") == "result":
             return parsed
     return None
+
+
+def _wrapper_auth_hint(returncode: int | None, stderr: str) -> str | None:
+    if returncode == 0 or returncode is None:
+        return None
+    for line in stderr.splitlines():
+        if line.startswith(WRAPPER_AUTH_MARKER):
+            return line
+    return None
+
+
+def _claude_json_auth_hint(result: dict) -> str | None:
+    if result.get("type") != "result" or result.get("is_error") is not True:
+        return None
+    if result.get("result") != CLAUDE_LOGIN_RESULT:
+        return None
+    config_dir = os.path.join(os.environ.get("HOME", ""), ".claude-trinity-claude-code")
+    login_command = f"CLAUDE_CONFIG_DIR={shlex.quote(config_dir)} claude"
+    return (
+        f"Claude result: {CLAUDE_LOGIN_RESULT}; login with {login_command}, then /login"
+    )
 
 
 def _outcome(
