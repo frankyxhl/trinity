@@ -202,7 +202,7 @@ def test_duplicate_heading_is_an_error_exit(tmp_path, across_files):
     "registry",
     [
         '{"ACC-001": ["checks/test_ok.py"]',
-        '[]',
+        "[]",
         '{"ACC-001": []}',
         '{"ACC-999": ["checks/test_ok.py"]}',
     ],
