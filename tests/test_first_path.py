@@ -355,7 +355,9 @@ def _call_env(bin_dir: Path, home: Path, state: Path) -> dict:
     env.pop("TRINITY_GUARD", None)
     env.update(
         {
-            "PATH": os.pathsep.join([str(bin_dir), venv_bin, env.get("PATH", "/usr/bin:/bin")]),
+            "PATH": os.pathsep.join(
+                [str(bin_dir), venv_bin, env.get("PATH", "/usr/bin:/bin")]
+            ),
             "HOME": str(home),
             "TRINITY_ROOT": str(state),
             CRED_NAME: FAKE_CRED,
@@ -575,7 +577,9 @@ def test_tree_marks_new_session_and_short_id():
         assert session.get("mode") == "new", node
         assert session.get("id"), node
         line = next(line for line in fm.tree_lines if step in line)
-        expected = _expected_line(node, _states(fm, node["node"])[-1], 0 if step == "root" else 1)
+        expected = _expected_line(
+            node, _states(fm, node["node"])[-1], 0 if step == "root" else 1
+        )
         assert line == expected, (line, expected)
         assert "新" in line, line
         assert "续" not in line, line
@@ -664,7 +668,9 @@ def test_harness_environment_is_allow_listed():
 def test_harness_is_run_with_json_output():
     fm = _run_path()
     _ready(fm)
-    assert fm.refuse_rc != 0, "the double must refuse to run without --output-format json"
+    assert fm.refuse_rc != 0, (
+        "the double must refuse to run without --output-format json"
+    )
     assert fm.captures, "the harness was never invoked"
     for capture in fm.captures:
         argv = capture["argv"]
@@ -758,7 +764,9 @@ def test_quota_missing_or_invalid_value_is_unknown(tmp_path):
     import scripts.trinity_core.quota as quota
 
     stub = tmp_path / "stub"
-    stub.write_text(f"#!{sys.executable}\nimport json,sys\nsys.stdout.write(json.dumps({{}}))\n")
+    stub.write_text(
+        f"#!{sys.executable}\nimport json,sys\nsys.stdout.write(json.dumps({{}}))\n"
+    )
     stub.chmod(0o755)
     profile = {
         "quota_source": {"kind": "vendor_cli", "command": str(stub)},
@@ -766,7 +774,9 @@ def test_quota_missing_or_invalid_value_is_unknown(tmp_path):
     }
     assert quota.check(profile)["result"] == "unknown"
 
-    stub.write_text(f'#!{sys.executable}\nimport json,sys\nsys.stdout.write(json.dumps({{"used_pct": "many", "read_at": "2030-01-01T00:00:00+00:00"}}))\n')
+    stub.write_text(
+        f'#!{sys.executable}\nimport json,sys\nsys.stdout.write(json.dumps({{"used_pct": "many", "read_at": "2030-01-01T00:00:00+00:00"}}))\n'
+    )
     stub.chmod(0o755)
     assert quota.check(profile)["result"] == "unknown"
 
@@ -776,7 +786,7 @@ def test_quota_stale_read_is_unknown(tmp_path):
 
     stub = tmp_path / "stub"
     stub.write_text(
-        f'#!{sys.executable}\nimport json,sys\n'
+        f"#!{sys.executable}\nimport json,sys\n"
         'sys.stdout.write(json.dumps({"used_pct": 20, "read_at": "2000-01-01T00:00:00+00:00"}))\n'
     )
     stub.chmod(0o755)
@@ -797,7 +807,7 @@ def test_quota_unknown_stops_the_node(tmp_path, monkeypatch):
     profiles = _profiles_file(tmp_path)
     stub = tmp_path / "quota_stub"
     stub.write_text(
-        f'#!{sys.executable}\nimport json,sys\n'
+        f"#!{sys.executable}\nimport json,sys\n"
         'sys.stdout.write(json.dumps({"used_pct": 20, "read_at": "2000-01-01T00:00:00+00:00"}))\n'
     )
     stub.chmod(0o755)
@@ -813,7 +823,9 @@ def test_quota_unknown_stops_the_node(tmp_path, monkeypatch):
         }
     )
     assert result["exit_class"] == "check_failed", result
-    states = [r.get("state") for r in core.journal.read(root) if r.get("kind") == "state"]
+    states = [
+        r.get("state") for r in core.journal.read(root) if r.get("kind") == "state"
+    ]
     assert states == ["queued", "failed"], states
 
 
@@ -849,7 +861,9 @@ def test_harness_timeout_kills_only_its_process_group(tmp_path, monkeypatch):
     bin_dir.mkdir()
     pid_file = tmp_path / "pid"
     _write_sleeper(bin_dir, "claude", pid_file)
-    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    )
     outcome = claude_code.run(
         {"model": MODEL},
         prompt="x",
@@ -882,7 +896,9 @@ def test_harness_interrupt_kills_only_its_process_group(tmp_path, monkeypatch):
     bin_dir.mkdir()
     pid_file = tmp_path / "pid"
     _write_sleeper(bin_dir, "claude", pid_file)
-    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    )
 
     real_communicate = subprocess.Popen.communicate
     state = {"raised": False}

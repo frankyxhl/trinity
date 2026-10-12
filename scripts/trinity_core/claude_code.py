@@ -160,7 +160,9 @@ def _build_env(profile: dict, guard: dict) -> dict:
     return env
 
 
-def _poll(stop: threading.Event, proc: subprocess.Popen, heartbeat, poll_s: float) -> None:
+def _poll(
+    stop: threading.Event, proc: subprocess.Popen, heartbeat, poll_s: float
+) -> None:
     while not stop.wait(poll_s):
         if proc.poll() is not None:
             return
@@ -188,7 +190,9 @@ def _last_result(out: str) -> dict | None:
     return None
 
 
-def _outcome(exit_class: str, session_id: str | None, usage: dict | None, wall_s: int) -> dict:
+def _outcome(
+    exit_class: str, session_id: str | None, usage: dict | None, wall_s: int
+) -> dict:
     return {
         "adapter": ADAPTER,
         "exit_class": exit_class,
