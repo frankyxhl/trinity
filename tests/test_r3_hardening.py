@@ -103,16 +103,50 @@ def _synthetic_secret() -> str:
     return "cred-" + ("A1b2C3d4" * 3)
 
 
-def _member_shapes() -> dict[str, str]:
+def _redaction_shapes() -> list[dict]:
     secret = _synthetic_secret()
-    return {
-        "yaml-double": f'api_key: "{secret}"',
-        "single-quoted": f"'password': '{secret}'",
-    }
-
-
-def _url_shape() -> str:
-    return "https://user:" + _synthetic_secret() + "@example.invalid/x"
+    return [
+        {
+            "tag": "member-quoted-both",
+            "text": f"'password': '{secret}'",
+            "secret": secret,
+        },
+        {
+            "tag": "member-single-plain",
+            "text": f"'password': {secret}",
+            "secret": secret,
+        },
+        {
+            "tag": "member-double-plain",
+            "text": f'"api_key": {secret}',
+            "secret": secret,
+        },
+        {
+            "tag": "member-unquoted-key",
+            "text": f'api_key: "{secret}"',
+            "secret": secret,
+        },
+        {
+            "tag": "member-quoted-spaces",
+            "text": f"'password': 'lead {secret} trail'",
+            "secret": secret,
+        },
+        {
+            "tag": "member-escaped-quote",
+            "text": f'"password": "ab\\"{secret}"',
+            "secret": secret,
+        },
+        {
+            "tag": "url-user",
+            "text": f"https://user:{secret}@example.invalid/x",
+            "secret": secret,
+        },
+        {
+            "tag": "url-empty-user",
+            "text": f"https://:{secret}@example.invalid/x",
+            "secret": secret,
+        },
+    ]
 
 
 def _entropy_token() -> str:
@@ -158,17 +192,12 @@ def _refused(tmp_path, monkeypatch, value, field, tag):
     assert not (state / "journal.jsonl").exists(), (field, value)
 
 
-def test_quoted_member_shapes_are_refused_and_journal_stays_empty(
-    tmp_path, monkeypatch
-):
-    for tag, value in _member_shapes().items():
+def test_secret_shapes_are_refused_and_journal_stays_empty(tmp_path, monkeypatch):
+    for shape in _redaction_shapes():
         for field in ("step", "label"):
-            _refused(tmp_path, monkeypatch, value, field, f"member-{tag}-{field}")
-
-
-def test_url_password_shape_is_refused_and_journal_stays_empty(tmp_path, monkeypatch):
-    for field in ("step", "label"):
-        _refused(tmp_path, monkeypatch, _url_shape(), field, f"url-{field}")
+            _refused(
+                tmp_path, monkeypatch, shape["text"], field, f"{shape['tag']}-{field}"
+            )
 
 
 def test_entropy_shape_is_refused_and_journal_stays_empty(tmp_path, monkeypatch):
@@ -182,13 +211,17 @@ def test_entropy_shape_is_refused_and_journal_stays_empty(tmp_path, monkeypatch)
         _refused(tmp_path, monkeypatch, token, field, f"entropy-{field}")
 
 
-def test_redaction_function_masks_the_secret_shapes():
+def test_redaction_function_removes_the_whole_secret_from_each_shape():
     from scripts.trinity_core import journal
 
-    values = list(_member_shapes().values()) + [_url_shape(), _entropy_token()]
-    for value in values:
-        assert journal.would_redact(value) is True, value
-        assert journal.redact(value) != value, value
+    values = _redaction_shapes() + [
+        {"tag": "entropy", "text": _entropy_token(), "secret": _entropy_token()}
+    ]
+    for shape in values:
+        out = journal.redact(shape["text"])
+        assert journal.would_redact(shape["text"]) is True, shape["tag"]
+        assert shape["secret"] not in out, (shape["tag"], out)
+        assert out != shape["text"], shape["tag"]
 
 
 def test_ordinary_values_stay_accepted():
@@ -456,3 +489,86 @@ def test_mismatch_log_keeps_run_node_and_fingerprints_without_raw_id(
     journal_bytes = (tmp_path / "state" / "journal.jsonl").read_bytes()
     assert REPORTED_ID.encode() not in journal_bytes
     assert REPORTED_ID not in error_text
+
+
+SURROGATE_REPORTED = "\ud800"
+
+
+def _surrogate_harness() -> str:
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import json, sys
+        REPORTED = "\\ud800"
+        sys.stdout.write(json.dumps({{
+            "type": "result", "is_error": False, "session_id": REPORTED,
+        }}) + "\\n")
+        """
+    )
+
+
+def test_surrogate_reported_session_id_logs_attributable_failure(tmp_path):
+    from scripts.trinity_core import journal
+
+    work = tmp_path / "work"
+    work.mkdir()
+    quota = _ok_quota_stub(tmp_path)
+    profiles = _write_profiles(
+        tmp_path, quota_command=str(quota), name="profiles-surrogate.json"
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER, _surrogate_harness())
+
+    proc = subprocess.run(
+        [
+            str(CLI),
+            "call",
+            "--profiles",
+            str(profiles),
+            "--profile",
+            PROFILE,
+            "--step",
+            "root",
+            "--session",
+            "new",
+            "--prompt",
+            "x",
+            "--cwd",
+            str(work),
+            "--allow-nesting-max-depth",
+            "1",
+        ],
+        cwd=REPO,
+        env=_cli_env(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert "Traceback" not in proc.stderr, proc.stderr
+    result = _last_json(proc.stdout)
+    assert result and result["exit_class"] == "harness_error", (
+        proc.returncode,
+        proc.stdout,
+        proc.stderr,
+    )
+    run_id = result["run"]
+
+    states = [
+        record
+        for record in journal.read(tmp_path / "state")
+        if record.get("kind") == "state" and record.get("run") == run_id
+    ]
+    assert states and states[-1].get("state") == "failed", states
+
+    error_text = (tmp_path / "state" / "error.log").read_text()
+    errors = [json.loads(line) for line in error_text.splitlines() if line.strip()]
+    record = errors[-1]
+    assert record.get("run") == run_id, record
+    assert record.get("node") == result["node"], record
+    assert record.get("assigned_fp"), record
+    expected = hashlib.sha256(
+        SURROGATE_REPORTED.encode("utf-8", "surrogatepass")
+    ).hexdigest()[:12]
+    assert record.get("reported_fp") == expected, record
+    assert SURROGATE_REPORTED not in error_text

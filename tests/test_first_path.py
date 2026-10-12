@@ -879,7 +879,7 @@ def test_harness_timeout_kills_only_its_process_group(tmp_path, monkeypatch):
         "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
     )
     outcome = claude_code.run(
-        {"model": MODEL},
+        {"model": MODEL, "credential_source": {"wrapper": "claude"}},
         prompt="x",
         cwd=str(tmp_path),
         session_id="s",
@@ -928,7 +928,7 @@ def test_harness_interrupt_kills_only_its_process_group(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess.Popen, "communicate", interrupting)
     outcome = claude_code.run(
-        {"model": MODEL},
+        {"model": MODEL, "credential_source": {"wrapper": "claude"}},
         prompt="x",
         cwd=str(tmp_path),
         session_id="s",
@@ -1081,6 +1081,127 @@ def test_tree_line_for_session_unknown_node_shows_no_assigned_short_id():
     )
 
 
+# Spelling for the tree marker that reports a session line after a final
+# session_unknown for the same node (LED-017 says the later line is a defect).
+SESSION_DEFECT_MARKER = "!session-override"
+
+
+def _finality_journal(root):
+    from scripts.trinity_core import journal
+
+    run = "r-final"
+    node = "n-final"
+    other_run = "r-final-other"
+    other_node = "n-final-other"
+    assigned = "11111111-1111-4111-8111-111111111111"
+    later = "22222222-2222-4222-8222-222222222222"
+    other_id = "33333333-3333-4333-8333-333333333333"
+    journal.append(
+        root,
+        {
+            "kind": "node",
+            "run": run,
+            "node": node,
+            "parent": None,
+            "step": "root",
+            "depth": 0,
+            "profile": PROFILE,
+            "model": MODEL,
+            "session": {"id": assigned, "mode": "new", "source": "assigned"},
+        },
+    )
+    journal.append(
+        root,
+        {
+            "kind": "state",
+            "run": run,
+            "node": node,
+            "state": "failed",
+            "exit_class": "harness_error",
+            "output_kind": "none",
+            "wall_s": 1,
+        },
+    )
+    journal.append(
+        root,
+        {
+            "kind": "session",
+            "run": run,
+            "node": node,
+            "id": None,
+            "source": "session_unknown",
+        },
+    )
+    journal.append(
+        root,
+        {
+            "kind": "session",
+            "run": run,
+            "node": node,
+            "id": later,
+            "source": "captured",
+        },
+    )
+    journal.append(
+        root,
+        {
+            "kind": "node",
+            "run": other_run,
+            "node": other_node,
+            "parent": None,
+            "step": "root",
+            "depth": 0,
+            "profile": PROFILE,
+            "model": MODEL,
+            "session": {"id": other_id, "mode": "new", "source": "assigned"},
+        },
+    )
+    journal.append(
+        root,
+        {
+            "kind": "state",
+            "run": other_run,
+            "node": other_node,
+            "state": "done",
+            "exit_class": "ok",
+            "output_kind": "none",
+            "wall_s": 1,
+        },
+    )
+    return run, node, assigned, later, other_run, other_node, other_id
+
+
+def test_tree_keeps_session_unknown_final_and_flags_later_record(tmp_path):
+    from scripts.trinity_core import render_tree
+
+    root = tmp_path / "state"
+    run, _node, assigned, later, _other_run, _other_node, _other_id = _finality_journal(
+        root
+    )
+    lines = render_tree(str(root), run)
+    assert len(lines) == 1, lines
+    line = lines[0]
+    assert UNKNOWN_SHORT_ID in line.split(), line
+    assert assigned[:8] not in line.split(), line
+    assert later[:8] not in line.split(), line
+    assert SESSION_DEFECT_MARKER in line.split(), line
+
+
+def test_tree_session_unknown_defect_is_scoped_to_its_run(tmp_path):
+    from scripts.trinity_core import render_tree
+
+    root = tmp_path / "state"
+    run, _node, _assigned, _later, other_run, _other_node, other_id = _finality_journal(
+        root
+    )
+    other_lines = render_tree(str(root), other_run)
+    assert len(other_lines) == 1, other_lines
+    other_line = other_lines[0]
+    assert other_id[:8] in other_line.split(), other_line
+    assert SESSION_DEFECT_MARKER not in other_line.split(), other_line
+    assert len(render_tree(str(root), run)) == 1
+
+
 # --- E5: a reported session id never lands raw in the error log --------------
 
 
@@ -1108,7 +1229,7 @@ def test_mismatch_error_log_has_no_reported_id(tmp_path, monkeypatch):
     )
     root = tmp_path / "state"
     outcome = claude_code.run(
-        {"model": MODEL},
+        {"model": MODEL, "credential_source": {"wrapper": "claude"}},
         prompt="x",
         cwd=str(tmp_path),
         session_id="assigned-session-1",
@@ -1274,7 +1395,7 @@ def test_harness_timeout_kills_group_after_leader_reaped(tmp_path, monkeypatch):
 
     started = _time.monotonic()
     outcome = claude_code.run(
-        {"model": MODEL},
+        {"model": MODEL, "credential_source": {"wrapper": "claude"}},
         prompt="x",
         cwd=str(tmp_path),
         session_id="s",

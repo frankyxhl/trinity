@@ -36,22 +36,12 @@ def _executable(path: Path, text: str) -> Path:
     return path
 
 
-def _harness_script() -> str:
-    return textwrap.dedent(
-        f"""\
-        #!{sys.executable}
-        import json, sys
-        argv = sys.argv[1:]
-        sid = argv[argv.index("--session-id") + 1] if "--session-id" in argv else ""
-        sys.stdout.write(json.dumps({{
-            "type": "result", "is_error": False, "session_id": sid,
-        }}) + "\\n")
-        """
-    )
-
-
 class _RecordingEnviron(dict):
-    """A stand-in for os.environ that records every credential-shaped read."""
+    """A stand-in for os.environ that records every value access.
+
+    Bulk accessors (``items``/``values``/``copy``) are recorded as sentinels so
+    a parent that sweeps every value — even while filtering names — is caught.
+    """
 
     def __init__(self, source) -> None:
         super().__init__(source)
@@ -65,6 +55,22 @@ class _RecordingEnviron(dict):
         if key in self:
             self.reads.append(key)
         return super().get(key, default)
+
+    def items(self):
+        self.reads.append("|items|")
+        return super().items()
+
+    def values(self):
+        self.reads.append("|values|")
+        return super().values()
+
+    def copy(self):
+        self.reads.append("|copy|")
+        return super().copy()
+
+
+def _bulk_read(reads: list) -> list:
+    return [entry for entry in reads if entry.startswith("|")]
 
 
 def _record_opens(monkeypatch) -> list:
@@ -112,32 +118,27 @@ def _record_opens(monkeypatch) -> list:
 # --- (a) the adapter never reads a credential env var or credential file -----
 
 
-def test_adapter_never_reads_a_credential_env_or_file(tmp_path, monkeypatch):
+def _marker_stub(marker: str, capture: Path) -> str:
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import json, sys
+        with open({str(capture)!r}, "a") as handle:
+            handle.write({marker!r} + "\\n")
+        argv = sys.argv[1:]
+        sid = argv[argv.index("--session-id") + 1] if "--session-id" in argv else ""
+        sys.stdout.write(json.dumps({{
+            "type": "result", "is_error": False, "session_id": sid,
+        }}) + "\\n")
+        """
+    )
+
+
+def _run_adapter(tmp_path, profile, *, time_s=10.0):
     import scripts.trinity_core.claude_code as claude_code
 
-    bait_value = "synthetic-" + ("b" * 24)
-    bait_file = tmp_path / "bait-credential"
-    bait_file.write_text("synthetic-" + ("c" * 24))
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    script = _harness_script()
-    # `claude` is what the unfixed adapter looks for; WRAPPER_NAME is what the
-    # wrapper-form adapter would run. Both resolve so `which` never fails.
-    _executable(bin_dir / "claude", script)
-    _executable(bin_dir / WRAPPER_NAME, script)
-
-    environ = _RecordingEnviron(os.environ)
-    environ["PATH"] = os.pathsep.join(
-        [str(bin_dir), os.environ.get("PATH", "/usr/bin:/bin")]
-    )
-    environ[BAIT_ENV_NAME] = bait_value
-    monkeypatch.setattr(os, "environ", environ)
-
-    opened = _record_opens(monkeypatch)
-
-    claude_code.run(
-        {"model": MODEL, "credential_source": {"env": BAIT_ENV_NAME}},
+    return claude_code.run(
+        profile,
         prompt="task",
         cwd=str(tmp_path),
         session_id="assigned-session-0001",
@@ -148,10 +149,64 @@ def test_adapter_never_reads_a_credential_env_or_file(tmp_path, monkeypatch):
         root=str(tmp_path / "state"),
         heartbeat=lambda source: None,
         poll_s=100.0,
-        time_s=10.0,
+        time_s=time_s,
+    )
+
+
+def test_adapter_never_touches_a_credential_env_value_or_file(tmp_path, monkeypatch):
+    bait_value = "synthetic-" + ("b" * 24)
+    bait_file = tmp_path / "bait-credential"
+    bait_file.write_text("synthetic-" + ("c" * 24))
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ran.txt"
+    _executable(bin_dir / WRAPPER_NAME, _marker_stub("WRAPPER", capture))
+    _executable(bin_dir / "claude", _marker_stub("BARE", capture))
+
+    environ = _RecordingEnviron(os.environ)
+    environ["PATH"] = os.pathsep.join(
+        [str(bin_dir), os.environ.get("PATH", "/usr/bin:/bin")]
+    )
+    environ[BAIT_ENV_NAME] = bait_value
+    monkeypatch.setattr(os, "environ", environ)
+
+    opened = _record_opens(monkeypatch)
+
+    _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
     )
     assert BAIT_ENV_NAME not in environ.reads, environ.reads
+    assert _bulk_read(environ.reads) == [], environ.reads
     assert str(bait_file) not in opened, opened
+    assert capture.read_text().split() == ["WRAPPER"], capture.read_text()
+
+
+def test_adapter_runs_only_the_named_wrapper_not_bare_claude(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ran.txt"
+    _executable(bin_dir / WRAPPER_NAME, _marker_stub("WRAPPER", capture))
+    _executable(bin_dir / "claude", _marker_stub("BARE", capture))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "ok", outcome
+    assert capture.read_text().split() == ["WRAPPER"], capture.read_text()
+
+
+def test_adapter_refuses_a_profile_with_no_wrapper(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ran.txt"
+    _executable(bin_dir / "claude", _marker_stub("BARE", capture))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(tmp_path, {"model": MODEL})
+    assert outcome["exit_class"] != "ok", outcome
+    assert not capture.exists(), "a wrapperless run still executed a harness"
 
 
 # --- (b) env-form and wrapperless claude-code profiles are refused -----------
@@ -213,6 +268,51 @@ def test_env_or_wrapperless_profile_is_refused_without_journal_line(
     assert result["exit_class"] == "bad_request", result
     assert journal_path.read_text() == sentinel + "\n", (
         "a refused credential form still wrote a journal line"
+    )
+
+
+@pytest.mark.parametrize(
+    "credential_source",
+    ["claude-code", ["claude-code"], 7],
+    ids=["string", "list", "number"],
+)
+def test_malformed_credential_source_is_refused_without_journal_line(
+    tmp_path, monkeypatch, credential_source
+):
+    import scripts.trinity_core as core
+
+    state = tmp_path / "state"
+    state.mkdir()
+    journal_path = state / "journal.jsonl"
+    sentinel = json.dumps({"kind": "sentinel"})
+    journal_path.write_text(sentinel + "\n")
+
+    monkeypatch.setenv("TRINITY_ROOT", str(state))
+    monkeypatch.delenv("TRINITY_GUARD", raising=False)
+    empty_bin = tmp_path / "emptybin"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+
+    raised = None
+    result = None
+    try:
+        result = core.call(
+            {
+                "profiles_path": str(_profiles_json(tmp_path, credential_source)),
+                "profile": "pilot",
+                "step": "root",
+                "session": "new",
+                "prompt": {"text": "x"},
+                "cwd": str(tmp_path),
+                "allow_nesting": {"max_depth": 1},
+            }
+        )
+    except Exception as exc:
+        raised = exc
+    assert raised is None, f"dispatch raised {raised!r} instead of refusing"
+    assert result["exit_class"] == "bad_request", result
+    assert journal_path.read_text() == sentinel + "\n", (
+        "a malformed credential source still wrote a journal line"
     )
 
 
