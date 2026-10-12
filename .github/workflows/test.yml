@@ -21,7 +21,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # forge has no macOS runner; GitHub keeps both legs.
+        os: ${{ fromJSON(github.server_url == 'https://github.com' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
         python-version: ['3.14']
     runs-on: ${{ matrix.os }}
     steps:
@@ -128,7 +129,7 @@ jobs:
     name: macos-latest
     needs: test
     runs-on: macos-latest
-    if: always()
+    if: always() && github.server_url == 'https://github.com'
     steps:
       - name: Check matrix result
         run: |

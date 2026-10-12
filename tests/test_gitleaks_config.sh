@@ -10,6 +10,7 @@ cd "$REPO_ROOT"
 
 WORKFLOW=".github/workflows/gitleaks.yml"
 CONFIG=".gitleaks.toml"
+IGNORE=".gitleaksignore"
 
 PASS=0
 FAIL=0
@@ -44,9 +45,17 @@ check "gitleaks runs on ubuntu latest" grep -qF 'runs-on: ubuntu-latest' "$WORKF
 check "gitleaks has timeout" grep -qF 'timeout-minutes: 10' "$WORKFLOW"
 check "checkout uses pinned SHA with version comment" grep -qE 'uses: actions/checkout@[0-9a-f]{40} # v[0-9]+' "$WORKFLOW"
 check "checkout fetches full history" grep -qF 'fetch-depth: 0' "$WORKFLOW"
-check "official gitleaks action used with pinned SHA" grep -qE 'uses: gitleaks/gitleaks-action@[0-9a-f]{40} # v[0-9]+' "$WORKFLOW"
-check "GITHUB_TOKEN is provided" grep -qF 'GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}' "$WORKFLOW"
-check "custom config is wired" grep -qF 'GITLEAKS_CONFIG: .gitleaks.toml' "$WORKFLOW"
+check "no gitleaks-action reference" bash -c "! grep -qF 'gitleaks/gitleaks-action' '$WORKFLOW'"
+check "gitleaks version pinned" grep -qF 'GITLEAKS_VERSION: 8.30.1' "$WORKFLOW"
+check "x64 checksum present" grep -qF '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$WORKFLOW"
+check "arm64 checksum present" grep -qF 'e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080' "$WORKFLOW"
+check "checksum verified" grep -qF 'sha256sum -c' "$WORKFLOW"
+check "download URL from gitleaks releases" grep -qF 'https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}' "$WORKFLOW"
+check "scan uses custom config" grep -qF -- '--config .gitleaks.toml' "$WORKFLOW"
+check "scan fails on findings" grep -qF -- '--exit-code 1' "$WORKFLOW"
+
+check ".gitleaksignore exists" test -f "$IGNORE"
+check "ignore list has exactly 3 fingerprints" bash -c "test \"\$(grep -vcE '^[[:space:]]*(#|$)' '$IGNORE')\" -eq 3"
 
 check "Gitleaks config exists" test -f "$CONFIG"
 check "config extends default rules" grep -qF 'useDefault = true' "$CONFIG"

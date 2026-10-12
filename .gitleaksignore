@@ -1,0 +1,6 @@
+# Dummy fixtures in historic test revisions of tests/test_codex_review_dispatch.py.
+# Reviewed 2026-10-12: dummy test tokens only, not real credentials.
+# Current tree is clean; listed so the full-history secret scan stays green.
+c1088892f741b45406749584913c3dcf4236438b:tests/test_codex_review_dispatch.py:trinity-provider-api-key-assignment:677
+163d996368becc1fc35d9d922d0c31aa1c3d00b0:tests/test_codex_review_dispatch.py:generic-api-key:663
+163d996368becc1fc35d9d922d0c31aa1c3d00b0:tests/test_codex_review_dispatch.py:trinity-provider-api-key-assignment:697

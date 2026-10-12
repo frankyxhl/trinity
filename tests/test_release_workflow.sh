@@ -228,7 +228,7 @@ check "Makefile: release-prep stages README" bash -c \
 
 echo "-- T13: PR CI lint gate"
 check "test workflow exists" test -f "$TEST_WORKFLOW"
-check "test workflow matrix includes ubuntu and macos" grep -qF 'os: [ubuntu-latest, macos-latest]' "$TEST_WORKFLOW"
+check "test workflow matrix includes ubuntu and macos on GitHub" grep -qF 'fromJSON(github.server_url == '\''https://github.com'\'' && '\''["ubuntu-latest", "macos-latest"]'\'' || '\''["ubuntu-latest"]'\'')' "$TEST_WORKFLOW"
 check "test workflow installs dev dependencies" grep -qF 'run: make setup' "$TEST_WORKFLOW"
 check "test workflow has dedicated Lint step" grep -qF 'name: Lint' "$TEST_WORKFLOW"
 check "test workflow runs make lint" grep -qF 'run: make lint' "$TEST_WORKFLOW"
