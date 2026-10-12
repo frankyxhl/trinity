@@ -12,7 +12,7 @@ Spellings the contract leaves open (kept by the implementation):
   ``$TRINITY_ROOT/journal.jsonl``, the error log ``$TRINITY_ROOT/error.log``.
 - Profile set: JSON ``{"profiles": [...]}`` passed with ``--profiles <file>``.
   A profile: ``name``, ``adapter``, ``provider``, ``billing``, ``model``,
-  ``credential_source`` (``{"env": "<NAME>"}``), ``quota_source``
+  ``credential_source`` (``{"wrapper": "<command name>"}``), ``quota_source``
   (``{"kind": "vendor_cli", "command": "<path>"}``), ``freshness_limit``,
   ``transcript_retention``, ``enabled``.
 - Quota stub: the ``command`` prints one JSON line
@@ -52,6 +52,11 @@ REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "bin" / "trinity"
 PROFILE = "pilot"
 MODEL = "pilot-model"
+# The profile names its credential wrapper; the adapter runs that command on
+# PATH in place of `claude`. The fixture's fake harness stands in for it.
+WRAPPER = "claude-code"
+# A node whose session is unknown shows this in the short-id field of the tree.
+UNKNOWN_SHORT_ID = "?"
 
 HEARTBEAT_POLL_S = 1.0
 DEFAULT_POLL_S = 15.0
@@ -154,7 +159,7 @@ def _build_and_run(mode: str) -> SimpleNamespace:
                         "provider": "claude-code",
                         "billing": "subscription",
                         "model": MODEL,
-                        "credential_source": {"env": CRED_NAME},
+                        "credential_source": {"wrapper": WRAPPER},
                         "quota_source": {
                             "kind": "vendor_cli",
                             "command": str(stub),
@@ -170,7 +175,7 @@ def _build_and_run(mode: str) -> SimpleNamespace:
 
     child_prompt = f"child task {MARK_PROMPT_CHILD}"
     mismatch_id = "00000000-0000-4000-8000-000000000000"
-    harness = bin_dir / "claude"
+    harness = bin_dir / WRAPPER
     harness.write_text(
         textwrap.dedent(
             f"""\
@@ -368,9 +373,7 @@ def _call_env(bin_dir: Path, home: Path, state: Path) -> dict:
     env.pop("TRINITY_GUARD", None)
     env.update(
         {
-            "PATH": os.pathsep.join(
-                [str(bin_dir), venv_bin, env.get("PATH", "/usr/bin:/bin")]
-            ),
+            "PATH": os.pathsep.join([str(bin_dir), venv_bin, "/usr/bin", "/bin"]),
             "HOME": str(home),
             "TRINITY_ROOT": str(state),
             CRED_NAME: FAKE_CRED,
@@ -664,16 +667,13 @@ def test_harness_environment_is_allow_listed():
     assert len(fm.captures) == 2, fm.captures
     for capture in fm.captures:
         names = set(capture["env_names"])
-        assert CRED_NAME in names, capture
+        assert CRED_NAME not in names, capture
         assert DECOY_NAME not in names, capture
         assert "TRINITY_ROOT" not in names, capture
         assert "PYTHONPATH" not in names, capture
         assert "TRINITY_HEARTBEAT_POLL_S" not in names, capture
         assert all(
-            name in ALLOWED_ENV
-            or name.startswith("LC_")
-            or name == CRED_NAME
-            or name in PLATFORM_ENV
+            name in ALLOWED_ENV or name.startswith("LC_") or name in PLATFORM_ENV
             for name in names
         ), capture
 
@@ -737,7 +737,7 @@ def _profiles_file(tmp_path: Path) -> Path:
                         "provider": "claude-code",
                         "billing": "subscription",
                         "model": MODEL,
-                        "credential_source": {"env": CRED_NAME},
+                        "credential_source": {"wrapper": WRAPPER},
                         "quota_source": {
                             "kind": "vendor_cli",
                             "command": str(tmp_path / "quota_stub"),
@@ -1058,6 +1058,29 @@ def test_session_mismatch_records_session_unknown():
     assert _effective_session(fm, root_node["node"]) is None
 
 
+# --- E3/R3: a session-unknown node shows no assigned short id in the tree ----
+
+
+def test_tree_line_for_session_unknown_node_shows_no_assigned_short_id():
+    fm = _run_path("mismatch")
+    assert fm.run_id is not None, fm.call_proc.stderr
+    root_node = _node_by_step(fm, "root")
+    assigned_short = (root_node["session"]["id"])[:8]
+    line = next(line for line in fm.tree_lines if "root" in line.split())
+    assert assigned_short not in line.split(), line
+    assert UNKNOWN_SHORT_ID in line.split(), line
+    unknown = [
+        r
+        for r in fm.journal
+        if r.get("kind") == "session" and r.get("node") == root_node["node"]
+    ]
+    assert unknown and unknown[-1].get("source") == "session_unknown", unknown
+    assert fm.tree_proc.returncode == 0, (
+        fm.tree_proc.returncode,
+        fm.tree_proc.stderr,
+    )
+
+
 # --- E5: a reported session id never lands raw in the error log --------------
 
 
@@ -1107,23 +1130,23 @@ def test_mismatch_error_log_has_no_reported_id(tmp_path, monkeypatch):
 
 
 def _capturing_harness(bin_dir: Path, capture: Path) -> None:
-    harness = bin_dir / "claude"
-    harness.write_text(
-        textwrap.dedent(
-            f"""\
-            #!{sys.executable}
-            import json, sys
-            argv = sys.argv[1:]
-            with open({str(capture)!r}, "a") as handle:
-                handle.write(json.dumps({{"argv": argv}}) + "\\n")
-            sid = argv[argv.index("--session-id") + 1] if "--session-id" in argv else ""
-            sys.stdout.write(json.dumps({{
-                "type": "result", "is_error": False, "session_id": sid,
-            }}) + "\\n")
-            """
-        )
+    script = textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import json, sys
+        argv = sys.argv[1:]
+        with open({str(capture)!r}, "a") as handle:
+            handle.write(json.dumps({{"argv": argv}}) + "\\n")
+        sid = argv[argv.index("--session-id") + 1] if "--session-id" in argv else ""
+        sys.stdout.write(json.dumps({{
+            "type": "result", "is_error": False, "session_id": sid,
+        }}) + "\\n")
+        """
     )
-    harness.chmod(0o755)
+    for name in (WRAPPER, "claude"):
+        path = bin_dir / name
+        path.write_text(script)
+        path.chmod(0o755)
 
 
 def test_prompt_file_reaches_adapter_and_missing_file_is_refused(tmp_path, monkeypatch):
@@ -1141,8 +1164,9 @@ def test_prompt_file_reaches_adapter_and_missing_file_is_refused(tmp_path, monke
     bin_dir.mkdir()
     capture = tmp_path / "capture.jsonl"
     _capturing_harness(bin_dir, capture)
+    venv_bin = str(Path(sys.executable).resolve().parent)
     monkeypatch.setenv(
-        "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+        "PATH", os.pathsep.join([str(bin_dir), venv_bin, "/usr/bin", "/bin"])
     )
     prompt_file = tmp_path / "task.txt"
     prompt_text = "file " + "prompt-marker"
