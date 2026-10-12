@@ -64,6 +64,7 @@ t1_happy_path() {
         ".claude/skills/trinity/scripts/discover.py"
         ".claude/skills/trinity/scripts/install.py"
         ".claude/skills/trinity/scripts/scan_rocket_issues.sh"
+        ".claude/skills/trinity/scripts/trinity_core/__init__.py"
         ".claude/agents/trinity-glm.md"
         ".claude/agents/trinity-minimax.md"
         ".claude/agents/trinity-codex.md"

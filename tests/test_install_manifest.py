@@ -86,7 +86,9 @@ def test_manifest_ships_full_review_synthesis_closure(tmp_path):
     scripts_dir.mkdir()
     for e in manifest["files"]:
         if e["src"].startswith("scripts/") and e["src"].endswith(".py"):
-            shutil.copy(ROOT / e["src"], scripts_dir / Path(e["src"]).name)
+            dest = scripts_dir / Path(e["src"]).relative_to("scripts")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / e["src"], dest)
 
     review_dir = tmp_path / "rev"
     (review_dir / "raw").mkdir(parents=True)

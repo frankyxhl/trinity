@@ -23,6 +23,9 @@ ALLOW = {
     "tests/test_install_sh.sh",
     "tests/test_build_providers.sh",
     "tests/features/provider_discovery.feature",
+    "docs/acceptance/ACCEPTANCE.md",
+    "docs/method/METHOD.md",
+    "docs/method/spec-provider-adapters.md",
 }
 
 

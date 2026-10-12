@@ -1,0 +1,13 @@
+#!/bin/sh
+# providers/bin/claude-code-b — Claude account "b" wrapper for Trinity.
+#
+# Pins the account: an inherited TRINITY_CLAUDE_CODE_ACCOUNT is ignored. The
+# sibling claude-code wrapper reads the account's token and execs the harness.
+set -eu
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+
+TRINITY_CLAUDE_CODE_ACCOUNT=b
+export TRINITY_CLAUDE_CODE_ACCOUNT
+
+exec "$here/claude-code" "$@"

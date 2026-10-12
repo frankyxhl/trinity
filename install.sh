@@ -83,6 +83,7 @@ for entry in manifest.get('files', []):
 # Iterate over manifest entries
 # IFS='|' splits the pipe-delimited fields
 while IFS='|' read -r src full_dest mode; do
+    mkdir -p "$(dirname "${full_dest}")"
     _download "${src}" "${full_dest}"
     if [ -n "${mode}" ]; then
         chmod +x "${full_dest}"

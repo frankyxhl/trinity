@@ -52,6 +52,11 @@ try:
 except ImportError:
     import _status as _status_mod
 
+try:
+    from . import trinity_core
+except ImportError:
+    import trinity_core
+
 parse_provider_command = _provider_runtime.parse_provider_command
 provider_timeout = _provider_runtime.provider_timeout
 provider_command = _provider_runtime.provider_command
@@ -553,6 +558,36 @@ def cmd_session_path(args):
     return session_path.cmd_session_path(project_dir, lookup_key)
 
 
+def cmd_call(args):
+    """Build the dispatch-core request and hand it to the core (NG-06)."""
+    allow_nesting = False
+    if args.allow_nesting_max_depth is not None:
+        allow_nesting = {"max_depth": args.allow_nesting_max_depth}
+    request = {
+        "profiles_path": args.profiles,
+        "profile": args.profile,
+        "step": args.step,
+        "session": args.session,
+        "prompt": {"text": args.prompt},
+        "cwd": args.cwd,
+        "allow_nesting": allow_nesting,
+    }
+    result = trinity_core.call(request)
+    sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
+    return 0
+
+
+def cmd_tree(args):
+    root = trinity_core.journal_root()
+    lines = trinity_core.render_tree(root, args.run)
+    if not lines:
+        sys.stderr.write(f"trinity tree: unknown run {args.run}\n")
+        return 1
+    for line in lines:
+        sys.stdout.write(line + "\n")
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="trinity", allow_abbrev=False)
     parser.add_argument("--version", action="store_true")
@@ -603,6 +638,24 @@ def build_parser():
         help="Project directory containing .claude/trinity.json (default: cwd).",
     )
 
+    call = subparsers.add_parser(
+        "call",
+        help="Run one dispatch call through the core.",
+    )
+    call.add_argument("--profiles", required=True)
+    call.add_argument("--profile", required=True)
+    call.add_argument("--step", required=True)
+    call.add_argument("--session", default=None)
+    call.add_argument("--prompt", required=True)
+    call.add_argument("--cwd", default=None)
+    call.add_argument("--allow-nesting-max-depth", default=None)
+
+    tree = subparsers.add_parser(
+        "tree",
+        help="Render a run's call tree from the journal.",
+    )
+    tree.add_argument("run")
+
     return parser
 
 
@@ -624,6 +677,10 @@ def main(argv=None):
         return cmd_status(args)
     if args.command == "session-path":
         return cmd_session_path(args)
+    if args.command == "call":
+        return cmd_call(args)
+    if args.command == "tree":
+        return cmd_tree(args)
     parser.print_help(sys.stderr)
     return 1
 
