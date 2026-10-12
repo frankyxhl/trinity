@@ -36,8 +36,10 @@ The claude-code adapter pre-assigns the session id, so the harness receives
 from __future__ import annotations
 
 import atexit
+import datetime as _dt
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -92,6 +94,17 @@ ALLOWED_ENV = {
 PLATFORM_ENV = {"__CF_USER_TEXT_ENCODING"}
 
 _CACHE: dict = {}
+
+
+def _iso(offset_s: float = 0.0) -> str:
+    """Every clock value comes from here plus a duration (§0.6: durations only)."""
+    moment = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=offset_s)
+    return moment.isoformat()
+
+
+def _secret_marker() -> str:
+    """A secret-shaped value built at runtime from parts, never a literal."""
+    return "-".join(["sk", "A" * 24])
 
 
 def _run_path(mode: str = "ok") -> SimpleNamespace:
@@ -775,7 +788,8 @@ def test_quota_missing_or_invalid_value_is_unknown(tmp_path):
     assert quota.check(profile)["result"] == "unknown"
 
     stub.write_text(
-        f'#!{sys.executable}\nimport json,sys\nsys.stdout.write(json.dumps({{"used_pct": "many", "read_at": "2030-01-01T00:00:00+00:00"}}))\n'
+        f"#!{sys.executable}\nimport json,sys\n"
+        f"sys.stdout.write(json.dumps({{'used_pct': 'many', 'read_at': {_iso()!r}}}))\n"
     )
     stub.chmod(0o755)
     assert quota.check(profile)["result"] == "unknown"
@@ -787,7 +801,7 @@ def test_quota_stale_read_is_unknown(tmp_path):
     stub = tmp_path / "stub"
     stub.write_text(
         f"#!{sys.executable}\nimport json,sys\n"
-        'sys.stdout.write(json.dumps({"used_pct": 20, "read_at": "2000-01-01T00:00:00+00:00"}))\n'
+        f"sys.stdout.write(json.dumps({{'used_pct': 20, 'read_at': {_iso(-100000)!r}}}))\n"
     )
     stub.chmod(0o755)
     profile = {
@@ -808,7 +822,7 @@ def test_quota_unknown_stops_the_node(tmp_path, monkeypatch):
     stub = tmp_path / "quota_stub"
     stub.write_text(
         f"#!{sys.executable}\nimport json,sys\n"
-        'sys.stdout.write(json.dumps({"used_pct": 20, "read_at": "2000-01-01T00:00:00+00:00"}))\n'
+        f"sys.stdout.write(json.dumps({{'used_pct': 20, 'read_at': {_iso(-100000)!r}}}))\n"
     )
     stub.chmod(0o755)
     result = core.call(
@@ -958,3 +972,318 @@ def test_quota_hang_is_unknown_and_killed(tmp_path, monkeypatch):
 
         _time.sleep(0.1)
     assert _gone(pid), "the quota grandchild outlived its timeout"
+
+
+# --- E1: quota values must be finite before they steer a decision ------------
+
+
+def _quota_stub(tmp_path: Path, expression: str) -> Path:
+    stub = tmp_path / "stub"
+    stub.write_text(
+        f"#!{sys.executable}\nimport json,sys\n"
+        f"sys.stdout.write(json.dumps({expression}))\n"
+    )
+    stub.chmod(0o755)
+    return stub
+
+
+def test_quota_non_finite_value_is_unknown(tmp_path):
+    import scripts.trinity_core.quota as quota
+
+    for expression in (
+        '{"used_pct": float("nan"), "read_at": ' + repr(_iso()) + "}",
+        '{"used_pct": float("inf"), "read_at": ' + repr(_iso()) + "}",
+    ):
+        stub = _quota_stub(tmp_path, expression)
+        profile = {
+            "quota_source": {"kind": "vendor_cli", "command": str(stub)},
+            "freshness_limit": 300,
+        }
+        assert quota.check(profile)["result"] == "unknown", expression
+
+
+def test_quota_non_finite_freshness_with_stale_read_is_unknown(tmp_path):
+    import scripts.trinity_core.quota as quota
+
+    stub = _quota_stub(
+        tmp_path, '{"used_pct": 20, "read_at": ' + repr(_iso(-100000)) + "}"
+    )
+    profile = {
+        "quota_source": {"kind": "vendor_cli", "command": str(stub)},
+        "freshness_limit": float("nan"),
+    }
+    assert quota.check(profile)["result"] == "unknown"
+
+
+# --- E2: secret-shaped step and label are refused ----------------------------
+
+
+def test_secret_shaped_step_and_label_are_refused(tmp_path, monkeypatch):
+    import scripts.trinity_core as core
+
+    monkeypatch.setenv("TRINITY_ROOT", str(tmp_path / "state"))
+    monkeypatch.delenv("TRINITY_GUARD", raising=False)
+    marker = _secret_marker()
+    base = {
+        "profiles_path": str(_profiles_file(tmp_path)),
+        "profile": PROFILE,
+        "step": "root",
+        "session": "new",
+        "prompt": {"text": "x"},
+        "cwd": str(tmp_path),
+        "allow_nesting": {"max_depth": 1},
+    }
+    for field in ("step", "label"):
+        result = core.call({**base, field: marker})
+        assert result["exit_class"] == "bad_request", (field, result)
+    assert not (tmp_path / "state" / "journal.jsonl").exists()
+
+
+# --- E3: a session mismatch records session_unknown --------------------------
+
+
+def _effective_session(fm, node_id: str):
+    node = next(n for n in _nodes(fm) if n["node"] == node_id)
+    effective = (node.get("session") or {}).get("id")
+    for record in fm.journal:
+        if record.get("kind") == "session" and record.get("node") == node_id:
+            effective = record.get("id")
+    return effective
+
+
+def test_session_mismatch_records_session_unknown():
+    fm = _run_path("mismatch")
+    _ready(fm)
+    root_node = _node_by_step(fm, "root")
+    assert _effective_session(fm, root_node["node"]) is None
+
+
+# --- E5: a reported session id never lands raw in the error log --------------
+
+
+def test_mismatch_error_log_has_no_reported_id(tmp_path, monkeypatch):
+    import scripts.trinity_core.claude_code as claude_code
+
+    marker = _secret_marker()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    harness = bin_dir / "claude"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import json, sys
+            sys.stdout.write(json.dumps({{
+                "type": "result", "is_error": False, "session_id": {marker!r},
+            }}) + "\\n")
+            """
+        )
+    )
+    harness.chmod(0o755)
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    )
+    root = tmp_path / "state"
+    outcome = claude_code.run(
+        {"model": MODEL},
+        prompt="x",
+        cwd=str(tmp_path),
+        session_id="assigned-session-1",
+        run_id="r",
+        node_id="n",
+        depth=0,
+        max_depth=0,
+        root=str(root),
+        heartbeat=lambda source: None,
+        poll_s=100.0,
+    )
+    assert outcome["exit_class"] == "harness_error", outcome
+    error_text = (root / "error.log").read_text()
+    assert "session_mismatch" in error_text
+    assert marker not in error_text
+
+
+# --- E6: prompt {file: path} is read in the core -----------------------------
+
+
+def _capturing_harness(bin_dir: Path, capture: Path) -> None:
+    harness = bin_dir / "claude"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import json, sys
+            argv = sys.argv[1:]
+            with open({str(capture)!r}, "a") as handle:
+                handle.write(json.dumps({{"argv": argv}}) + "\\n")
+            sid = argv[argv.index("--session-id") + 1] if "--session-id" in argv else ""
+            sys.stdout.write(json.dumps({{
+                "type": "result", "is_error": False, "session_id": sid,
+            }}) + "\\n")
+            """
+        )
+    )
+    harness.chmod(0o755)
+
+
+def test_prompt_file_reaches_adapter_and_missing_file_is_refused(tmp_path, monkeypatch):
+    import scripts.trinity_core as core
+
+    monkeypatch.setenv("TRINITY_ROOT", str(tmp_path / "state"))
+    monkeypatch.delenv("TRINITY_GUARD", raising=False)
+    stub = tmp_path / "quota_stub"
+    stub.write_text(
+        f"#!{sys.executable}\nimport json,sys\n"
+        f"sys.stdout.write(json.dumps({{'used_pct': 20, 'read_at': {_iso()!r}}}))\n"
+    )
+    stub.chmod(0o755)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "capture.jsonl"
+    _capturing_harness(bin_dir, capture)
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    )
+    prompt_file = tmp_path / "task.txt"
+    prompt_text = "file " + "prompt-marker"
+    prompt_file.write_text(prompt_text)
+    base = {
+        "profiles_path": str(_profiles_file(tmp_path)),
+        "profile": PROFILE,
+        "step": "root",
+        "session": "new",
+        "cwd": str(tmp_path),
+        "allow_nesting": {"max_depth": 1},
+    }
+    result = core.call({**base, "prompt": {"file": str(prompt_file)}})
+    assert result["exit_class"] == "ok", result
+    captures = [json.loads(line) for line in capture.read_text().splitlines()]
+    assert captures and prompt_text in captures[0]["argv"], captures
+
+    missing_state = tmp_path / "state2"
+    monkeypatch.setenv("TRINITY_ROOT", str(missing_state))
+    missing = core.call({**base, "prompt": {"file": str(tmp_path / "nope.txt")}})
+    assert missing["exit_class"] == "bad_request", missing
+    assert not (missing_state / "journal.jsonl").exists()
+
+
+# --- E7: an unknown run is reported on stderr and exits 1 --------------------
+
+
+def test_tree_unknown_run_reports_on_stderr_and_exits_1(tmp_path):
+    env = dict(os.environ)
+    env["TRINITY_ROOT"] = str(tmp_path / "state")
+    env.pop("TRINITY_GUARD", None)
+    proc = subprocess.run(
+        [str(CLI), "tree", "r-does-not-exist"],
+        cwd=REPO,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 1, (proc.returncode, proc.stdout, proc.stderr)
+    assert "r-does-not-exist" in proc.stderr
+    assert len([line for line in proc.stderr.splitlines() if line.strip()]) == 1
+
+
+# --- E8: nesting depth is validated in the core ------------------------------
+
+
+def test_bad_nesting_depth_is_refused(tmp_path, monkeypatch):
+    import scripts.trinity_core as core
+
+    monkeypatch.setenv("TRINITY_ROOT", str(tmp_path / "state"))
+    monkeypatch.delenv("TRINITY_GUARD", raising=False)
+    base = {
+        "profiles_path": str(_profiles_file(tmp_path)),
+        "profile": PROFILE,
+        "step": "root",
+        "session": "new",
+        "prompt": {"text": "x"},
+        "cwd": str(tmp_path),
+    }
+    for bad in (0, -1, 6, "two", 2.5, True):
+        result = core.call({**base, "allow_nesting": {"max_depth": bad}})
+        assert result["exit_class"] == "bad_request", (bad, result)
+    assert not (tmp_path / "state" / "journal.jsonl").exists()
+
+
+def test_nesting_depth_shapes():
+    from scripts.trinity_core.dispatch import _max_depth
+
+    assert _max_depth({}) == 0
+    assert _max_depth({"allow_nesting": False}) == 0
+    assert _max_depth({"allow_nesting": True}) == 2
+    assert _max_depth({"allow_nesting": {"max_depth": 1}}) == 1
+    assert _max_depth({"allow_nesting": {"max_depth": "2"}}) == 2
+
+
+# --- E4: group cleanup survives a reaped leader ------------------------------
+
+
+def test_harness_timeout_kills_group_after_leader_reaped(tmp_path, monkeypatch):
+    import scripts.trinity_core.claude_code as claude_code
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gpid_file = tmp_path / "gpid"
+    harness = bin_dir / "claude"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import subprocess, sys
+            child = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(5)"]
+            )
+            open({str(gpid_file)!r}, "w").write(str(child.pid))
+            sys.exit(0)
+            """
+        )
+    )
+    harness.chmod(0o755)
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    )
+    import time as _time
+
+    started = _time.monotonic()
+    outcome = claude_code.run(
+        {"model": MODEL},
+        prompt="x",
+        cwd=str(tmp_path),
+        session_id="s",
+        run_id="r",
+        node_id="n",
+        depth=0,
+        max_depth=0,
+        root=str(tmp_path),
+        heartbeat=lambda source: None,
+        poll_s=0.05,
+        time_s=1.0,
+    )
+    elapsed = _time.monotonic() - started
+    assert outcome["exit_class"] == "timeout", outcome
+    assert elapsed < 2.5, (
+        f"a reaped leader let a grandchild hold the call for {elapsed:.1f}s"
+    )
+    for _ in range(50):
+        if gpid_file.exists():
+            break
+        _time.sleep(0.05)
+    gpid = int(gpid_file.read_text())
+    for _ in range(50):
+        if _gone(gpid):
+            break
+        _time.sleep(0.1)
+    assert _gone(gpid), "the harness grandchild outlived its timeout group kill"
+
+
+# --- E9: no literal clock timestamps in this public test file ----------------
+
+
+def test_no_literal_clock_timestamps_in_this_file():
+    text = Path(__file__).read_text(encoding="utf-8")
+    assert not re.search(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", text)
+    assert not re.search(r"\b(19|20)\d{2}-\d{2}-\d{2}\b", text)

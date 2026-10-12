@@ -10,7 +10,9 @@ fields and validated labels (DSP-017, LED-008).
 from __future__ import annotations
 
 import os
+import re
 import uuid
+from pathlib import Path
 
 from . import claude_code, journal
 from . import profiles as profiles_mod
@@ -50,28 +52,56 @@ def state_for_exit_class(exit_class: str) -> str:
 def _valid_label(value) -> bool:
     if not isinstance(value, str) or not (1 <= len(value) <= MAX_LABEL_LEN):
         return False
-    return all(char.isprintable() for char in value)
+    if not all(char.isprintable() for char in value):
+        return False
+    return not journal.would_redact(value)
 
 
-def _max_depth(request: dict) -> int:
+_DEPTH_RE = re.compile(r"^[+-]?[0-9]+$")
+
+
+def _max_depth(request: dict) -> int | None:
+    """Return the run's nesting depth, 0 for off, or None for a bad shape."""
     allow = request.get("allow_nesting")
+    if allow is None or allow is False:
+        return 0
     if allow is True:
         return 2
-    if isinstance(allow, dict):
-        value = allow.get("max_depth")
-        return int(value) if value is not None else 2
-    if isinstance(allow, bool):
-        return 0
-    if isinstance(allow, int):
-        return allow
-    return 0
+    if not isinstance(allow, dict):
+        return None
+    value = allow.get("max_depth")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        depth = value
+    elif isinstance(value, str) and _DEPTH_RE.match(value):
+        depth = int(value)
+    else:
+        return None
+    return depth if 1 <= depth <= 5 else None
 
 
-def _prompt_text(request: dict) -> str:
+def _resolve_prompt(request: dict) -> str | None:
     prompt = request.get("prompt")
     if isinstance(prompt, dict):
-        return str(prompt.get("text") or "")
-    return str(prompt or "")
+        if "file" in prompt:
+            path = prompt.get("file")
+            if not isinstance(path, str) or not path:
+                return None
+            try:
+                text = Path(path).read_text(encoding="utf-8")
+            except OSError:
+                return None
+        else:
+            value = prompt.get("text")
+            if value is None:
+                return None
+            text = str(value)
+    elif isinstance(prompt, str):
+        text = prompt
+    else:
+        return None
+    return text or None
 
 
 def _sanitize_usage(usage) -> dict | None:
@@ -108,14 +138,22 @@ def _heartbeat_poll_s() -> float:
 
 
 def call(request: dict) -> dict:
-    root = journal.resolve_root()
-    guard = journal.load_guard()
-    is_root = guard is None
-
     step = request.get("step") or ""
     label = request.get("label")
     if not _valid_label(step) or (label is not None and not _valid_label(label)):
         return _result(None, None, "bad_request", None)
+
+    request_max_depth = _max_depth(request)
+    if request_max_depth is None:
+        return _result(None, None, "bad_request", None)
+
+    prompt = _resolve_prompt(request)
+    if prompt is None:
+        return _result(None, None, "bad_request", None)
+
+    root = journal.resolve_root()
+    guard = journal.load_guard()
+    is_root = guard is None
 
     try:
         profiles = profiles_mod.load(request["profiles_path"])
@@ -139,7 +177,7 @@ def call(request: dict) -> dict:
         run_id = _new_id("r-")
         parent = None
         depth = 0
-        max_depth = _max_depth(request)
+        max_depth = request_max_depth
     else:
         run_id = guard.get("run")
         parent = guard.get("node")
@@ -236,7 +274,7 @@ def call(request: dict) -> dict:
 
     outcome = adapter.run(
         profile,
-        prompt=_prompt_text(request),
+        prompt=prompt,
         cwd=request.get("cwd") or os.getcwd(),
         session_id=session_id,
         run_id=run_id,
@@ -250,6 +288,18 @@ def call(request: dict) -> dict:
     )
 
     exit_class = outcome.get("exit_class", "unknown")
+    if exit_class == "harness_error" and not outcome.get("session_id"):
+        journal.append(
+            root,
+            {
+                "kind": "session",
+                "run": run_id,
+                "node": node_id,
+                "id": None,
+                "source": "session_unknown",
+                "t": journal.utc_now(),
+            },
+        )
     usage = _sanitize_usage(outcome.get("usage"))
     journal.append(
         root,

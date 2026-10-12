@@ -9,6 +9,7 @@ own process group, killed on timeout so no grandchild outlives the read.
 from __future__ import annotations
 
 import json
+import math
 import os
 import signal
 import subprocess
@@ -32,14 +33,22 @@ def check(profile: dict) -> dict:
     if payload is None:
         return _unknown(source_kind)
     used = payload.get("used_pct")
-    if isinstance(used, bool) or not isinstance(used, _NUMBER):
+    if (
+        isinstance(used, bool)
+        or not isinstance(used, _NUMBER)
+        or not math.isfinite(used)
+    ):
         return _unknown(source_kind)
     read_at = payload.get("read_at")
     freshness = profile.get("freshness_limit")
-    if isinstance(freshness, bool) or not isinstance(freshness, _NUMBER):
+    if (
+        isinstance(freshness, bool)
+        or not isinstance(freshness, _NUMBER)
+        or not math.isfinite(freshness)
+    ):
         return _unknown(source_kind)
     age = _age_seconds(read_at)
-    if age is None or age > freshness:
+    if age is None or not math.isfinite(age) or age > freshness:
         return _unknown(source_kind)
     result = "exhausted" if used >= 100 else "ok"
     return {
@@ -61,14 +70,15 @@ def _read(command: str) -> dict | None:
         )
     except OSError:
         return None
+    pgid = os.getpgid(proc.pid)
     try:
         out, _err = proc.communicate(timeout=READ_TIMEOUT_S)
     except subprocess.TimeoutExpired:
-        _kill_group(proc)
+        _kill_group(pgid)
         proc.communicate()
         return None
     except KeyboardInterrupt:
-        _kill_group(proc)
+        _kill_group(pgid)
         proc.communicate()
         raise
     if proc.returncode != 0:
@@ -76,9 +86,9 @@ def _read(command: str) -> dict | None:
     return _last_json_line(out)
 
 
-def _kill_group(proc: subprocess.Popen) -> None:
+def _kill_group(pgid: int) -> None:
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        os.killpg(pgid, signal.SIGKILL)
     except OSError:
         pass
 

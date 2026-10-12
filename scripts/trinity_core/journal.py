@@ -11,12 +11,75 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 JOURNAL_NAME = "journal.jsonl"
 ERROR_LOG_NAME = "error.log"
 VERSION = 1
+
+_SECRET_SEGMENTS = frozenset(
+    {
+        "key",
+        "apikey",
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "credential",
+        "credentials",
+        "auth",
+    }
+)
+_SECRET_SUFFIXES = ("password", "passwd", "secret", "token")
+_KEY_PREFIX = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|xox[baprs]-|glpat-)"
+    r"([A-Za-z0-9_-]{16,})"
+)
+_BEARER = re.compile(r"(?i)(authorization\s*:\s*|bearer\s+)(\S+)")
+_NAME = r"[A-Za-z_][A-Za-z0-9_.\-]*"
+_ASSIGN = re.compile(r"(?i)\b((?:export\s+)?" + _NAME + r")\s*([=:])\s*(\S+)")
+_MEMBER = re.compile(r'"(' + _NAME + r')"\s*:\s*"([^"]*)"')
+
+
+def _is_secret_name(name: str) -> bool:
+    segments = re.split(r"[_\-.]+|(?<=[a-z])(?=[A-Z])", name)
+    for segment in segments:
+        lowered = segment.lower()
+        if lowered in _SECRET_SEGMENTS or lowered.endswith(_SECRET_SUFFIXES):
+            return True
+    return False
+
+
+def _mask_member(match: re.Match) -> str:
+    if _is_secret_name(match.group(1)):
+        return f'"{match.group(1)}": "[redacted:member]"'
+    return match.group(0)
+
+
+def _mask_assignment(match: re.Match) -> str:
+    bare = match.group(1).split(None, 1)[-1]
+    if _is_secret_name(bare):
+        return f"{match.group(1)}{match.group(2)}[redacted:assignment]"
+    return match.group(0)
+
+
+def redact(text: str) -> str:
+    """Mask secret-shaped runs (RDR-008 kinds 1, 2, 4, 5)."""
+    if not isinstance(text, str):
+        return text
+    out = _KEY_PREFIX.sub(lambda m: "[redacted:key]", text)
+    out = _BEARER.sub(lambda m: m.group(1) + "[redacted:bearer]", out)
+    out = _MEMBER.sub(_mask_member, out)
+    out = _ASSIGN.sub(_mask_assignment, out)
+    return out
+
+
+def would_redact(text: str) -> bool:
+    """DSP-017: a caller text a value the redaction function changes is refused."""
+    return redact(text) != text
 
 
 def utc_now() -> str:

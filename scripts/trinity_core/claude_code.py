@@ -97,6 +97,7 @@ def run(
         text=True,
         start_new_session=True,
     )
+    pgid = os.getpgid(proc.pid)
     stop = threading.Event()
     thread = threading.Thread(
         target=_poll, args=(stop, proc, heartbeat, poll_s), daemon=True
@@ -108,11 +109,11 @@ def run(
         out, _err = proc.communicate(timeout=time_s)
     except subprocess.TimeoutExpired:
         timed_out = True
-        _kill_group(proc)
+        _kill_group(pgid)
         out, _err = proc.communicate()
     except KeyboardInterrupt:
         interrupted = True
-        _kill_group(proc)
+        _kill_group(pgid)
         proc.communicate()
         out = ""
     finally:
@@ -138,13 +139,21 @@ def run(
 
     session_out = session_id
     if exit_class == "ok" and reported != session_id:
-        journal.append_error(
-            root,
-            {"error": "session_mismatch", "assigned": session_id, "reported": reported},
-        )
+        error = {"error": "session_mismatch"}
+        if not _valid_session_shape(reported):
+            error["reported_shape"] = "invalid"
+        journal.append_error(root, error)
         exit_class = "harness_error"
         session_out = None
     return _outcome(exit_class, session_out, usage, wall_s)
+
+
+def _valid_session_shape(value) -> bool:
+    return (
+        isinstance(value, str)
+        and 8 <= len(value) <= 128
+        and all(char.isalnum() or char in "-_" for char in value)
+    )
 
 
 def _build_env(profile: dict, guard: dict) -> dict:
@@ -169,9 +178,9 @@ def _poll(
         heartbeat(HEARTBEAT_SOURCE)
 
 
-def _kill_group(proc: subprocess.Popen) -> None:
+def _kill_group(pgid: int) -> None:
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        os.killpg(pgid, signal.SIGKILL)
     except OSError:
         pass
 

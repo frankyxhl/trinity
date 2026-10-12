@@ -562,7 +562,7 @@ def cmd_call(args):
     """Build the dispatch-core request and hand it to the core (NG-06)."""
     allow_nesting = False
     if args.allow_nesting_max_depth is not None:
-        allow_nesting = {"max_depth": int(args.allow_nesting_max_depth)}
+        allow_nesting = {"max_depth": args.allow_nesting_max_depth}
     request = {
         "profiles_path": args.profiles,
         "profile": args.profile,
@@ -579,7 +579,11 @@ def cmd_call(args):
 
 def cmd_tree(args):
     root = trinity_core.journal_root()
-    for line in trinity_core.render_tree(root, args.run):
+    lines = trinity_core.render_tree(root, args.run)
+    if not lines:
+        sys.stderr.write(f"trinity tree: unknown run {args.run}\n")
+        return 1
+    for line in lines:
         sys.stdout.write(line + "\n")
     return 0
 
