@@ -579,8 +579,24 @@ def test_wo005r_i1s_s4_marker_on_success_and_usage_stays_ok(tmp_path, monkeypatc
     assert not outcome.get("hint"), outcome
 
 
+def _result_object_harness(fields: dict, *, code: int = 1) -> str:
+    payload = dict(fields)
+    payload["result"] = CLAUDE_LOGIN_RESULT
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import json, sys
+        sys.stdout.write(json.dumps({payload!r}) + "\\n")
+        sys.exit({code})
+        """
+    )
+
+
 def test_wo005r_i1s_s5_exact_final_login_result_is_auth_error(tmp_path, monkeypatch):
     """The exact final result object is the only Claude JSON auth source."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _executable(bin_dir / WRAPPER_NAME, _result_harness(CLAUDE_LOGIN_RESULT, code=1))
@@ -592,9 +608,42 @@ def test_wo005r_i1s_s5_exact_final_login_result_is_auth_error(tmp_path, monkeypa
     assert outcome["exit_class"] == "auth_error", outcome
     assert outcome.get("hint"), outcome
     assert "Claude result" in outcome["hint"], outcome
-    config_dir = Path(monkeypatch.get_env("HOME")) / ".claude-trinity-claude-code"
+    config_dir = home / ".claude-trinity-claude-code"
     assert _isolated_login_command(config_dir) in outcome["hint"], outcome["hint"]
     assert outcome["hint"].rstrip().endswith("/login"), outcome["hint"]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"type": "result", "is_error": False},
+        {"type": "result"},
+        {"type": "result", "is_error": "true"},
+        {"type": "system", "is_error": True},
+        {"is_error": True},
+    ],
+    ids=[
+        "is-error-false",
+        "is-error-absent",
+        "is-error-non-boolean",
+        "type-system",
+        "type-absent",
+    ],
+)
+def test_wo005r_i1s_s5_exact_login_with_wrong_metadata_stays_unknown(
+    tmp_path, monkeypatch, fields
+):
+    """Exact text alone is insufficient; each metadata field is mandatory."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER_NAME, _result_object_harness(fields))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", (fields, outcome)
+    assert not outcome.get("hint"), (fields, outcome)
 
 
 @pytest.mark.parametrize(
