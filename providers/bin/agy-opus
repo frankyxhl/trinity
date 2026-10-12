@@ -1,7 +1,7 @@
 #!/bin/sh
 # providers/bin/agy-opus — Claude Opus 4.6 (Thinking) worker wrapper via the
 # Antigravity CLI (TRI-0002, D120). Third worker provider in the fallback
-# order Codex (gpt-5.6-sol) → GLM 5.3 (codex-glm) → agy-opus.
+# order Codex (gpt-6.1-sol) → GLM 5.3 (codex-glm) → agy-opus.
 #
 # Contract (same spirit as codex-glm): task in, result out.
 #   agy-opus [agy flags…] "<task text>"
