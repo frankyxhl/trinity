@@ -23,7 +23,7 @@ After promotion, this SOP is retained as a **trinity-specific overlay** that con
 | §1.5 Comprehension check | **none — trinity-only** | 6-point rubric, PROCEED/CLARIFY/REJECT outcomes, comment-based CLARIFY (CHG-3038), trusted-set anchor + comment-`updated_at` TOCTOU pin, per-issue round-counter (cap 3) |
 | §2 Branch hygiene | **COR-1505** | identity-gate hard requirement on `<gh-write-identity>`; agent-prefix branch naming |
 | §3 Plan / CHG drafting | **COR-1104** (CHG sizing) | — |
-| §4 Plan-review (3-provider plan-review tier) | **COR-1602** + **COR-1617** §4 | plan-review tier `[trinity-glm, trinity-codex, trinity-deepseek]` at threshold ≥9.5 (TRN-3042); Codex CLI required on the panel, with an additional post-push bot signal |
+| §4 Plan-review (3-provider plan-review tier) | **COR-1602** + **COR-1617** §4 | plan-review tier `[trinity-glm, trinity-deepseek, trinity-minimax]` at threshold ≥9.5 (TRN-3042) |
 | §5 Dispatch (orchestrator vs worker) | **COR-1619** | role-routed workers: `<implementation-worker-agent>` = `trinity-glm via droid exec`; `<test-code-worker-agent>` = `trinity-deepseek` |
 | §6 Verify implementation | **COR-1617** §6 | `af validate --root .` is normative |
 | §7 PR open + closure-checklist | **COR-1617** §7 | 6-item post-push closure-checklist (per #94 + CHG-3044) |
@@ -43,7 +43,7 @@ After promotion, this SOP is retained as a **trinity-specific overlay** that con
 - **§12 State-B 3-branch guard** — accepts `main` / watched-branch / agent-prefix branch (`^(codex\|claude)/`). PKG's COR-1620 Primitive 3 has 2-branch (main / watched).
 - **CHG-3037 wake-prompt § references** — wake `prompt=` carries § references + bindings, not inline FIRST/SECOND/THIRD pseudocode. PKG's COR-1620 §Sample wake prompt uses inline pseudocode.
 - **CHG-3038 round-counter** — per-issue CLARIFY round-counter (cap 3). PKG has no equivalent (no comprehension check).
-- **Plan-review tier ≥9.5** (TRN-3042) — 3-provider plan-review panel `[trinity-glm, trinity-codex, trinity-deepseek]` at `<panel-pass-threshold>` = 9.5. Code-review uses the same 3-provider tier `[trinity-glm, trinity-codex, trinity-deepseek]` plus Codex bot signal. PKG's COR-1622 default is `9.0`; trinity overrides.
+- **Plan-review tier ≥9.5** (TRN-3042) — 3-provider plan-review panel `[trinity-glm, trinity-deepseek, trinity-minimax]` at `<panel-pass-threshold>` = 9.5. Code-review uses the 3-provider tier `[trinity-glm, trinity-codex, trinity-deepseek]` plus Codex bot signal. PKG's COR-1622 default is `9.0`; trinity overrides.
 
 ### Parameter resolution
 
@@ -428,16 +428,16 @@ flowchart TD
 
 ### 4. Plan-review (3-provider plan-review tier)
 
-> *Shared with COR-1602 (Multi Model Parallel Review) + COR-1617 §4; trinity overlay: plan-review tier `[trinity-glm, trinity-codex, trinity-deepseek]` at `<panel-pass-threshold>` ≥9.5 (TRN-3042); Codex CLI required on the panel, with an additional post-push bot signal.*
+> *Shared with COR-1602 (Multi Model Parallel Review) + COR-1617 §4; trinity overlay: plan-review tier `[trinity-glm, trinity-deepseek, trinity-minimax]` at `<panel-pass-threshold>` ≥9.5 (TRN-3042).*
 
-Dispatch the plan-review panel in parallel (trinity-glm, trinity-codex, trinity-deepseek) via the `Agent` tool. **Parallelism is required** — running serially burns 3x the wall-clock and fragments the cache window. PASS gate: **all three individual ≥9.5 AND all blocking empty**. Every required voice must clear the threshold, and dissent is never absorbable. Codex is a full required member, invoked as `codex exec --skip-git-repo-check -m gpt-6.1-sol`. If Codex cannot run, fail the review; do not accept a two-provider panel. The post-push `chatgpt-codex-connector[bot]` signal remains an additional §8 gate.
+Dispatch the plan-review panel in parallel (trinity-glm, trinity-deepseek, trinity-minimax) via the `Agent` tool. **Parallelism is required** — running serially burns 3x the wall-clock and fragments the cache window. PASS gate: **all three individual ≥9.5 AND all blocking empty**. The ≥9.5 individual bar remains strict: every required voice must clear the threshold, and dissent is never absorbable. MiniMax is a required plan-reviewer, not an optional tiebreaker.
 
 ```mermaid
 flowchart LR
     A[CHG drafted<br/>Status: Proposed] --> B[Dispatch 3 in parallel]
     B --> G1[trinity-glm]
-    B --> G2[trinity-codex]
-    B --> G3[trinity-deepseek]
+    B --> G2[trinity-deepseek]
+    B --> G3[trinity-minimax]
     G1 --> V1{Verdict OK?<br/>timeout / malformed JSON /<br/>missing score?}
     G2 --> V1
     G3 --> V1
@@ -695,15 +695,15 @@ flowchart TD
     G -- No --> H[Triage bot finding<br/>see phase 9<br/>note: bot may post<br/>new findings on later<br/>commits — re-poll each R]
     H --> A
     G -- Yes --> I{Code-review<br/>panel run yet<br/>on this head?}
-    I -- No --> J[Dispatch code-review<br/>panel (glm + deepseek)]
-    J --> K{"Both ≥ 9.5<br/>blocking empty?"}
+    I -- No --> J[Dispatch code-review<br/>panel (glm + codex + deepseek)]
+    J --> K{"All three ≥ 9.5<br/>blocking empty?"}
     K -- No --> L[Triage panel findings<br/>see phase 9]
     L --> A
     K -- Yes --> M[Gate CLEAN<br/>→ phase 10]
     I -- Yes --> M
 ```
 
-**Code-review panel uses the same three required vendors as plan-review** (`trinity-glm` + `trinity-codex` + `trinity-deepseek`, all individual ≥9.5). Codex runs directly with `gpt-6.1-sol`; a missing or failed Codex call fails the review. The `chatgpt-codex-connector[bot]` post-push signal remains required by the §8 polling spec and does not replace the direct Codex review.
+**Code-review panel requires GLM, Codex, and DeepSeek** (`trinity-glm` + `trinity-codex` + `trinity-deepseek`, all individual ≥9.5). Codex runs directly with `gpt-6.1-sol`; a missing or failed Codex call fails the review. The `chatgpt-codex-connector[bot]` post-push signal remains required by the §8 polling spec and does not replace the direct Codex review.
 
 **Polling cadence rules:**
 
@@ -897,7 +897,7 @@ Replaces the informal "Move to phase 1 (auto-pick next issue)" line in §10's pr
 
 The auto-pick loop must reject any candidate that wasn't explicitly consented to by `$TRUSTED_REACTOR` AND lacks intake-quality verification. The gate in §1 closes the attack surface: prompt-injection in issue title/body (rejected — not consent signal), compromised contributor reactions (rejected — `.user.login` exact-match), wrong emoji (rejected — `content == "rocket"`), reaction-spam DoS (defended — `--paginate` covers all pages), state-cycling tricks (defended — timeline-event invalidator covers `edited`/`renamed`/`closed`/`reopened`/`transferred`/`unlocked`), bot-suffix login spoofing (rejected — exact-match), comment-vs-body confusion (defended — only `/issues/N/reactions` consulted), concurrent-orchestrator race (defended — claim-comment with 10-min window), prompt-injection-via-relayed-text (defended — bypass requires LIVE chat input only), **rocketed-without-blueprint-ready OR label applied by non-trusted user (defended — check 5 fails closed: label-presence + most-recent `LABELED` actor must be in trusted set `{iterwheel-blueprint[bot], $TRUSTED_REACTOR}`; same-second tie on label/unlabel events fails closed)**. Bot-timing-race note: a rocketed-but-unlabeled issue is silently skipped per cron tick until the bot applies the label — expected behaviour; the operator runs `/blueprint` to trigger the bot. Out-of-scope (accepted residual): `$TRUSTED_REACTOR` account compromise (root-of-trust failure — mitigation is at the GitHub-account layer, not this SOP); silent GitHub login rename for single-trustee Trinity (low risk; PKG-promotion form should pin by stable `node_id`); `iterwheel-blueprint[bot]` compromise (root-of-trust at GitHub App level). PKG-promotion form: trusted-reactor becomes a project-config parameter `<repo-trusted-reactor-list>` (default: `[repo owner from gh repo view]`); multi-trustee filter `.user.login | IN([...])`.
 
-**Panel topology.** Plan-review and code-review both require GLM, Codex, and DeepSeek. Required providers have zero redundancy inside their phase: any unavailable member blocks that phase (per §Failure Modes "Reviewer / provider unavailability"). The ≥9.5 individual bar applies to every member. Codex's direct `gpt-6.1-sol` review and the post-push `chatgpt-codex-connector[bot]` signal are separate requirements. If the bot is unavailable, treat the PR as code-review-pending and do NOT merge until the bot posts on the current HEAD (§8 commit_id-anchored polling).
+**Panel topology.** Plan-review requires a 3-provider tier (`trinity-glm`, `trinity-deepseek`, `trinity-minimax`). Code-review requires a 3-provider tier (`trinity-glm`, `trinity-codex`, `trinity-deepseek`). Required providers have zero redundancy inside their phase: any unavailable member blocks that phase (per §Failure Modes "Reviewer / provider unavailability"). The ≥9.5 individual bar applies to every member. Codex's direct `gpt-6.1-sol` review and the post-push `chatgpt-codex-connector[bot]` signal are separate requirements. If the bot is unavailable, treat the PR as code-review-pending and do NOT merge until the bot posts on the current HEAD (§8 commit_id-anchored polling).
 
 **Comment-based CLARIFY attack surface** [CHG-3038, Closes #100]. The §1.5 CLARIFY workflow routes operator clarifications through issue comments (NOT body edits) to avoid §1 check 3 body-edit invalidation. This does NOT introduce a new attack surface:
 
@@ -955,7 +955,7 @@ The happy-path loop assumes three healthy plan-review providers, three healthy c
 
 ### Reviewer / provider unavailability (timeout, API error, invalid JSON)
 
-A provider call that times out, returns a non-2xx, or emits malformed JSON does NOT count as a verdict. Plan-review and code-review each require all three providers (`trinity-glm` + `trinity-codex` + `trinity-deepseek`). Retry once per provider on transient failure (timeout, malformed JSON, non-2xx). If still unavailable after retry, abort that phase's panel and surface the outage to the user. An unavailable Codex call fails the review; never count an N-1 panel as PASS. Always document the outage in the PR body (e.g. "deepseek: API outage; panel aborted — re-dispatch when provider recovers").
+A provider call that times out, returns a non-2xx, or emits malformed JSON does NOT count as a verdict. Plan-review requires all three plan-review providers (`trinity-glm` + `trinity-deepseek` + `trinity-minimax`). Code-review requires all three code-review providers (`trinity-glm` + `trinity-codex` + `trinity-deepseek`). Retry once per provider on transient failure (timeout, malformed JSON, non-2xx). If still unavailable after retry, abort that phase's panel and surface the outage to the user. An unavailable Codex call fails code-review; never count an N-1 panel as PASS. Always document the outage in the PR body (e.g. "deepseek: API outage; panel aborted — re-dispatch when provider recovers").
 
 ### User override mid-loop (covers rocket revocation)
 

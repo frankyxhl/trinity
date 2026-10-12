@@ -56,7 +56,7 @@ COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Wit
 
 | Key | Trinity value | Notes |
 |-----|---------------|-------|
-| `<panel-providers>` | Plan-review and code-review: `[trinity-glm, trinity-codex, trinity-deepseek]` | Default and deep panels require all three vendors. Codex runs as `codex exec --skip-git-repo-check -m gpt-6.1-sol`; if it cannot run, the review fails. The post-push bot signal is additional, not a substitute for the Codex panel seat. |
+| `<panel-providers>` | Plan-review tier: `[trinity-glm, trinity-deepseek, trinity-minimax]`. Code-review tier: `[trinity-glm, trinity-codex, trinity-deepseek]`. | Plan-review retains the three required providers from TRN-3042. Default and deep code-review panels require GLM, Codex, and DeepSeek. Codex uses `gpt-6.1-sol`; if it cannot run, code-review fails. The post-push bot signal is additional, not a substitute for the Codex code-review seat. |
 | `<weights-doc>` | `TRN-1800` | Scalar form (single rubric across all artifact types in trinity). |
 | `<spec-format>` | `CHG` | Trinity ships substantive changes as CHG documents. |
 | `<panel-pass-threshold>` | `9.5` | Higher than COR-1622's default `9.0`; applies to every required plan-review and code-review provider. CHG-3032 §Threshold rationale; TRN-3042 preserves the threshold while changing the plan-review tier. |
@@ -104,7 +104,7 @@ These bindings drive trinity-specific overlays in TRN-1008 that COR-1617 does no
 | Concurrent-PR cap `N` | `2` | CHG-3036 hard cap. Set as a §1 phase-1 guard, not a hardcoded constant — future evolve cycles may revisit via PRP/CHG. |
 | Agent-branch prefix regex | `^(codex\|claude)/` [^pipe-esc] | TRN-1008 §11 State-B branch guard accepts both prefixes. `codex/` is legacy from when the orchestrator was Codex; `claude/` is current. |
 | CLARIFY round-counter cap | `3` | TRN-1008 §1.5 per-issue counter; CHG-3038 §Why. |
-| Plan-review-tier providers | `[trinity-glm, trinity-codex, trinity-deepseek]` | Required §4 plan-review panel. Every member must return a viable verdict. |
+| Plan-review-tier providers | `[trinity-glm, trinity-deepseek, trinity-minimax]` | Required §4 plan-review panel. TRN-3042. |
 | Code-review-tier providers | `[trinity-glm, trinity-codex, trinity-deepseek]` | Required §8 code-review panel; the post-push GitHub App signal via `<bot-actors>` remains an additional gate. |
 | Worker role split | implementation=`trinity-glm via droid exec`; test-code=`trinity-deepseek` | Required §5 worker routing. Mixed implementation+test tasks dispatch both workers with disjoint write sets. TRN-3042. |
 
