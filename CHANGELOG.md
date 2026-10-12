@@ -29,6 +29,18 @@
   attribution, and its own implementation surfaces (block_divergence tool +
   tests). Status: Proposed — awaits the TRN-1008 loop.
 
+### Fixed
+- `providers/bin/claude-code`: the wrapper previously passed no credential, so
+  the nested `claude` reported "not logged in". It now selects a Claude Code
+  seat via `TRINITY_CLAUDE_CODE_ACCOUNT` (`a`/`b`/`c`, default `b`), reads that
+  seat's token from `~/.claude/fleet-token.<account>`, and hands it to the
+  exec'd `claude` only as `CLAUDE_CODE_OAUTH_TOKEN`. It fails closed (exit 1
+  before `claude` runs) when the account is invalid or the token file is
+  missing, empty, or readable/writable by group or other; the token is never
+  printed and inherited `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` /
+  `ANTHROPIC_AUTH_TOKEN` no longer reach the nested process (D2596-FIX3).
+- `providers/bin/claude-code`: hardened — on Darwin a failed `ls -lde` now refuses (cannot inspect ACL) instead of falling open, and the `ACCOUNT=` prompt token must be exactly a/b/c (empty or malformed errors instead of silently defaulting to b).
+
 ### Removed
 - Removed Gemini provider; Codex joins default review panel. Existing installs
   keep their old Gemini registration and agent file until removed by hand.
@@ -58,6 +70,9 @@
   #245.
 
 ### Changed
+- Codex default pin `gpt-5.6-sol` → `gpt-6.1-sol`; documented `gpt-6-luna`
+  as an optional alternative through the existing `trinity.json` CLI overlay.
+  Both models verified on codex-cli 0.160.0.
 - Rules status-hygiene sweep: TRN-3034/3035/3036/3037/3038/3040
   `Proposed` → `Approved` (all implemented and merged — PRs #102/#105/#109/
   #114/#117/#119, each cited in the doc's Change History); TRN-2001/2003/

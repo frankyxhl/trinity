@@ -21,7 +21,10 @@ T14 (make verify-built after .delta.md edit) is enforced by `make test` itself.
 
 import json
 import os
+import re
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,6 +33,7 @@ REPO_ROOT = Path(__file__).parent.parent
 DEEPSEEK_BIN = REPO_ROOT / "providers" / "bin" / "deepseek"
 OPENROUTER_BIN = REPO_ROOT / "providers" / "bin" / "openrouter"
 CLAUDE_CODE_BIN = REPO_ROOT / "providers" / "bin" / "claude-code"
+CLAUDE_CODE_DELTA = REPO_ROOT / "providers" / "claude-code.delta.md"
 
 CAPTURED_ENV_KEYS = (
     "ANTHROPIC_BASE_URL",
@@ -39,9 +43,17 @@ CAPTURED_ENV_KEYS = (
     "ANTHROPIC_SMALL_FAST_MODEL",
     "API_TIMEOUT_MS",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
     "TRINITY_DISABLE_DISPATCH",
+    "TOKEN",
 )
+
+# Fake fleet tokens used by the claude-code account tests (D2596-FIX3). Never
+# real credentials — written only into the pytest tmp HOME.
+FLEET_TOKEN_B = "fake-token-acct-b-123"
+FLEET_TOKEN_A = "fake-token-acct-a-456"
+FLEET_TOKEN_C = "fake-token-acct-c-789"
 
 
 # --- fixtures ---
@@ -78,6 +90,14 @@ def stub_env(tmp_path):
     secrets_dir = tmp_path / ".secrets"
     secrets_dir.mkdir()
 
+    # D2596-FIX3: the claude-code wrapper fails closed without a token file, so
+    # seed a valid default account-b token so the pre-existing T14 tests keep
+    # exercising model/effort behaviour (R6) once the fix lands.
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "fleet-token.b").write_text(FLEET_TOKEN_B)
+    (claude_dir / "fleet-token.b").chmod(0o600)
+
     def make_env(env_extra=None):
         env = {
             "PATH": f"{bin_dir}:/usr/bin:/bin",
@@ -104,6 +124,20 @@ def _write_key_file(home, provider, content, mode=0o600):
     p.write_text(content)
     p.chmod(mode)
     return p
+
+
+def _write_token_file(home, account, content, mode=0o600):
+    p = Path(home) / ".claude" / f"fleet-token.{account}"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content)
+    p.chmod(mode)
+    return p
+
+
+def _assert_token_absent(res, token):
+    """R4: the token must never appear on stdout OR stderr on any path."""
+    assert token not in res.stdout, "token leaked to stdout"
+    assert token not in res.stderr, "token leaked to stderr"
 
 
 # --- DeepSeek wrapper tests (T1-T6, T6b, T8) ---
@@ -332,6 +366,455 @@ def test_t14_claude_code_rejects_invalid_effort_before_invoking_claude(stub_env)
     assert "invalid effort" in res.stderr
     assert "low|medium|high|xhigh|max" in res.stderr
     assert not rec.exists()
+
+
+# --- claude-code account/token tests (D2596-FIX3 R9) ---
+#
+# The wrapper reads "$HOME/.claude/fleet-token.<account>" and passes the
+# stripped contents to the exec'd claude as CLAUDE_CODE_OAUTH_TOKEN. Account
+# comes from TRINITY_CLAUDE_CODE_ACCOUNT (unset/empty => b). All tokens here are
+# FAKE and live only in the pytest tmp HOME.
+
+
+def test_t15_claude_code_defaults_to_account_b_token_via_env(stub_env):
+    """R9: unset account => b; its token reaches claude only via the env var."""
+    env, rec = stub_env()
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    e = json.loads(rec.read_text())["env"]
+    assert e["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_B
+    _assert_token_absent(res, FLEET_TOKEN_B)
+
+
+def test_t15_claude_code_account_a_selects_its_token_file(stub_env):
+    """R9: TRINITY_CLAUDE_CODE_ACCOUNT=a reads fleet-token.a (not b)."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "b", "fake-token-acct-b-decoy")
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    )
+    _assert_token_absent(res, FLEET_TOKEN_A)
+    _assert_token_absent(res, "fake-token-acct-b-decoy")
+
+
+def test_t15_claude_code_account_c_selects_its_token_file(stub_env):
+    """R9: TRINITY_CLAUDE_CODE_ACCOUNT=c reads fleet-token.c."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "c"})
+    _write_token_file(env["HOME"], "c", FLEET_TOKEN_C)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_C
+    )
+    _assert_token_absent(res, FLEET_TOKEN_C)
+
+
+def test_t15_claude_code_empty_account_env_defaults_to_b(stub_env):
+    """R1/R9: empty TRINITY_CLAUDE_CODE_ACCOUNT behaves like unset => b."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": ""})
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_B
+    )
+    _assert_token_absent(res, FLEET_TOKEN_B)
+
+
+def test_t15_claude_code_invalid_account_rejected_before_invoking_claude(stub_env):
+    """R1/R9: any account other than a/b/c exits 1 without running claude and
+    names the allowed values."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "z"})
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "a|b|c" in res.stderr
+    assert "z" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_missing_token_file_rejected_before_invoking_claude(stub_env):
+    """R3/R9: missing file exits 1 naming account letter + path; no claude run."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "missing" in res.stderr.lower()
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_empty_token_file_rejected_before_invoking_claude(stub_env):
+    """R3/R9: empty-after-strip file exits 1; the (empty) value never leaks."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", "   \n\t\n", mode=0o600)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "empty" in res.stderr.lower()
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_group_or_other_readable_token_rejected(stub_env):
+    """R3/R9: mode 0644 (group/other readable) exits 1 and never echoes the token."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", "fake-token-acct-a-secret", mode=0o644)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "group or other" in res.stderr.lower()
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, "fake-token-acct-a-secret")
+
+
+def test_t15_claude_code_group_writable_token_rejected(stub_env):
+    """R3/R7: mode 0620 (group-writable only, not readable) is still a 077 bit."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", "fake-token-acct-a-secret", mode=0o620)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "group or other" in res.stderr.lower()
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, "fake-token-acct-a-secret")
+
+
+def test_t15_claude_code_symlink_token_file_rejected(stub_env):
+    """P1: a symlink is rejected before permissions (cat would follow it)."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    real = Path(env["HOME"]) / ".claude" / "real-token"
+    real.write_text(FLEET_TOKEN_A)
+    real.chmod(0o600)
+    os.symlink(real, Path(env["HOME"]) / ".claude" / "fleet-token.a")
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "not a regular file" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_directory_token_path_rejected(stub_env):
+    """P1: any non-regular file (here a directory) is rejected."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    (Path(env["HOME"]) / ".claude" / "fleet-token.a").mkdir()
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "not a regular file" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_token_file_with_acl_marker_rejected(stub_env):
+    """P1: char 11 '+' (ACL present) is rejected even when mode bits are 0600.
+
+    A fake `ls` on PATH deterministically emits the ACL marker, so this branch
+    is covered on every OS (macOS 27 surfaces ACLs as '@', not '+')."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    ls_stub.write_text("#!/bin/sh\nprintf '%s\\n' '-rw-------+ 1 u g 0 tok'\n")
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "has an ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="chmod +a ACLs are macOS-only")
+def test_t15_claude_code_token_file_with_real_acl_rejected(stub_env):
+    """P1: a real 0600 file whose ACL grants group read is rejected.
+
+    macOS 27 hides the ACL behind the xattr marker `@` in `ls -ld`, so this
+    exercises the `ls -lde` extra-line detection, not the `+` marker."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    p = _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    add = subprocess.run(
+        ["chmod", "+a", "group:staff allow read", str(p)],
+        capture_output=True,
+        text=True,
+    )
+    if add.returncode != 0:
+        pytest.skip(f"chmod +a unavailable: {add.stderr.strip()}")
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "has an ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_acl_listing_extra_line_rejected(stub_env):
+    """P1: `ls -lde` printing an ACL entry (extra line) is rejected."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) printf '%s\\n' '-rw------- 1 u g 0 tok' ' 0: group:staff allow read';;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "has an ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_ls_without_dash_e_still_accepts(stub_env):
+    """P1/R7: on non-Darwin, `ls -lde` unsupported (GNU ls exits non-zero) falls
+    back to the `+` check, so a clean 0600 file is accepted. Pinned to Linux so
+    it keeps meaning "GNU ls" after the Darwin fail-closed fix."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    bin_dir = Path(env["HOME"]) / "bin"
+    uname_stub = bin_dir / "uname"
+    uname_stub.write_text("#!/bin/sh\nprintf '%s\\n' Linux\n")
+    uname_stub.chmod(0o755)
+    ls_stub = bin_dir / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) exit 2;;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    )
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_darwin_acl_listing_failure_refuses(stub_env):
+    """P1 fail-closed: on Darwin `ls -lde` is the only way to see an ACL, so a
+    failure to inspect must REFUSE rather than fall through to the `+` check."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    bin_dir = Path(env["HOME"]) / "bin"
+    uname_stub = bin_dir / "uname"
+    uname_stub.write_text("#!/bin/sh\nprintf '%s\\n' Darwin\n")
+    uname_stub.chmod(0o755)
+    ls_stub = bin_dir / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) exit 1;;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    assert "fleet-token.a" in res.stderr
+    assert "cannot inspect ACL" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_acl_listing_failure_with_unknown_uname_refuses(stub_env):
+    """Gap fail-closed: if `ls -lde` fails AND `uname -s` fails/prints nothing,
+    the OS is unknown, so the ACL check could not be done — REFUSE rather than
+    treat it as non-Darwin and accept the token."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    bin_dir = Path(env["HOME"]) / "bin"
+    uname_stub = bin_dir / "uname"
+    uname_stub.write_text("#!/bin/sh\nexit 1\n")
+    uname_stub.chmod(0o755)
+    ls_stub = bin_dir / "ls"
+    ls_stub.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  -lde) exit 1;;\n"
+        "  *) printf '%s\\n' '-rw------- 1 u g 0 tok';;\n"
+        "esac\n"
+    )
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    assert "fleet-token.a" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_unreadable_ls_rejected(stub_env):
+    """P2: an ls that fails (even with permission-shaped output) must not pass."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A, mode=0o600)
+    ls_stub = Path(env["HOME"]) / "bin" / "ls"
+    ls_stub.write_text("#!/bin/sh\nprintf '%s\\n' '-rw------- 1 u g 0 tok'\nexit 1\n")
+    ls_stub.chmod(0o755)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 1
+    assert "fleet-token.a" in res.stderr
+    assert "cannot determine permissions" in res.stderr
+    assert not rec.exists(), "claude stub should not have been invoked"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_inherited_tokens_do_not_reach_claude(stub_env):
+    """R5/R9: the selected token wins; inherited OAuth/API/auth tokens are
+    overridden or unset for the exec'd claude."""
+    env, rec = stub_env(
+        {
+            "TRINITY_CLAUDE_CODE_ACCOUNT": "a",
+            "CLAUDE_CODE_OAUTH_TOKEN": "inherited-wrong-token",
+            "ANTHROPIC_API_KEY": "inherited-api-key",
+            "ANTHROPIC_AUTH_TOKEN": "inherited-auth-token",
+        }
+    )
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    e = json.loads(rec.read_text())["env"]
+    assert e["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    assert e["ANTHROPIC_API_KEY"] is None
+    assert e["ANTHROPIC_AUTH_TOKEN"] is None
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_inherited_exported_token_not_reused(stub_env):
+    """P2: an inherited exported TOKEN must not be re-exported carrying the
+    secret; the value reaches claude only as CLAUDE_CODE_OAUTH_TOKEN."""
+    env, rec = stub_env(
+        {"TRINITY_CLAUDE_CODE_ACCOUNT": "a", "TOKEN": "inherited-token-xyz"}
+    )
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    e = json.loads(rec.read_text())["env"]
+    assert e["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    assert e["TOKEN"] is None
+    leaked = [
+        k for k, v in e.items() if v == FLEET_TOKEN_A and k != "CLAUDE_CODE_OAUTH_TOKEN"
+    ]
+    assert leaked == [], f"token re-exported under {leaked}"
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_token_never_in_argv(stub_env):
+    """R4/R9: the token is delivered via env, never on claude's argv."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", FLEET_TOKEN_A)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    rec_data = json.loads(rec.read_text())
+    assert rec_data["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    assert FLEET_TOKEN_A not in " ".join(rec_data["argv"])
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_strips_surrounding_whitespace_from_token(stub_env):
+    """R2/R9: trailing newline/whitespace is stripped before handing to claude."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", f"  {FLEET_TOKEN_A}\n", mode=0o600)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert (
+        json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == FLEET_TOKEN_A
+    )
+    _assert_token_absent(res, FLEET_TOKEN_A)
+
+
+def test_t15_claude_code_preserves_internal_whitespace(stub_env):
+    """P2: only surrounding whitespace is trimmed; internal characters stay."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    _write_token_file(env["HOME"], "a", "  fake a b  \n", mode=0o600)
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert json.loads(rec.read_text())["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "fake a b"
+    _assert_token_absent(res, "fake a b")
+
+
+# --- claude-code ACCOUNT parse in providers/claude-code.delta.md (P2) ---
+#
+# The orchestrator snippet documented in the delta file parses the task
+# prompt's `ACCOUNT=<a|b|c>` token. These tests extract that snippet verbatim
+# from the doc and run it, so they fail if the doc's parse diverges from the
+# contract: exactly a/b/c is accepted; any `ACCOUNT=` token with any other value
+# (empty, `a=bad`, `=a`, `B`, `ab`) must error and never silently default to b;
+# no `ACCOUNT=` token at all leaves the account to the wrapper default b.
+#
+# Extraction: the ACCOUNT assignment line plus the contiguous non-blank lines
+# after it (a validation `if`/`case` must be adjacent to the assignment).
+
+
+def _code_blocks(text):
+    blocks, cur, in_block = [], [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            if in_block:
+                blocks.append(cur)
+                cur = []
+            in_block = not in_block
+            continue
+        if in_block:
+            cur.append(line)
+    return blocks
+
+
+def _extract_account_snippet():
+    for block in _code_blocks(CLAUDE_CODE_DELTA.read_text()):
+        for i, line in enumerate(block):
+            if re.match(r"\s*ACCOUNT=", line):
+                snippet = [line]
+                for nxt in block[i + 1 :]:
+                    if nxt.strip() == "":
+                        break
+                    snippet.append(nxt)
+                return "\n".join(snippet)
+    raise AssertionError(
+        "no `ACCOUNT=` snippet found in providers/claude-code.delta.md"
+    )
+
+
+def _run_account_snippet(prompt):
+    snippet = _extract_account_snippet()
+    script = (
+        f"PROMPT={shlex.quote(prompt)}\n"
+        + snippet
+        + "\n"
+        + "printf 'ACCOUNT=[%s]\\n' \"${ACCOUNT-<unset>}\"\n"
+    )
+    return subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("account", ["a", "b", "c"])
+def test_t15_delta_account_snippet_accepts_valid(account):
+    res = _run_account_snippet(f"ACCOUNT={account}")
+    assert res.returncode == 0, res.stderr
+    assert f"ACCOUNT=[{account}]" in res.stdout
+
+
+def test_t15_delta_account_snippet_no_token_leaves_account_unset():
+    """No `ACCOUNT=` token at all: no account is chosen here (wrapper default b)."""
+    res = _run_account_snippet("please review the code")
+    assert res.returncode == 0, res.stderr
+    assert ("ACCOUNT=[<unset>]" in res.stdout) or ("ACCOUNT=[]" in res.stdout)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["ACCOUNT=a=bad", "ACCOUNT==a", "ACCOUNT=", "ACCOUNT=B", "ACCOUNT=ab"],
+)
+def test_t15_delta_account_snippet_rejects_invalid(prompt):
+    """An `ACCOUNT=` token with an invalid value must error, not fall to b."""
+    res = _run_account_snippet(prompt)
+    assert res.returncode != 0, (res.stdout, res.stderr)
+    assert "ACCOUNT=[b]" not in res.stdout
 
 
 # --- Sanity check on installed bits (these are the obvious RED indicators) ---

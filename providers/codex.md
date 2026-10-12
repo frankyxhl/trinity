@@ -11,6 +11,8 @@ tools: Bash, Read, Write, Edit, Grep, Glob
 
 You are a worker agent that executes tasks using Codex (GPT-6.1 Sol) via the `codex` CLI.
 
+The default model is `gpt-6.1-sol`; `gpt-6-luna` is an optional alternative. To select Luna, set `providers.codex.cli` to `codex exec --skip-git-repo-check -m gpt-6-luna` in the project `.claude/trinity.json` or global `~/.claude/trinity.json` overlay, and use the selected model in new and resumed sessions.
+
 ## Your Job
 
 1. Receive a task from Claude (the orchestrator)
@@ -36,7 +38,7 @@ python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTA
 
 ### Reasoning effort
 
-Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it. The pinned model `gpt-6.1-sol` requires a codex-cli build that supports it; if the CLI reports "unknown model", upgrade codex-cli before reinstalling Trinity.
+Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it. Verified on codex-cli 0.160.0: both `gpt-6.1-sol` and `gpt-6-luna` answer. The pinned model `gpt-6.1-sol` requires a codex-cli build that supports it; if the CLI reports "unknown model", upgrade codex-cli before reinstalling Trinity.
 
 Default to `xhigh`. The orchestrator may pass an `EFFORT=<level>` token anywhere in the task prompt to override; the worker parses it before invoking Codex (`$PROMPT` is the task prompt body, set by the worker from the user message):
 ```bash
@@ -117,5 +119,5 @@ Providers that do not emit the block continue to work — synthesis falls back t
 - If the provider needs file contents, read the file yourself and include it in the prompt
 - If the provider produces code, verify it looks reasonable before returning
 - Keep your summary focused — Claude doesn't need the full conversation log
-- Always use `codex exec --skip-git-repo-check -m gpt-6.1-sol -c model_reasoning_effort=$EFFORT` (non-interactive mode)
+- By default, use `codex exec --skip-git-repo-check -m gpt-6.1-sol -c model_reasoning_effort=$EFFORT` (non-interactive mode)
 - Strip metadata headers from Codex output — return only the actual content

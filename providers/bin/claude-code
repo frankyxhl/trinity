@@ -3,10 +3,27 @@
 #
 # This wrapper prevents recursive Trinity dispatch and keeps nested Claude Code
 # state separate from the orchestrator's normal ~/.claude state.
+#
+# It selects an account (TRINITY_CLAUDE_CODE_ACCOUNT = a|b|c, default b) and
+# hands the matching seat token "$HOME/.claude/fleet-token.<account>" to the
+# exec'd claude as CLAUDE_CODE_OAUTH_TOKEN only. The token files are read-only
+# inputs: this wrapper never creates, copies or modifies them, and never prints
+# their contents.
 set -eu
 
 MODEL="${TRINITY_CLAUDE_CODE_MODEL:-sonnet}"
 EFFORT="${TRINITY_CLAUDE_CODE_EFFORT:-high}"
+
+ACCOUNT="${TRINITY_CLAUDE_CODE_ACCOUNT:-}"
+[ -n "$ACCOUNT" ] || ACCOUNT=b
+
+case "$ACCOUNT" in
+    a|b|c) ;;
+    *)
+        echo "trinity-claude-code: invalid account '$ACCOUNT' (expected a|b|c)." >&2
+        exit 1
+        ;;
+esac
 
 case "$EFFORT" in
     low|medium|high|xhigh|max) ;;
@@ -16,8 +33,88 @@ case "$EFFORT" in
         ;;
 esac
 
+TOKEN_FILE="${HOME}/.claude/fleet-token.${ACCOUNT}"
+
+if [ ! -e "$TOKEN_FILE" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: missing" >&2
+    exit 1
+fi
+
+# Refuse symlinks and non-regular files before inspecting permissions: `cat`
+# follows a symlink, so a permissive-looking link could expose the real target.
+if [ -L "$TOKEN_FILE" ] || [ ! -f "$TOKEN_FILE" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: not a regular file" >&2
+    exit 1
+fi
+
+# Reject any group/other permission bit (077) without depending on stat(1)
+# flavour. `ls -ld` is POSIX: its first field is
+# `<type><user-rwx><group-rwx><other-rwx>` at characters 5-10, then an ACL
+# marker `+` (or an xattr marker `@`) at character 11. Capture the listing AND
+# its exit status so a failed or partial listing can never be read as "safe".
+if ! PERM_LINE=$(ls -ld -- "$TOKEN_FILE" 2>/dev/null); then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: cannot determine permissions" >&2
+    exit 1
+fi
+
+GROUP_OTHER=$(printf '%s\n' "$PERM_LINE" | cut -c5-10)
+ACL_MARK=$(printf '%s\n' "$PERM_LINE" | cut -c11)
+
+if [ "$GROUP_OTHER" != "------" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: readable or writable by group or other" >&2
+    exit 1
+fi
+
+# A trailing `@` (extended attributes) is harmless. `+` means an ACL is present
+# and could grant group/other access even when the mode bits read 0600.
+if [ "$ACL_MARK" = "+" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: has an ACL" >&2
+    exit 1
+fi
+
+# macOS keeps the `+` marker hidden behind `@` in the short listing, so also ask
+# for ACL entries with `ls -lde`: a file with an ACL prints the mode line plus
+# one line per entry. The listing is never printed.
+if ACL_LIST=$(ls -lde -- "$TOKEN_FILE" 2>/dev/null); then
+    case "$ACL_LIST" in
+        *"
+"*)
+            echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: has an ACL" >&2
+            exit 1
+            ;;
+    esac
+else
+    # GNU ls has no `-e`, so elsewhere a failure just means the `+` check above
+    # is the only signal. But if the OS can't be determined (`uname` fails or
+    # prints nothing) or is Darwin, the ACL could not be inspected: fail closed.
+    OS_NAME=$(uname -s 2>/dev/null) || OS_NAME=
+    case "$OS_NAME" in
+        ""|Darwin)
+            echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: cannot inspect ACL" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Read without echoing. Drop any inherited exported TOKEN first so the secret
+# is never re-exported under that name; then trim ONLY leading/trailing
+# whitespace (POSIX parameter expansion) and keep internal characters.
+unset TOKEN
+TOKEN=$(cat "$TOKEN_FILE")
+TOKEN=${TOKEN#"${TOKEN%%[![:space:]]*}"}
+TOKEN=${TOKEN%"${TOKEN##*[![:space:]]}"}
+
+if [ -z "$TOKEN" ]; then
+    echo "trinity-claude-code: account ${ACCOUNT}: ${TOKEN_FILE}: empty" >&2
+    exit 1
+fi
+
+# No silent identity: inherited credentials never reach the nested claude.
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+
 TRINITY_DISABLE_DISPATCH="1" \
 CLAUDE_CONFIG_DIR="${HOME}/.claude-trinity-claude-code" \
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1" \
+CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" \
 exec claude --permission-mode bypassPermissions --disable-slash-commands \
     --model "$MODEL" --effort "$EFFORT" "$@"

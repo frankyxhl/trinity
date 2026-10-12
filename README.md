@@ -128,7 +128,7 @@ Each install command:
 5. Runs a smoke test to verify everything works
 6. Rolls back atomically if any step fails
 
-**Wrapper-based providers** (`openrouter`, `deepseek`, `claude-code`) don't have a package install path — they use small POSIX shell wrappers shipped in `providers/bin/` and installed to `~/.claude/skills/trinity/bin/`. `openrouter` and `deepseek` point the `claude` binary at Anthropic-compatible endpoints. `claude-code` starts an isolated nested Claude Code process with Trinity dispatch disabled, defaulting to `--model sonnet --effort high`. `install.sh` and `make install` set them up automatically; no `~/.zshrc` edits required.
+**Wrapper-based providers** (`openrouter`, `deepseek`, `claude-code`) don't have a package install path — they use small POSIX shell wrappers shipped in `providers/bin/` and installed to `~/.claude/skills/trinity/bin/`. `openrouter` and `deepseek` point the `claude` binary at Anthropic-compatible endpoints. `claude-code` starts an isolated nested Claude Code process with Trinity dispatch disabled, defaulting to `--model sonnet --effort high`. It selects one of three Claude Code seats via `TRINITY_CLAUDE_CODE_ACCOUNT` (`a`/`b`/`c`, default `b`), reading that seat's token from `~/.claude/fleet-token.<account>` and handing it to the nested `claude` only as `CLAUDE_CODE_OAUTH_TOKEN`; the wrapper fails closed if the account is invalid or the token file is missing, empty, or readable/writable by group or other, and never prints the token. `install.sh` and `make install` set them up automatically; no `~/.zshrc` edits required.
 
 The Anthropic-compatible wrappers expect an API key, in this order of precedence:
 1. **Environment variable** — `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY`
