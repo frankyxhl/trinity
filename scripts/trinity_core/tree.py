@@ -12,6 +12,9 @@ from . import journal
 _GLYPHS = {"done": "✓", "running": "●", "failed": "!", "interrupted": "!"}
 # LED-017: a node whose session is unknown has no short id; the field shows this.
 UNKNOWN_SHORT_ID = "?"
+# LED-017: a session line after a final session_unknown is a defect; the node
+# line carries this marker.
+SESSION_DEFECT_MARKER = "!session-override"
 
 
 def render(root: str, run_id: str) -> list[str]:
@@ -21,12 +24,21 @@ def render(root: str, run_id: str) -> list[str]:
     for record in records:
         if record.get("kind") == "state" and record.get("run") == run_id:
             states.setdefault(record.get("node"), []).append(record)
+    unknown: set[str] = set()
     sessions: dict[str, object] = {}
+    defect: set[str] = set()
     for record in records:
-        if record.get("kind") == "session" and record.get("run") == run_id:
-            sessions[record.get("node")] = record.get("id")
+        if record.get("kind") != "session" or record.get("run") != run_id:
+            continue
+        node_id = record.get("node")
+        if node_id in unknown:
+            defect.add(node_id)
+            continue
+        if record.get("id") is None:
+            unknown.add(node_id)
+        sessions[node_id] = record.get("id")
     return [
-        _line(node, states.get(node.get("node"), []), sessions, level)
+        _line(node, states.get(node.get("node"), []), sessions, defect, level)
         for node, level in _ordered(nodes)
     ]
 
@@ -57,7 +69,9 @@ def _ordered(nodes: list[dict]) -> list[tuple[dict, int]]:
     return ordered
 
 
-def _line(node: dict, state_rows: list[dict], sessions: dict, level: int) -> str:
+def _line(
+    node: dict, state_rows: list[dict], sessions: dict, defect: set, level: int
+) -> str:
     end = state_rows[-1] if state_rows else {}
     glyph = _GLYPHS.get(end.get("state"), "?")
     session = node.get("session") or {}
@@ -84,4 +98,7 @@ def _line(node: dict, state_rows: list[dict], sessions: dict, level: int) -> str
         str(end.get("output_kind") or ""),
     ]
     prefix = ("  " * level) + ("└ " if level else "")
-    return prefix + " ".join(fields)
+    line = prefix + " ".join(fields)
+    if node.get("node") in defect:
+        line = line + " " + SESSION_DEFECT_MARKER
+    return line

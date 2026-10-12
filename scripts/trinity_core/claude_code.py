@@ -25,7 +25,6 @@ import time
 from . import journal
 
 ADAPTER = "claude-code"
-HARNESS_CLI = "claude"
 HEARTBEAT_SOURCE = "process_alive"
 DEFAULT_POLL_S = 15.0
 
@@ -48,7 +47,10 @@ _ENV_KEEP = frozenset(
 
 def credential_wrapper(profile: dict) -> str | None:
     """The credential wrapper command this profile names, if any (PRF-001)."""
-    wrapper = (profile.get("credential_source") or {}).get("wrapper")
+    source = profile.get("credential_source")
+    if not isinstance(source, dict):
+        return None
+    wrapper = source.get("wrapper")
     return wrapper if isinstance(wrapper, str) and wrapper else None
 
 
@@ -72,7 +74,10 @@ def run(
     poll_s: float = DEFAULT_POLL_S,
     time_s: float | None = None,
 ) -> dict:
-    harness = shutil.which(credential_wrapper(profile) or HARNESS_CLI)
+    wrapper = credential_wrapper(profile)
+    if wrapper is None:
+        return _outcome("unknown", None, None, 0)
+    harness = shutil.which(wrapper)
     if harness is None:
         return _outcome("unknown", None, None, 0)
 
@@ -170,7 +175,8 @@ def _fingerprint(value) -> str | None:
     """One-way id fingerprint: first 12 hex of SHA-256, never the raw id."""
     if not isinstance(value, str):
         return None
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    encoded = value.encode("utf-8", "surrogatepass")
+    return hashlib.sha256(encoded).hexdigest()[:12]
 
 
 def _valid_session_shape(value) -> bool:
@@ -182,11 +188,10 @@ def _valid_session_shape(value) -> bool:
 
 
 def _build_env(guard: dict) -> dict:
-    env: dict[str, str] = {
-        name: value
-        for name, value in os.environ.items()
-        if name in _ENV_KEEP or name.startswith("LC_")
-    }
+    env: dict[str, str] = {}
+    for name in os.environ:
+        if name in _ENV_KEEP or name.startswith("LC_"):
+            env[name] = os.environ[name]
     env["TRINITY_GUARD"] = json.dumps(guard)
     return env
 

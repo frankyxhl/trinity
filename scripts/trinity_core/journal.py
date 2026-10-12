@@ -41,9 +41,13 @@ _KEY_PREFIX = re.compile(
 )
 _BEARER = re.compile(r"(?i)(authorization\s*:\s*|bearer\s+)(\S+)")
 _NAME = r"[A-Za-z_][A-Za-z0-9_.\-]*"
-_ASSIGN = re.compile(r"(?i)\b((?:export\s+)?" + _NAME + r")\s*([=:])\s*(\S+)")
-_MEMBER = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*([\"'])(.*?)\3", re.DOTALL)
-_URL_PASSWORD = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://[^/\s:@]+):([^/\s@]+)@")
+_DQ_SCALAR = r'"(?:[^"\\]|\\.)*"'
+_SQ_SCALAR = r"'(?:[^']|'')*'"
+_SCALAR = "(?:" + _DQ_SCALAR + "|" + _SQ_SCALAR + ")"
+_ASSIGN = re.compile(r"(?i)\b((?:export\s+)?" + _NAME + r")\s*([=:])\s*([^\n]*)")
+_MEMBER = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*(" + _SCALAR + r")")
+_MEMBER_PLAIN = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*([^\"'\s][^\n]*)")
+_URL_PASSWORD = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^/\s@:]*):([^/\s@]+)@")
 _ENTROPY_RUN = re.compile(r"[A-Za-z0-9_+=-]{32,}")
 _PURE_HEX = re.compile(r"[0-9A-Fa-f]+\Z")
 _ENTROPY_FLOOR = 4.2
@@ -66,11 +70,18 @@ def _is_secret_name(name: str) -> bool:
     return False
 
 
-def _mask_member(match: re.Match) -> str:
+def _mask_quoted_member(match: re.Match) -> str:
     if not _is_secret_name(match.group(2)):
         return match.group(0)
     quote = match.group(1)
-    return f"{quote}{match.group(2)}{quote}: {quote}[redacted:member]{match.group(3)}"
+    return f"{quote}{match.group(2)}{quote}: [redacted:member]"
+
+
+def _mask_plain_member(match: re.Match) -> str:
+    if not _is_secret_name(match.group(2)):
+        return match.group(0)
+    quote = match.group(1)
+    return f"{quote}{match.group(2)}{quote}: [redacted:member]"
 
 
 def _mask_assignment(match: re.Match) -> str:
@@ -101,9 +112,10 @@ def redact(text: str) -> str:
         return text
     out = _KEY_PREFIX.sub(lambda m: "[redacted:key]", text)
     out = _BEARER.sub(lambda m: m.group(1) + "[redacted:bearer]", out)
-    out = _MEMBER.sub(_mask_member, out)
+    out = _MEMBER.sub(_mask_quoted_member, out)
+    out = _MEMBER_PLAIN.sub(_mask_plain_member, out)
     out = _ASSIGN.sub(_mask_assignment, out)
-    out = _URL_PASSWORD.sub(r"\1:[redacted:url_password]@", out)
+    out = _URL_PASSWORD.sub(r"\1\2:[redacted:url_password]@", out)
     out = _ENTROPY_RUN.sub(_mask_entropy, out)
     return out
 
