@@ -44,9 +44,11 @@ _NAME = r"[A-Za-z_][A-Za-z0-9_.\-]*"
 _DQ_SCALAR = r'"(?:[^"\\]|\\.)*"'
 _SQ_SCALAR = r"'(?:[^']|'')*'"
 _SCALAR = "(?:" + _DQ_SCALAR + "|" + _SQ_SCALAR + ")"
-_ASSIGN = re.compile(r"(?i)\b((?:export\s+)?" + _NAME + r")\s*([=:])\s*([^\n]*)")
+_ASSIGN = re.compile(
+    r"(?i)\b((?:export\s+)?" + _NAME + r")\s*([=:])\s*(" + _SCALAR + r"|[^\s\"']+)"
+)
 _MEMBER = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*(" + _SCALAR + r")")
-_MEMBER_PLAIN = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*([^\"'\s][^\n]*)")
+_MEMBER_PLAIN = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*([^\s\"']+)")
 _URL_PASSWORD = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^/\s@:]*):([^/\s@]+)@")
 _ENTROPY_RUN = re.compile(r"[A-Za-z0-9_+=-]{32,}")
 _PURE_HEX = re.compile(r"[0-9A-Fa-f]+\Z")

@@ -7,38 +7,60 @@ and output kind. Children are drawn indented under their parent.
 
 from __future__ import annotations
 
+import json
+
 from . import journal
 
 _GLYPHS = {"done": "✓", "running": "●", "failed": "!", "interrupted": "!"}
 # LED-017: a node whose session is unknown has no short id; the field shows this.
 UNKNOWN_SHORT_ID = "?"
 # LED-017: a session line after a final session_unknown is a defect; the node
-# line carries this marker.
+# line carries this marker plus the offending journal line numbers.
 SESSION_DEFECT_MARKER = "!session-override"
 
 
+def _read_lines(root: str) -> list[tuple[int, dict]]:
+    path = journal.journal_path(root)
+    if not path.exists():
+        return []
+    records: list[tuple[int, dict]] = []
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(record, dict):
+            records.append((number, record))
+    return records
+
+
 def render(root: str, run_id: str) -> list[str]:
-    records = journal.read(root)
-    nodes = [r for r in records if r.get("kind") == "node" and r.get("run") == run_id]
+    records = _read_lines(root)
+    nodes = [
+        r for _n, r in records if r.get("kind") == "node" and r.get("run") == run_id
+    ]
     states: dict[str, list[dict]] = {}
-    for record in records:
+    for _n, record in records:
         if record.get("kind") == "state" and record.get("run") == run_id:
             states.setdefault(record.get("node"), []).append(record)
     unknown: set[str] = set()
     sessions: dict[str, object] = {}
-    defect: set[str] = set()
-    for record in records:
+    defects: dict[str, list[int]] = {}
+    for number, record in records:
         if record.get("kind") != "session" or record.get("run") != run_id:
             continue
         node_id = record.get("node")
         if node_id in unknown:
-            defect.add(node_id)
+            defects.setdefault(node_id, []).append(number)
             continue
         if record.get("id") is None:
             unknown.add(node_id)
         sessions[node_id] = record.get("id")
     return [
-        _line(node, states.get(node.get("node"), []), sessions, defect, level)
+        _line(node, states.get(node.get("node"), []), sessions, defects, level)
         for node, level in _ordered(nodes)
     ]
 
@@ -70,7 +92,7 @@ def _ordered(nodes: list[dict]) -> list[tuple[dict, int]]:
 
 
 def _line(
-    node: dict, state_rows: list[dict], sessions: dict, defect: set, level: int
+    node: dict, state_rows: list[dict], sessions: dict, defects: dict, level: int
 ) -> str:
     end = state_rows[-1] if state_rows else {}
     glyph = _GLYPHS.get(end.get("state"), "?")
@@ -99,6 +121,8 @@ def _line(
     ]
     prefix = ("  " * level) + ("└ " if level else "")
     line = prefix + " ".join(fields)
-    if node.get("node") in defect:
-        line = line + " " + SESSION_DEFECT_MARKER
+    numbers = defects.get(node.get("node"))
+    if numbers:
+        marker = SESSION_DEFECT_MARKER + "@" + ",".join(f"L{n}" for n in numbers)
+        line = line + " " + marker
     return line
