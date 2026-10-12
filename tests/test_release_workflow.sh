@@ -328,9 +328,14 @@ check "preflight: EVENT_NAME push guard"       grep -qF '[ "$EVENT_NAME" = "push
 check "preflight: writes skip=true"            grep -qF 'echo "skip=true"' "$WORKFLOW"
 check "preflight: writes skip=false"           grep -qF 'echo "skip=false"' "$WORKFLOW"
 
-# Both downstream jobs gate on preflight.outputs.skip != 'true'.
-check "verify gated on preflight.skip"         bash -c "awk '/^  verify:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    if:/{print; exit}' '$WORKFLOW' | grep -qF \"needs.preflight.outputs.skip != 'true'\""
-check "publish gated on preflight.skip"        bash -c "awk '/^  publish:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    if:/{print; exit}' '$WORKFLOW' | grep -qF \"needs.preflight.outputs.skip != 'true'\""
+# Every release job is GitHub-only: a forge cannot publish a GitHub release.
+# Each check pins the COMPLETE `if:` line (grep -x, including the leading
+# spaces awk prints) so a bypass such as `if: always() && (<line>) || always()`
+# fails. Verify and publish share one combined server_url + preflight.skip
+# condition, so each job keeps exactly one exact-line check.
+check "preflight gated on server_url"          bash -c "awk '/^  preflight:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    if:/{print; exit}' '$WORKFLOW' | grep -qxF \"    if: github.server_url == 'https://github.com'\""
+check "verify gated on server_url + preflight.skip"   bash -c "awk '/^  verify:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    if:/{print; exit}' '$WORKFLOW' | grep -qxF \"    if: github.server_url == 'https://github.com' && needs.preflight.outputs.skip != 'true'\""
+check "publish gated on server_url + preflight.skip"  bash -c "awk '/^  publish:/{f=1; next} f && /^  [a-zA-Z]/{exit} f && /^    if:/{print; exit}' '$WORKFLOW' | grep -qxF \"    if: github.server_url == 'https://github.com' && needs.preflight.outputs.skip != 'true'\""
 
 # Preflight must NOT have contents: write.
 awk '/^  preflight:/{r=1; next} r && /^  [a-zA-Z]/{exit} r' "$WORKFLOW" \

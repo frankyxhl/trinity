@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-12
+
+### BREAKING
+- Gemini provider removed. Existing installs keep their old Gemini registration and agent file until removed by hand; use Codex (now in the default review panel) instead.
+
 ### Added
 - Provider `agy-opus`: Claude Opus 4.6 (Thinking) worker via the Antigravity
   CLI — third fallback after Codex and GLM (TRI-0002, pfc D120). New wrapper
@@ -40,6 +45,33 @@
   printed and inherited `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` /
   `ANTHROPIC_AUTH_TOKEN` no longer reach the nested process (D2596-FIX3).
 - `providers/bin/claude-code`: hardened — on Darwin a failed `ls -lde` now refuses (cannot inspect ACL) instead of falling open, and the `ACCOUNT=` prompt token must be exactly a/b/c (empty or malformed errors instead of silently defaulting to b).
+- Claude-family transcript lookup and provider templates now use one shared
+  Claude Code 2.1.220 project-slug encoder. `claude-code`, `deepseek`, and
+  `openrouter` replace every non-ASCII-alphanumeric UTF-16 code unit with `-`
+  and reproduce Claude's 200-unit truncation plus signed 32-bit JavaScript
+  hash suffix in lowercase base 36. This fixes valid resumes for project paths
+  containing underscores, dots, spaces, punctuation, Unicode, or more than
+  200 UTF-16 units. The installed helper has an explicit guarded-failure path
+  before transcript scanning; Droid-based GLM/MiniMax slash-only encoding is
+  unchanged. TRN-3002.
+- `session-path` resolver for claude-family providers (`deepseek`,
+  `openrouter`, `claude-code`) now keeps the leading dash in the project
+  slug, matching the claude CLI's actual on-disk layout
+  (`~/.claude-*/projects/-Users-frank-...`). Previously the resolver stripped
+  the leading dash and returned exit 3 ("transcript file not found") for
+  every claude-family provider; it only appeared to work because the worker
+  agent improvised a fallback to the dashed directory. Literal anchors pin
+  the real macOS and Linux leading-dash behavior independently from the
+  canonical encoder fixtures. Closes #262.
+- droid-based providers (`glm`, `minimax`) now derive the new session id from
+  `droid exec -o json`'s own `session_id` field (the process's own stdout)
+  instead of `droid search "<phrase>" --json | sessions[0]`. `droid search` is
+  a content search not isolated by model/instance, so two droid providers
+  dispatched in parallel with similar prompts cross-linked session ids in
+  `.claude/trinity.json` and subsequent resumes cross-pollinated context.
+  Response text is now read from the same JSON's `result` field. A static
+  guard in `tests/test_build_providers.sh` fails the build if the templates
+  revert to `droid search`. Closes #263.
 
 ### Removed
 - Removed Gemini provider; Codex joins default review panel. Existing installs
@@ -190,35 +222,6 @@
   parser. The documented CLI surface is unchanged; usage errors now exit
   **2** (argparse/POSIX convention) instead of 1, and `-h`/`--help` now
   print help and exit 0 (previously rejected as unknown). Closes #240.
-
-### Fixed
-- Claude-family transcript lookup and provider templates now use one shared
-  Claude Code 2.1.220 project-slug encoder. `claude-code`, `deepseek`, and
-  `openrouter` replace every non-ASCII-alphanumeric UTF-16 code unit with `-`
-  and reproduce Claude's 200-unit truncation plus signed 32-bit JavaScript
-  hash suffix in lowercase base 36. This fixes valid resumes for project paths
-  containing underscores, dots, spaces, punctuation, Unicode, or more than
-  200 UTF-16 units. The installed helper has an explicit guarded-failure path
-  before transcript scanning; Droid-based GLM/MiniMax slash-only encoding is
-  unchanged. TRN-3002.
-- `session-path` resolver for claude-family providers (`deepseek`,
-  `openrouter`, `claude-code`) now keeps the leading dash in the project
-  slug, matching the claude CLI's actual on-disk layout
-  (`~/.claude-*/projects/-Users-frank-...`). Previously the resolver stripped
-  the leading dash and returned exit 3 ("transcript file not found") for
-  every claude-family provider; it only appeared to work because the worker
-  agent improvised a fallback to the dashed directory. Literal anchors pin
-  the real macOS and Linux leading-dash behavior independently from the
-  canonical encoder fixtures. Closes #262.
-- droid-based providers (`glm`, `minimax`) now derive the new session id from
-  `droid exec -o json`'s own `session_id` field (the process's own stdout)
-  instead of `droid search "<phrase>" --json | sessions[0]`. `droid search` is
-  a content search not isolated by model/instance, so two droid providers
-  dispatched in parallel with similar prompts cross-linked session ids in
-  `.claude/trinity.json` and subsequent resumes cross-pollinated context.
-  Response text is now read from the same JSON's `result` field. A static
-  guard in `tests/test_build_providers.sh` fails the build if the templates
-  revert to `droid search`. Closes #263.
 
 ## [3.3.0] - 2026-06-19
 
