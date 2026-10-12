@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-10-12
+
+### Security
+- Bump mako (test-only dependency, via pytest-bdd) 1.3.12 -> 1.4.3 in requirements-dev.txt and uv.lock: fixes GHSA-5639-2j2p-m4mx (path traversal through a Windows drive-letter URI in TemplateLookup; affects <= 1.4.1).
+
+### Changed
+- GitHub Actions: github/codeql-action init and analyze 4.37.9 -> 4.38.3 (bumped together; mismatched versions fail CodeQL), astral-sh/setup-uv 10.0.1 -> 10.3.0, actions/upload-artifact 7.0.1 -> 7.0.2, actions/download-artifact 8.0.1 -> 8.0.2. All still pinned by commit SHA.
+- Dev dependencies: cyclonedx-python-lib 11.11.0 -> 11.12.0, filelock 3.32.4 -> 3.32.5, msgpack 1.2.1 -> 1.2.2, platformdirs 4.10.0 -> 4.11.7.
+
 ## [4.0.0] - 2026-10-12
 
 ### BREAKING
