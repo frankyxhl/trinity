@@ -858,6 +858,16 @@ def _write_sleeper(directory: Path, name: str, pid_file: Path) -> Path:
     return path
 
 
+def _proc_state(stat_text: str) -> str:
+    """The state field of a /proc/<pid>/stat line, after the command name."""
+    try:
+        after = stat_text.rsplit(")", 1)[1]
+    except IndexError:
+        return ""
+    fields = after.split()
+    return fields[0] if fields else ""
+
+
 def _gone(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -865,7 +875,16 @@ def _gone(pid: int) -> bool:
         return True
     except PermissionError:
         return False
-    return False
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    return _proc_state(stat_text) == "Z"
+
+
+def test_proc_state_reads_the_state_field_after_the_command_name():
+    assert _proc_state("123 (a b) c) Z 1 ...") == "Z"
+    assert _proc_state("123 (py) S 1") == "S"
 
 
 def test_harness_timeout_kills_only_its_process_group(tmp_path, monkeypatch):
