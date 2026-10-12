@@ -49,6 +49,8 @@ _ASSIGN = re.compile(
 )
 _MEMBER = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*(" + _SCALAR + r")")
 _MEMBER_PLAIN = re.compile(r"([\"'])(" + _NAME + r")\1\s*:\s*([^\s\"']+)")
+_LEGACY_ASSIGN = re.compile(r"(?i)\b((?:export\s+)?" + _NAME + r")\s*([=:])\s*(\S+)")
+_LEGACY_MEMBER = re.compile(r'"(' + _NAME + r')"\s*:\s*"([^"]*)"')
 _URL_PASSWORD = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)([^/\s@:]*):([^/\s@]+)@")
 _ENTROPY_RUN = re.compile(r"[A-Za-z0-9_+=-]{32,}")
 _PURE_HEX = re.compile(r"[0-9A-Fa-f]+\Z")
@@ -86,6 +88,12 @@ def _mask_plain_member(match: re.Match) -> str:
     return f"{quote}{match.group(2)}{quote}: [redacted:member]"
 
 
+def _mask_legacy_member(match: re.Match) -> str:
+    if _is_secret_name(match.group(1)):
+        return f'"{match.group(1)}": "[redacted:member]"'
+    return match.group(0)
+
+
 def _mask_assignment(match: re.Match) -> str:
     bare = match.group(1).split(None, 1)[-1]
     if _is_secret_name(bare):
@@ -109,9 +117,18 @@ def _mask_entropy(match: re.Match) -> str:
 
 
 def redact(text: str) -> str:
-    """Mask secret-shaped runs (RDR-008 kinds 1, 2, 4, 5, 6, 8)."""
+    """Mask secret-shaped runs (RDR-008 kinds 1, 2, 4, 5, 6, 8).
+
+    The union of the shape rules and the original assignment/member rules: a
+    span either rule would mask is masked, so this is never looser than the
+    original redactor.
+    """
     if not isinstance(text, str):
         return text
+    return _redact_original(_redact_shapes(text))
+
+
+def _redact_shapes(text: str) -> str:
     out = _KEY_PREFIX.sub(lambda m: "[redacted:key]", text)
     out = _BEARER.sub(lambda m: m.group(1) + "[redacted:bearer]", out)
     out = _MEMBER.sub(_mask_quoted_member, out)
@@ -119,6 +136,14 @@ def redact(text: str) -> str:
     out = _ASSIGN.sub(_mask_assignment, out)
     out = _URL_PASSWORD.sub(r"\1\2:[redacted:url_password]@", out)
     out = _ENTROPY_RUN.sub(_mask_entropy, out)
+    return out
+
+
+def _redact_original(text: str) -> str:
+    out = _KEY_PREFIX.sub(lambda m: "[redacted:key]", text)
+    out = _BEARER.sub(lambda m: m.group(1) + "[redacted:bearer]", out)
+    out = _LEGACY_MEMBER.sub(_mask_legacy_member, out)
+    out = _LEGACY_ASSIGN.sub(_mask_assignment, out)
     return out
 
 
