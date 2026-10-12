@@ -136,14 +136,9 @@ python3 -c "import json,sys; json.load(open('${HOME}/.claude/skills/trinity/prov
 CURRENT_FILE=""
 
 # Register default providers in ~/.claude/trinity.json from the canonical
-# registry (6 providers: glm, minimax, codex, openrouter, deepseek, claude-code).
-# Gemini is registered separately below — deferred from registry per
-# TRN-3020 (canonical CLI value pending; tracked as TRN-3025 follow-up).
+# registry (glm, minimax, codex, openrouter, deepseek, claude-code, agy-opus).
 python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register-from-registry \
     "${HOME}/.claude/skills/trinity/providers/registry.json" \
-    --global-config "${HOME}/.claude/trinity.json"
-python3 "${HOME}/.claude/skills/trinity/scripts/install.py" register gemini \
-    --cli "gemini -p" \
     --global-config "${HOME}/.claude/trinity.json"
 
 # Print success with version

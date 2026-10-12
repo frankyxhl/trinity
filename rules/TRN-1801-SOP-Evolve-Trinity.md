@@ -63,7 +63,7 @@ grep -rnE "stat -[fc] |sed -i ''|readlink -f|date -d " \
   providers/bin/ scripts/ install.sh Makefile 2>/dev/null
 
 # Model-ID drift — compare against TRN-1006 example log + current vendor docs
-grep -nE "ANTHROPIC_MODEL|--model |gpt-5|gemini-3|deepseek-v|qwen" \
+grep -nE "ANTHROPIC_MODEL|--model |gpt-[0-9]|deepseek-v|qwen" \
   providers/bin/* providers/*.delta.md install.sh Makefile 2>/dev/null
 
 # install.sh share-readiness smoke (no network beyond GitHub raw)
@@ -121,7 +121,7 @@ Estimated compression: +<chars added> / -<chars removed>
 - **Single-purpose file** (one `.delta.md`, one `tests/test_<name>.py`, one `scripts/<name>.py`, one `providers/bin/<name>`, one `rules/TRN-XXXX-*.md`, one section of `_base/`): the file is the surface.
 - **Multi-section document** (`Makefile`, `README.md`, `CHANGELOG.md`, any SOP in `rules/`): each `##`-level heading is a surface. **A single candidate touches ≤ 1 such section.** Multi-section rewrites split into one candidate per section.
 - **Symmetric multi-file refactor** — the *class* is the surface. Two recognised classes in trinity:
-  - All five generated providers via a `_base/*.md` partial change (cascades to `codex.md`, `gemini.md`, `glm.md`, `openrouter.md`, `deepseek.md`)
+  - All seven generated providers via a `_base/*.md` partial change (cascades to `codex.md`, `glm.md`, `minimax.md`, `openrouter.md`, `deepseek.md`, `claude-code.md`, `agy-opus.md`)
   - Both Anthropic-compat wrappers (`providers/bin/{deepseek,openrouter}` — symmetric env-injection scripts)
 
   Conditions: (a) the change must be symmetric across all members; if only some members change, that's N separate candidates. (b) The candidate must list every member explicitly and state the shared before/after invariant.

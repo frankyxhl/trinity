@@ -71,8 +71,7 @@ The command reads `<project>/.claude/trinity.json`, looks up the pointer for the
 | `claude-code` | `~/.claude-trinity-claude-code/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `deepseek` | `~/.claude-deepseek/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `openrouter` | `~/.claude-openrouter/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
-| `agy-opus` | not yet supported (exits 3 with explicit deferral message) — transcripts are agy SQLite stores under `~/.gemini/antigravity-cli/conversations/`, not JSONL |
-| `gemini` | not yet supported (exits 3 with explicit deferral message) |
+| `agy-opus` | not yet supported (exits 3 with explicit deferral message) — transcripts are Antigravity SQLite conversation stores, not JSONL |
 
 Path encoding differs by provider family. Droid-based `glm` and `minimax` preserve their slash-only transform: replace `/` with `-`, keep other characters, and retain the leading dash. The claude-CLI wrappers (`claude-code`, `deepseek`, and `openrouter`) share the canonical Claude Code 2.1.220 transform: replace every non-ASCII-alphanumeric UTF-16 code unit with `-`; when the sanitized slug exceeds 200 UTF-16 units, keep the first 200 and append `-<hash>`, where `<hash>` is the absolute signed 32-bit JavaScript string hash of the original absolute path in lowercase base 36. This preserves the leading dash for absolute paths and matches the wrappers' `~/.claude-*/projects/` layout, including underscores, Unicode, and long paths.
 
@@ -112,7 +111,7 @@ A provider is **usable** only when it has both a config entry AND an agent file.
     "glm":     { "cli": "droid exec --auto medium --model custom:GLM-5.2", "installed": true },
     "minimax": { "cli": "droid exec --auto medium --model custom:MiniMax-M3", "installed": true },
     "codex":   { "cli": "codex exec --skip-git-repo-check -m gpt-6.1-sol", "installed": true },
-    "gemini":  { "cli": "gemini -p",                        "installed": true }
+    "deepseek": { "cli": "~/.claude/skills/trinity/bin/deepseek -p", "installed": true }
   },
   "defaults": {
     "heartbeat_interval": 120,
@@ -156,13 +155,17 @@ Preset dispatch expands one keyword into a configured provider set:
 
 | Preset | Required providers | Optional providers |
 |--------|--------------------|--------------------|
-| `review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
+| `review` | `glm`, `codex`, `deepseek` | none |
 | `fast-review` | `glm`, `deepseek` | none |
-| `deep-review` | `glm`, `gemini`, `deepseek` | `codex`, `claude-code` |
+| `deep-review` | `glm`, `codex`, `deepseek` | none |
 
 Aliases `r`, `fr`, and `dr` resolve to `review`, `fast-review`, and `deep-review`.
-Optional providers are used only when discovery marks them usable; otherwise
-show a warning and continue with the required providers.
+Both `review` and `deep-review` require all three vendors. Codex runs with
+`codex exec --skip-git-repo-check -m gpt-6.1-sol` and is never optional. If any
+required provider lacks config, an agent file, or a working CLI, fail the review;
+never silently reduce the panel. Optional providers in custom presets are used
+only when discovery marks them usable; otherwise show a warning and continue
+with that custom preset's required providers.
 
 ## Execution Rules
 
@@ -186,7 +189,9 @@ For EACH (provider, task) pair in the arguments:
 2. **Resolve providers** — run provider discovery (see §Provider Discovery)
 
 3. **Validate** — verify provider is usable (has both config entry and agent file)
+   - If the provider is unknown: report "unknown provider" and fail with a nonzero exit status; do NOT spawn
    - If not usable: report error with reason ("missing agent file" / "missing config"), do NOT spawn
+   - A missing or failed required reviewer fails the whole review; do not synthesize PASS from a reduced panel
 
 4. **Spawn** — for each validated (provider, task):
    ```
@@ -276,7 +281,7 @@ For each agent to check:
    ```
    GLM:auth    🔄 alive    +23 lines   [4m 12s]   Bash: pytest tests/test_auth.py -v
    Codex       ⚠️ possibly stalled  +0 lines  [6m 05s]   Read: auth.py (line 45-80)
-   Gemini      ✅ done      —          [2m 10s]   —
+   DeepSeek    ✅ done      —          [2m 10s]   —
    ```
 
 ### Timeout alerts (§C)
@@ -305,16 +310,16 @@ Run provider discovery. Display two sections:
 ```
 | Preset      | Providers               | Optional           | Aliases |
 |-------------|-------------------------|--------------------|---------|
-| review      | glm, gemini, deepseek   | codex, claude-code | r       |
+| review      | glm, codex, deepseek    | none               | r       |
 | fast-review | glm, deepseek           |                    | fr      |
-| deep-review | glm, gemini, deepseek   | codex, claude-code | dr      |
+| deep-review | glm, codex, deepseek    | none               | dr      |
 ```
 | Provider | Status    | CLI                              |
 |----------|-----------|----------------------------------|
 | glm      | ✅ usable  | droid exec --auto medium --model custom:GLM-5.2 |
 | minimax  | ✅ usable  | droid exec --auto medium --model custom:MiniMax-M3 |
 | codex    | ✅ usable  | codex exec --skip-git-repo-check -m gpt-6.1-sol |
-| gemini   | ⚠️ missing | (agent file not found)           |
+| deepseek | ⚠️ missing | (agent file not found)           |
 ```
 
 **Active sessions** (run heartbeat check for each with `output_file` set):
@@ -349,6 +354,12 @@ Each agent gets its own instance key and independent session.
 
 **Flow (atomic — all steps must succeed or roll back):**
 
+Before installing, require a provider entry in
+`~/.claude/skills/trinity/providers/registry.json` (or the repository's
+`providers/registry.json` when installing from source) and a matching shipped
+agent template. Otherwise report "unknown provider" and fail with a nonzero
+exit status before downloading, copying, or registering anything.
+
 1. Check `which <provider-cli>` → already in PATH → skip to step 4
 2. Try Homebrew: `brew search <provider>` → formula found → `brew install <formula>` → on failure fall through
 3. Try npm: `npm install -g <npm-package>` → on failure try pip (glm and minimax — both droid-backed) → on all failures: report ❌ + manual install link, abort
@@ -363,7 +374,6 @@ Each agent gets its own instance key and independent session.
 | Provider | brew | npm | pip | Prerequisite |
 |----------|------|-----|-----|--------------|
 | codex  | `brew install codex`* | `npm i -g @openai/codex`      | —                      | OpenAI account    |
-| gemini | `brew install gemini-cli`* | `npm i -g @google/gemini-cli` | —             | Google account    |
 | glm    | —                     | —                             | `pip install factory-droid` | Factory AI account |
 | minimax| —                     | —                             | `pip install factory-droid` | Factory AI account |
 
@@ -385,7 +395,7 @@ Two input modes:
 
 **Auto-decompose algorithm:**
 1. Analyze the description and identify independent sub-tasks
-2. Assign each sub-task to a provider based on task type (coding → glm, review → codex/gemini, analysis → any)
+2. Assign each sub-task to a provider based on task type (coding → glm, review → codex, analysis → any)
 3. Identify dependencies (review waits for coding; independent tasks run in parallel)
 4. Draw ASCII sequence diagram showing assignment and dependency order
 5. Ask user to confirm ([Execute] / [Modify] / [Cancel]) via AskUserQuestion
@@ -436,7 +446,7 @@ Alias names must not collide with subcommands, providers, or preset names.
 /trinity plan glm:auth "认证" glm:order "订单" codex "review"
 /trinity plan "实现电商系统"
 /trinity install codex
-/trinity install gemini
+/trinity install deepseek
 /trinity status
 /trinity heartbeat
 /trinity heartbeat glm:auth

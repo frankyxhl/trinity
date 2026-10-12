@@ -108,11 +108,15 @@ Expand a preset keyword to its provider list (from merged config `presets.<name>
 
 | Preset | Required | Optional |
 |--------|----------|----------|
-| `review` | glm, gemini, deepseek | codex, claude-code |
+| `review` | glm, codex, deepseek | — |
 | `fast-review` | glm, deepseek | — |
-| `deep-review` | glm, gemini, deepseek | codex, claude-code |
+| `deep-review` | glm, codex, deepseek | — |
 
-(Mirrors trinity's own SKILL.md preset defaults so a stock install — which ships providers but often **no** `presets` — still dispatches the panel. Resolve **per preset name**, NOT on whether the map is empty: prefer a live same-named entry in the merged `presets`; if a requested *built-in* preset (`review`/`fast-review`/`deep-review`) is absent from the merged map, use its built-in default row here — even when the map already contains other (custom) presets. A non-built-in name absent from the map is an unknown preset. Gating the fallback on "map is empty" would break the advertised `review`/`fast-review`/`deep-review` the moment a project adds any custom preset. **Do NOT silently drop a required provider that is unusable on this machine** (e.g. a missing `gemini`): trinity keeps every required provider and lets the absence surface as a failed/misconfigured participant, so a review never synthesizes a PASS while quietly missing a required reviewer. Report the unusable required provider (`❌ missing agent file`/`missing config`) as part of the dispatch result rather than reducing the quorum. Only **optional** providers are skipped when unusable.)
+(Mirrors trinity's own SKILL.md preset defaults so a stock install — which ships providers but often **no** `presets` — still dispatches the panel. Resolve **per preset name**, NOT on whether the map is empty: prefer a live same-named entry in the merged `presets`; if a requested *built-in* preset (`review`/`fast-review`/`deep-review`) is absent from the merged map, use its built-in default row here — even when the map already contains other (custom) presets. A non-built-in name absent from the map is an unknown preset. Gating the fallback on "map is empty" would break the advertised `review`/`fast-review`/`deep-review` the moment a project adds any custom preset. **Do NOT silently drop a required provider that is unusable on this machine** (e.g. a missing `codex`): trinity keeps every required provider and lets the absence surface as a failed/misconfigured participant, so a review never synthesizes a PASS while quietly missing a required reviewer. Report the unusable required provider (`❌ missing agent file`/`missing config`) as part of the dispatch result rather than reducing the quorum. Only **optional** providers are skipped when unusable.)
+
+Codex is a required reviewer for `review` and `deep-review`, invoked as
+`codex exec --skip-git-repo-check -m gpt-6.1-sol`. If it cannot run, fail the
+review; a two-provider result cannot satisfy either panel.
 
 ## Dispatch Protocol
 

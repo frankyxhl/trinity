@@ -19,7 +19,7 @@ This document is the single source of truth for trinity's loop bindings. TRN-100
 
 ## Why
 
-COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Without a binding doc, every TRN-1008 section would either re-state `frankyxhl` / `ryosaeba1985` / four-provider names inline (drift risk) or leave the COR placeholders unbound at execution time (orchestrator hard-error per COR-1622 §Guard Rails).
+COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Without a binding doc, every TRN-1008 section would either re-state `frankyxhl` / `ryosaeba1985` / reviewer names inline (drift risk) or leave the COR placeholders unbound at execution time (orchestrator hard-error per COR-1622 §Guard Rails).
 
 ---
 
@@ -56,7 +56,7 @@ COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Wit
 
 | Key | Trinity value | Notes |
 |-----|---------------|-------|
-| `<panel-providers>` | Plan-review tier: `[trinity-glm, trinity-deepseek, trinity-minimax]`. Code-review tier: `[trinity-glm, trinity-deepseek]`. Full panel (when invoked): `[trinity-gemini, trinity-codex, trinity-glm, trinity-minimax, trinity-deepseek]` | Trinity routes plan-review through the 3-provider tier per TRN-3042. Code-review keeps the 2-provider tier from CHG-3032 and also waits for Codex's post-push signal via `chatgpt-codex-connector[bot]` (see `<bot-actors>`). |
+| `<panel-providers>` | Plan-review tier: `[trinity-glm, trinity-deepseek, trinity-minimax]`. Code-review tier: `[trinity-glm, trinity-codex, trinity-deepseek]`. | Plan-review retains the three required providers from TRN-3042. Default and deep code-review panels require GLM, Codex, and DeepSeek. Codex uses `gpt-6.1-sol`; if it cannot run, code-review fails. The post-push bot signal is additional, not a substitute for the Codex code-review seat. |
 | `<weights-doc>` | `TRN-1800` | Scalar form (single rubric across all artifact types in trinity). |
 | `<spec-format>` | `CHG` | Trinity ships substantive changes as CHG documents. |
 | `<panel-pass-threshold>` | `9.5` | Higher than COR-1622's default `9.0`; applies to every required plan-review and code-review provider. CHG-3032 §Threshold rationale; TRN-3042 preserves the threshold while changing the plan-review tier. |
@@ -76,7 +76,7 @@ COR-1622 §Why explains the separation of *shape* (PKG) from *values* (PRJ). Wit
 |-----|---------------|-------|
 | `<cli-retry-attempts>` | `1` | **Trinity overrides the schema default of 3.** Matches TRN-1008 §Failure Modes "Reviewer / provider unavailability" — the existing rule is "retry once with the same prompt; if it still fails, mark the provider unavailable for this round". Adopters that want the standard 3-retry policy continue to use the schema default. |
 | `<cli-retry-backoff-seconds>` | `600` (schema default) | Wait between retry attempts. TRN-1008 does not specify a wait; schema default is acceptable. |
-| `<cli-retry-on-failure>` | `mark-non-viable` | **Trinity overrides the schema default of `pause-and-ask`.** Matches TRN-1008 §Failure Modes: retry once, mark the provider unavailable for this round, and abort when the required phase topology cannot be satisfied. For trinity's plan-review tier, all 3 providers are required; for code-review, both providers are required. `mark-non-viable` therefore still escalates to the operator instead of silently accepting a degraded panel. |
+| `<cli-retry-on-failure>` | `mark-non-viable` | **Trinity overrides the schema default of `pause-and-ask`.** Matches TRN-1008 §Failure Modes: retry once, mark the provider unavailable for this round, and abort when the required phase topology cannot be satisfied. For trinity's plan-review tier, all 3 providers are required; for code-review, all 3 providers are required. `mark-non-viable` therefore still escalates to the operator instead of silently accepting a degraded panel. |
 
 ### Bot polling (COR-1615 binding)
 
@@ -105,7 +105,7 @@ These bindings drive trinity-specific overlays in TRN-1008 that COR-1617 does no
 | Agent-branch prefix regex | `^(codex\|claude)/` [^pipe-esc] | TRN-1008 §11 State-B branch guard accepts both prefixes. `codex/` is legacy from when the orchestrator was Codex; `claude/` is current. |
 | CLARIFY round-counter cap | `3` | TRN-1008 §1.5 per-issue counter; CHG-3038 §Why. |
 | Plan-review-tier providers | `[trinity-glm, trinity-deepseek, trinity-minimax]` | Required §4 plan-review panel. TRN-3042. |
-| Code-review-tier providers | `[trinity-glm, trinity-deepseek]` | Required §8 code-review panel. Codex remains a post-push GitHub App signal via `<bot-actors>`. CHG-3032 + TRN-3042 split. |
+| Code-review-tier providers | `[trinity-glm, trinity-codex, trinity-deepseek]` | Required §8 code-review panel; the post-push GitHub App signal via `<bot-actors>` remains an additional gate. |
 | Worker role split | implementation=`trinity-glm via droid exec`; test-code=`trinity-deepseek` | Required §5 worker routing. Mixed implementation+test tasks dispatch both workers with disjoint write sets. TRN-3042. |
 
 [^pipe-esc]: The pipe is escaped (`\|`) per GFM table-cell syntax. The actual regex used by `git rev-parse --abbrev-ref HEAD` matching has no backslash; do not embed `\|` into the regex itself.

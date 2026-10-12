@@ -23,6 +23,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CODEX_SCRIPT = REPO_ROOT / "scripts" / "codex.py"
 
 
+def _bundled_panel():
+    return json.loads((REPO_ROOT / ".agents" / "trinity.codex.json").read_text())[
+        "review"
+    ]["default_providers"]
+
+
 def _run_status(root: Path) -> subprocess.CompletedProcess:
     argv = [sys.executable, str(CODEX_SCRIPT), "status", "--root", str(root)]
     return subprocess.run(argv, capture_output=True, text=True)
@@ -91,13 +97,13 @@ def _basic_metadata(provider_returncodes: dict[str, int]) -> dict:
 def test_t1_clean_review_completed(tmp_path):
     _make_review(
         tmp_path,
-        metadata=_basic_metadata({"glm": 0, "gemini": 0, "deepseek": 0}),
+        metadata=_basic_metadata({name: 0 for name in _bundled_panel()}),
     )
     result = _run_status(tmp_path)
     assert result.returncode == 0, result.stderr
     out = result.stdout
     assert "Status: completed" in out
-    for prov in ("glm", "gemini", "deepseek"):
+    for prov in ("glm", "codex", "deepseek"):
         assert prov in out
         assert "rc=0" in out
     assert "(timeout)" not in out
@@ -109,13 +115,18 @@ def test_t1_clean_review_completed(tmp_path):
 
 
 def test_t2_timeout_returncode_marks_provider(tmp_path):
-    md = _basic_metadata({"glm": 0, "gemini": 124, "deepseek": 0})
-    # Make gemini's elapsed obviously distinct
+    md = _basic_metadata(
+        {name: 124 if i == 1 else 0 for i, name in enumerate(_bundled_panel())}
+    )
+    # Make codex's elapsed obviously distinct
     md["results"][1]["finished_at"] = "2026-05-08T12:06:00"
     _make_review(tmp_path, metadata=md)
     result = _run_status(tmp_path)
     assert result.returncode == 0, result.stderr
     assert "rc=124" in result.stdout
+    assert any(
+        "codex" in line and "rc=124" in line for line in result.stdout.splitlines()
+    )
     assert "(timeout)" in result.stdout
     # Status is partial (non-zero rc, but no incomplete.json)
     assert "Status: partial" in result.stdout
@@ -336,10 +347,10 @@ def test_t12_interrupted_review_with_no_metadata(tmp_path):
         "status": "interrupted",
         "timestamp": "2026-05-08T14:00:30",
         "review_dir": str(review_dir),
-        "providers_selected": ["glm", "gemini", "deepseek"],
-        "providers_started": ["glm", "gemini"],
-        "providers_running_at_cleanup": ["gemini"],
-        "cleanup": {"gemini": {"pid": 12345, "result": "terminated"}},
+        "providers_selected": _bundled_panel(),
+        "providers_started": _bundled_panel()[:2],
+        "providers_running_at_cleanup": _bundled_panel()[1:2],
+        "cleanup": {_bundled_panel()[1]: {"pid": 12345, "result": "terminated"}},
     }
     (review_dir / "incomplete.json").write_text(json.dumps(incomplete))
     # Critically: NO metadata.json exists.
@@ -350,11 +361,11 @@ def test_t12_interrupted_review_with_no_metadata(tmp_path):
     assert "Status: interrupted" in out
     # Top-level header must use the stored status (not hard-coded "interrupted").
     assert "(interrupted at 2026-05-08T14:00:30)" in out
-    assert "Providers selected: glm, gemini, deepseek" in out
-    assert "Providers started:  glm, gemini" in out
-    assert "Running at cleanup: gemini" in out
+    assert "Providers selected: glm, codex, deepseek" in out
+    assert "Providers started:  glm, codex" in out
+    assert "Running at cleanup: codex" in out
     # The cleanup outcome must surface the actual `result` value (not `?`).
-    assert "Cleanup: gemini: terminated" in out
+    assert "Cleanup: codex: terminated" in out
     assert "metadata.json not present" in out
     # And specifically must NOT print the "review in progress or no metadata"
     # error that would have surfaced under the pre-fix code path:
@@ -418,12 +429,12 @@ def test_t12c_cleanup_result_field_rendered_for_each_outcome(tmp_path):
     incomplete = {
         "status": "interrupted",
         "timestamp": "2026-05-08T16:00:30",
-        "providers_selected": ["glm", "gemini", "deepseek"],
-        "providers_started": ["glm", "gemini", "deepseek"],
-        "providers_running_at_cleanup": ["glm", "gemini", "deepseek"],
+        "providers_selected": _bundled_panel(),
+        "providers_started": _bundled_panel(),
+        "providers_running_at_cleanup": _bundled_panel(),
         "cleanup": {
             "glm": {"pid": 1001, "result": "terminated"},
-            "gemini": {"pid": 1002, "result": "killed"},
+            _bundled_panel()[1]: {"pid": 1002, "result": "killed"},
             "deepseek": {"pid": 1003, "result": "kill_timeout"},
         },
     }
@@ -433,12 +444,12 @@ def test_t12c_cleanup_result_field_rendered_for_each_outcome(tmp_path):
     assert result.returncode == 0, result.stderr
     out = result.stdout
     assert "glm: terminated" in out
-    assert "gemini: killed" in out
+    assert "codex: killed" in out
     assert "deepseek: kill_timeout" in out
     # And specifically NO `?` placeholders for the cleanup outcomes
     # (which would indicate the field-name regression returned).
     assert "glm: ?" not in out
-    assert "gemini: ?" not in out
+    assert "codex: ?" not in out
     assert "deepseek: ?" not in out
 
 

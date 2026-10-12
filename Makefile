@@ -64,9 +64,6 @@ install:        ## Install Trinity to ~/.claude/ (TRN-1005)
 	python3 ~/.claude/skills/trinity/scripts/install.py register-from-registry \
 		~/.claude/skills/trinity/providers/registry.json \
 		--global-config ~/.claude/trinity.json
-	python3 ~/.claude/skills/trinity/scripts/install.py register gemini \
-		--cli "gemini -p" \
-		--global-config ~/.claude/trinity.json
 	@echo "Installed Trinity $(CURRENT_VERSION)"
 
 install-codex:  ## Install Trinity Codex adapter to ~/.codex/ and ~/.local/bin

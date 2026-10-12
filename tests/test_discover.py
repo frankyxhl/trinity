@@ -246,19 +246,23 @@ def test_output_sorted_usable_then_missing_agent_then_missing_config(tmp_path):
     global_config = tmp_path / "global" / "trinity.json"
     project_dir = tmp_path / "project"
 
+    panel = json.loads(
+        (SCRIPT.parent.parent / ".agents" / "trinity.codex.json").read_text()
+    )["review"]["default_providers"]
     write_config(
         project_dir / ".claude" / "trinity.json",
         {
             "providers": {
-                "glm": {"cli": "droid exec"},
-                "codex": {"cli": "codex exec"},  # missing_agent
+                name: {"cli": "unused-cli"}
+                for name in panel
+                if name in {"glm", "codex"}
             }
         },
     )
     # glm has agent file -> usable
     write_agent(project_dir, "glm")
-    # gemini has agent file but no config -> missing_config
-    write_agent(project_dir, "gemini")
+    # agy-opus has agent file but no config -> missing_config
+    write_agent(project_dir, "agy-opus")
     # codex has config but no agent -> missing_agent
 
     rc, out, err = run(
@@ -272,6 +276,10 @@ def test_output_sorted_usable_then_missing_agent_then_missing_config(tmp_path):
     )
     assert rc == 0
     result = json.loads(out)
+    assert any(
+        e["name"] == "codex" and e["status"] == "missing_agent" for e in result
+    ), "Codex must be discovered from the bundled review panel"
+    assert all(e["name"] != "gemini" for e in result)
     statuses = [e["status"] for e in result]
 
     # usable first, then missing_agent, then missing_config

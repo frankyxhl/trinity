@@ -18,6 +18,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -213,8 +214,16 @@ def test_a5_codex_returns_none():
     assert wrapper_auth_check("codex") is None
 
 
-def test_a5_gemini_returns_none():
-    assert wrapper_auth_check("gemini") is None
+def test_a5_removed_provider_is_unknown(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    config = json.loads((ROOT / ".agents" / "trinity.codex.json").read_text())
+    results = provider_health_results(
+        config, ["gemini"], ROOT
+    )  # Unknown-provider request.
+    assert results[0]["issues"] == ["unknown provider"]
+    assert results[0]["ok"] is False
+    assert health_results_ok(results) is False
+    assert wrapper_auth_check("gemini") is None  # Unknown provider has no wrapper auth.
 
 
 def test_a5_claude_code_returns_none():
@@ -663,7 +672,7 @@ def test_live_probe_via_script_execution(tmp_path):
 def test_live_probe_passes_prompt_as_cli_argument(tmp_path):
     """Regression (PR #215 codex P2): the probe prompt must be appended as
     the final CLI argument, mirroring run_provider, because the bundled
-    CLIs (gemini -p / droid exec / codex exec) take the prompt via argv —
+    CLIs (droid exec / codex exec) take the prompt via argv —
     a stdin-only probe would report live failures for working providers."""
     from codex import _probe_provider
 

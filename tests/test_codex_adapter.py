@@ -2,8 +2,11 @@
 
 import json
 import os
+import shlex
 import subprocess
 import sys
+
+import pytest
 from pathlib import Path
 
 
@@ -133,41 +136,203 @@ def test_codex_default_config_has_direct_review_providers():
         "resume_arg": "-s",
         "timeout": 360,
     }
-    assert data["providers"]["gemini"] == {
-        "cli": "gemini --model gemini-3.1-pro-preview -p",
-        "supports_resume": True,
-        "resume_arg": "-r",
-        "timeout": 360,
-    }
+    assert "gemini" not in data["providers"]
+    assert "codex" in data["providers"]
+    assert "gpt-6.1-sol" in shlex.split(data["providers"]["codex"]["cli"])
     assert data["providers"]["deepseek"] == {
         "cli": "~/.codex/skills/trinity/bin/deepseek -p",
         "supports_resume": True,
         "resume_arg": "-r",
         "timeout": 600,
     }
-    assert data["review"]["default_providers"] == ["glm", "gemini", "deepseek"]
+    assert data["review"]["default_providers"] == ["glm", "codex", "deepseek"]
     assert data["review"]["default_preset"] == "review"
     assert "{diff}" in data["review"]["prompt_template"]
     assert "{files}" in data["review"]["prompt_template"]
-    assert data["presets"]["review"] == {
-        "providers": ["glm", "gemini", "deepseek"],
-        "optional_providers": ["codex", "claude-code"],
-        "task_type": "review",
-    }
+    assert data["presets"]["review"]["providers"] == ["glm", "codex", "deepseek"]
+    assert "optional_providers" not in data["presets"]["review"]
+    assert data["presets"]["review"]["task_type"] == "review"
     assert data["presets"]["fast-review"] == {
         "providers": ["glm", "deepseek"],
         "task_type": "review",
     }
-    assert data["presets"]["deep-review"] == {
-        "providers": ["glm", "gemini", "deepseek"],
-        "optional_providers": ["codex", "claude-code"],
-        "task_type": "review",
-    }
+    assert data["presets"]["deep-review"]["providers"] == ["glm", "codex", "deepseek"]
+    assert "optional_providers" not in data["presets"]["deep-review"]
+    assert data["presets"]["deep-review"]["task_type"] == "review"
     assert data["preset_aliases"] == {
         "r": "review",
         "fr": "fast-review",
         "dr": "deep-review",
     }
+
+
+@pytest.mark.parametrize("preset", [None, "review", "deep-review"])
+def test_bundled_review_panels_require_three_vendors(preset):
+    data = json.loads(CODEX_CONFIG.read_text())
+    panel = data["review"] if preset is None else data["presets"][preset]
+    key = "default_providers" if preset is None else "providers"
+    assert panel[key] == ["glm", "codex", "deepseek"], (
+        f"{preset or 'default'} panel must require glm, codex, deepseek"
+    )
+    assert "codex" not in panel.get("optional_providers", []), (
+        "Codex must be a full required panel member"
+    )
+    assert "gemini" not in panel[key]
+
+
+@pytest.mark.parametrize("source", [CODEX_CONFIG, ROOT / "providers" / "registry.json"])
+def test_bundled_codex_call_uses_required_model(source):
+    data = json.loads(source.read_text())
+    assert "codex" in data["providers"], "Bundled config must declare how Codex runs"
+    command = shlex.split(data["providers"]["codex"]["cli"])
+    assert command[:2] == ["codex", "exec"]
+    assert any(
+        command[index : index + 2] == [flag, "gpt-6.1-sol"]
+        for index in range(len(command))
+        for flag in ("-m", "--model")
+    ), "Codex panel model must be gpt-6.1-sol"
+
+
+@pytest.mark.parametrize("preset", [None, "deep-review"])
+@pytest.mark.parametrize(
+    "unavailable", ["missing_config", "empty_cli", "missing_executable", "exit_one"]
+)
+def test_review_fails_when_bundled_codex_is_unavailable(tmp_path, preset, unavailable):
+    data = json.loads(CODEX_CONFIG.read_text())
+    healthy = tmp_path / "healthy-provider"
+    passing_review = {
+        "decision": "PASS",
+        "weighted_score": 9.9,
+        "blocking": [],
+        "advisories": [],
+    }
+    healthy.write_text(
+        "#!/bin/sh\ncat <<'REVIEW'\n```json\n"
+        + json.dumps(passing_review)
+        + "\n```\nREVIEW\n"
+    )
+    healthy.chmod(0o755)
+    # Keep the shipped membership and optionality; replace only external CLIs.
+    for entry in data["providers"].values():
+        entry["cli"] = str(healthy)
+    if unavailable == "missing_config":
+        data["providers"].pop("codex", None)
+    elif unavailable == "empty_cli":
+        data["providers"]["codex"] = {"cli": "", "timeout": 600}
+    elif unavailable == "missing_executable":
+        data["providers"]["codex"]["cli"] = str(tmp_path / "missing-codex")
+    else:
+        failing = tmp_path / "failing-codex"
+        failing.write_text("#!/bin/sh\necho codex-runtime-failed >&2\nexit 1\n")
+        failing.chmod(0o755)
+        data["providers"]["codex"]["cli"] = str(failing)
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(data))
+    out_dir = tmp_path / ".trinity" / "reviews"
+    args = [
+        "review",
+        "--root",
+        str(ROOT),
+        "--config",
+        str(config),
+        "--scope",
+        "tests/test_codex_adapter.py",
+        "--out-dir",
+        str(out_dir),
+    ]
+    if preset:
+        args += ["--preset", preset]
+    env = dict(os.environ, HOME=str(tmp_path), DEEPSEEK_API_KEY="test-key")
+    rc, out, err = run_codex(args, env=env)
+    assert rc != 0, "Review must fail when required Codex cannot run; got exit 0"
+    assert "codex" in err.lower()
+    assert "skipped" not in err.lower(), "Required Codex must never be silently skipped"
+    if unavailable != "exit_one":
+        assert out == "", "Failed preflight must not publish a completed review"
+        assert not out_dir.exists(), (
+            "Failed preflight must not launch a two-vendor review"
+        )
+        if unavailable == "missing_executable":
+            assert "codex: FAIL - command not found:" in err
+        return
+
+    review_dir = Path(out)
+    assert review_dir.parent == out_dir, "Runtime failure must identify its review"
+    metadata_path = review_dir / "metadata.json"
+    assert metadata_path.is_file(), "Runtime failure must retain review metadata"
+    metadata = json.loads(metadata_path.read_text())
+    assert metadata["providers"] == ["glm", "codex", "deepseek"]
+    results = {
+        result["provider"]: result["returncode"] for result in metadata["results"]
+    }
+    assert results == {"glm": 0, "codex": 1, "deepseek": 0}
+    assert metadata.get("status") == "failed", (
+        "A required Codex runtime failure must mark the whole review failed; "
+        f"got {metadata.get('status')!r}"
+    )
+
+    synthesis_path = review_dir / "synthesis.md"
+    assert synthesis_path.is_file(), "Runtime failure must retain the review result"
+    synthesis = synthesis_path.read_text()
+    assert "- **Verdict**: INCONCLUSIVE" in synthesis, (
+        "Two passing vendors must not produce an overall PASS after Codex fails"
+    )
+    assert "- **Providers**: 2/3 PASS · 0 FIX · 1 FAIL" in synthesis
+    assert "| codex | FAIL 1 |" in synthesis
+    assert "trinity review: INCONCLUSIVE" in err
+
+    status_rc, status_out, status_err = run_codex(
+        ["status", "--root", str(tmp_path)], env=env
+    )
+    assert status_rc == 0, status_err
+    status_lines = [
+        line.strip()
+        for line in status_out.splitlines()
+        if line.strip().startswith("Status:")
+    ]
+    assert status_lines == ["Status: failed"], (
+        "A required Codex runtime failure must not be presented as pass, partial, "
+        f"or completed: {status_lines!r}"
+    )
+
+
+@pytest.mark.parametrize("command", ["doctor", "review"])
+def test_removed_provider_is_unknown_to_cli(tmp_path, command):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    # A stale executable on PATH must not turn a removed provider into a member.
+    write_fake_provider(fake_bin / "gemini")  # Unknown-provider request fixture.
+    env = dict(
+        os.environ, HOME=str(tmp_path), PATH=f"{fake_bin}{os.pathsep}/usr/bin:/bin"
+    )
+    rc, out, err = run_codex(
+        [
+            command,
+            "--root",
+            str(ROOT),
+            "--config",
+            str(CODEX_CONFIG),
+            "--providers",
+            "gemini",
+            "--out-dir",
+            str(tmp_path / "reviews"),
+        ]
+        if command == "review"
+        else [
+            command,
+            "--root",
+            str(ROOT),
+            "--config",
+            str(CODEX_CONFIG),
+            "--providers",
+            "gemini",
+        ],
+        env=env,
+    )
+    assert rc != 0, "Unknown provider request must exit nonzero"
+    assert "unknown provider" in (out + err).lower()
+    assert "gemini" in (out + err).lower()  # Unknown provider must be identified.
+    assert not (tmp_path / "reviews").exists()
 
 
 def test_claude_code_install_path_remains_unchanged():
@@ -205,9 +370,10 @@ def test_codex_review_collects_tracked_and_untracked_changes(tmp_path):
     tracked.write_text("before\nafter tracked change\n")
     (repo / "untracked.txt").write_text("new untracked evidence\n")
 
+    panel = json.loads(CODEX_CONFIG.read_text())["review"]["default_providers"]
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    for provider in ["glm", "gemini", "deepseek"]:
+    for provider in panel:
         script = fake_bin / provider
         script.write_text(
             "#!/usr/bin/env python3\n"
@@ -231,13 +397,11 @@ def test_codex_review_collects_tracked_and_untracked_changes(tmp_path):
         json.dumps(
             {
                 "providers": {
-                    "glm": {"cli": str(fake_bin / "glm"), "timeout": 10},
-                    "gemini": {"cli": str(fake_bin / "gemini"), "timeout": 10},
-                    "deepseek": {"cli": str(fake_bin / "deepseek"), "timeout": 10},
+                    name: {"cli": str(fake_bin / name), "timeout": 10} for name in panel
                 },
                 "review": {
                     "prompt_template": "Scope: {scope}\n\n{diff}\n\n{files}\n",
-                    "default_providers": ["glm", "gemini", "deepseek"],
+                    "default_providers": panel,
                 },
             }
         )
@@ -252,7 +416,7 @@ def test_codex_review_collects_tracked_and_untracked_changes(tmp_path):
             "--config",
             str(config),
             "--providers",
-            "glm,gemini,deepseek",
+            ",".join(panel),
             "--scope",
             ".",
             "--out-dir",
@@ -265,7 +429,9 @@ def test_codex_review_collects_tracked_and_untracked_changes(tmp_path):
     assert review_dir.is_dir()
     assert (review_dir / "prompt.md").read_text().count("after tracked change") >= 1
     assert "new untracked evidence" in (review_dir / "prompt.md").read_text()
-    for provider in ["glm", "gemini", "deepseek"]:
+    assert not (review_dir / "raw" / "gemini.txt").exists()
+    assert (review_dir / "raw" / "codex.txt").is_file()
+    for provider in ["glm", "codex", "deepseek"]:
         raw = (review_dir / "raw" / f"{provider}.txt").read_text()
         assert "tracked-ok" in raw
         assert "untracked-ok" in raw
@@ -1601,6 +1767,8 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     assert installed_config["providers"]["deepseek"]["cli"] == (
         "~/.codex/skills/trinity/bin/deepseek -p"
     )
+    assert "gemini" not in installed_config["providers"]
+    assert "codex" in installed_config["providers"]
     assert installed_config["review"]["default_preset"] == "review"
     assert installed_config["presets"]["fast-review"]["providers"] == [
         "glm",
@@ -1608,7 +1776,7 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     ]
     assert installed_config["presets"]["deep-review"]["providers"] == [
         "glm",
-        "gemini",
+        "codex",
         "deepseek",
     ]
     assert installed_config["preset_aliases"]["dr"] == "deep-review"

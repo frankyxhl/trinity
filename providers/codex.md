@@ -38,7 +38,7 @@ python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTA
 
 ### Reasoning effort
 
-Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it. Verified on codex-cli 0.160.0: both `gpt-6.1-sol` and `gpt-6-luna` answer.
+Codex 0.124+ takes the reasoning effort via `-c model_reasoning_effort=<level>`. Valid values are `none`, `low`, `medium`, `high`, `xhigh`. The legacy `-c reasoning.effort=<level>` flag is silently ignored by current codex-cli — never use it. Verified on codex-cli 0.160.0: both `gpt-6.1-sol` and `gpt-6-luna` answer. The pinned model `gpt-6.1-sol` requires a codex-cli build that supports it; if the CLI reports "unknown model", upgrade codex-cli before reinstalling Trinity.
 
 Default to `xhigh`. The orchestrator may pass an `EFFORT=<level>` token anywhere in the task prompt to override; the worker parses it before invoking Codex (`$PROMPT` is the task prompt body, set by the worker from the user message):
 ```bash

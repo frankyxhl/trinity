@@ -22,7 +22,6 @@ Per-provider resolvers cover:
     claude-code   -> ~/.claude-trinity-claude-code/projects/<PROJECT_SLUG>/<session-id>.jsonl
     deepseek      -> ~/.claude-deepseek/projects/<PROJECT_SLUG>/<session-id>.jsonl
     openrouter    -> ~/.claude-openrouter/projects/<PROJECT_SLUG>/<session-id>.jsonl
-    gemini        -> stub (exits 3 with explicit "not yet supported" message)
 
 Encoding differs by provider (matches per-wrapper conventions in
 ``providers/<name>.md``):
@@ -278,14 +277,6 @@ def _resolve_codex(session_id: str, project_dir: str) -> Path:
     return codex_root / "sessions" / f"{session_id}.jsonl"
 
 
-def _resolve_gemini(session_id: str, project_dir: str) -> Path:
-    print(
-        "gemini transcript layout not yet supported (TRN-3040)",
-        file=sys.stderr,
-    )
-    sys.exit(3)
-
-
 # ---------------------------------------------------------------------------
 # Provider dispatch
 # ---------------------------------------------------------------------------
@@ -341,16 +332,20 @@ def cmd_session_path(project_dir: str, lookup_key: str) -> int:
             resolved = _resolve_codex(session_id, project_dir)
         elif provider in _CLAUDE_FAMILY_ROOTS:
             resolved = _resolve_claude_family(session_id, project_dir, provider)
-        elif provider == "gemini":
-            resolved = _resolve_gemini(session_id, project_dir)
+        elif provider == "agy-opus":
+            print(
+                "provider 'agy-opus' not supported by session-path resolver",
+                file=sys.stderr,
+            )
+            return 3
         else:
             print(
-                f"provider '{provider}' not supported by session-path resolver",
+                f"unknown provider '{provider}' for session-path resolver",
                 file=sys.stderr,
             )
             return 3
     except SystemExit as exc:
-        # Resolvers (gemini stub, codex multi-match) may sys.exit directly;
+        # Resolvers (codex multi-match) may sys.exit directly;
         # propagate the integer code unchanged.
         code = exc.code if isinstance(exc.code, int) else 3
         return code

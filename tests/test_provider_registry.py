@@ -44,8 +44,6 @@ DIRECT_PROVIDERS = {"glm", "codex", "minimax"}
 WRAPPER_PROVIDERS = {"openrouter", "deepseek", "claude-code", "agy-opus"}
 REGISTRY_PROVIDERS = DIRECT_PROVIDERS | WRAPPER_PROVIDERS
 
-GEMINI_EXCEPTION = "gemini"  # Deferred from registry per TRN-3020.
-
 HOME_LITERAL = os.path.expanduser("~")
 
 
@@ -133,7 +131,9 @@ def test_a3d_makefile_uses_register_from_registry():
     assert body.count("register-from-registry") >= 1, (
         "Makefile install: must invoke register-from-registry"
     )
-    # Whitelist: only `gemini` may have a hard-coded register block.
+    assert not re.search(r"install\.py register gemini\s", body), (
+        "Makefile must not register the removed provider"
+    )
     for provider in REGISTRY_PROVIDERS:
         pattern = rf"install\.py register {re.escape(provider)}\s"
         assert not re.search(pattern, body), (
@@ -150,6 +150,9 @@ def test_a3d_makefile_uses_register_from_registry():
 def test_a3e_install_sh_uses_register_from_registry():
     body = INSTALL_SH_PATH.read_text()
     assert "register-from-registry" in body
+    assert not re.search(r'install\.py" register gemini\s', body), (
+        "install.sh must not register the removed provider"
+    )
     for provider in REGISTRY_PROVIDERS:
         pattern = rf"install\.py\" register {re.escape(provider)}\s"
         assert not re.search(pattern, body), (
@@ -286,7 +289,7 @@ def test_a3i_makefile_no_orphan_registers():
     matches = re.findall(r"install\.py register ([\w-]+)\s", body)
     matches = [m for m in matches if m != "register-from-registry"]
     for provider in matches:
-        assert provider == GEMINI_EXCEPTION or provider in REGISTRY_PROVIDERS, (
+        assert provider in REGISTRY_PROVIDERS, (
             f"Makefile registers unknown provider {provider!r}"
         )
 
@@ -296,7 +299,7 @@ def test_a3i_install_sh_no_orphan_registers():
     matches = re.findall(r'install\.py" register ([\w-]+)\s', body)
     matches = [m for m in matches if m != "register-from-registry"]
     for provider in matches:
-        assert provider == GEMINI_EXCEPTION or provider in REGISTRY_PROVIDERS, (
+        assert provider in REGISTRY_PROVIDERS, (
             f"install.sh registers unknown provider {provider!r}"
         )
 

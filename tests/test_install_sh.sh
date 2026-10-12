@@ -44,12 +44,12 @@ t1_happy_path() {
 
     if [ $RC -ne 0 ]; then _fail "T1: non-zero exit"; return; fi
 
-    # Verify trinity.json was created with all 8 providers
+    # Verify trinity.json was created with all 7 supported providers
     TRINITY_JSON="${FAKE_HOME}/.claude/trinity.json"
     if [ ! -f "${TRINITY_JSON}" ]; then
         _fail "T1: ~/.claude/trinity.json not created"; rm -rf "${FAKE_HOME}"; return
     fi
-    for provider in glm minimax codex gemini openrouter deepseek claude-code agy-opus; do
+    for provider in glm minimax codex openrouter deepseek claude-code agy-opus; do
         if ! python3 -c "import json,sys; d=json.load(open('${TRINITY_JSON}')); sys.exit(0 if '${provider}' in d.get('providers',{}) else 1)"; then
             _fail "T1: provider ${provider} missing from trinity.json"; rm -rf "${FAKE_HOME}"; return
         fi
@@ -67,7 +67,6 @@ t1_happy_path() {
         ".claude/agents/trinity-glm.md"
         ".claude/agents/trinity-minimax.md"
         ".claude/agents/trinity-codex.md"
-        ".claude/agents/trinity-gemini.md"
         ".claude/agents/trinity-openrouter.md"
         ".claude/agents/trinity-deepseek.md"
         ".claude/agents/trinity-claude-code.md"
@@ -82,7 +81,17 @@ t1_happy_path() {
     if [ ! -x "${FAKE_HOME}/.claude/skills/trinity/scripts/scan_rocket_issues.sh" ]; then
         _fail "T1: scan_rocket_issues.sh not executable"; rm -rf "${FAKE_HOME}"; return
     fi
-    _pass "T1: happy path — all provider files installed"
+    if ! python3 - "${TRINITY_JSON}" <<'PYASSERT'
+import json
+import sys
+with open(sys.argv[1]) as source:
+    assert "gemini" not in json.load(source)["providers"], "removed provider still registered"
+PYASSERT
+    then
+        _fail "T1: gemini must be absent from installed provider registrations"
+        rm -rf "${FAKE_HOME}"; return
+    fi
+    _pass "T1: happy path — supported provider files installed"
     rm -rf "${FAKE_HOME}"
 }
 
@@ -170,7 +179,6 @@ t6_404_exits_nonzero() {
     cp "${REPO_DIR}/scripts/"*.py "${MISSING_DIR}/scripts/"
     cp "${REPO_DIR}/providers/glm.md" "${MISSING_DIR}/providers/"
     # providers/codex.md intentionally missing
-    cp "${REPO_DIR}/providers/gemini.md" "${MISSING_DIR}/providers/"
     # registry.json must be present so install.sh's TRN-3020 probe doesn't
     # short-circuit before reaching the codex.md 404 scenario this test is
     # actually exercising.
@@ -326,6 +334,50 @@ t0_path_sanity_guard_rejects_bad_paths() {
     _pass "T0: path-sanity allow-list rejects bad chars and accepts clean paths"
 }
 
+# Check both installation entry points independently for copied provider files.
+t12_removed_agent_absent() {
+    local mode="$1"
+    local fake_home
+    fake_home=$(mktemp -d)
+    if [ "$mode" = "install.sh" ]; then
+        HOME="$fake_home" TRINITY_BASE_URL="file://${REPO_DIR}" \
+            bash "$INSTALL_SCRIPT" >/dev/null
+    else
+        HOME="$fake_home" make -C "$REPO_DIR" install >/dev/null
+    fi
+    if [ -e "$fake_home/.claude/agents/trinity-gemini.md" ]; then
+        _fail "T12 ($mode): gemini agent must not be copied"
+    elif [ ! -f "$fake_home/.claude/agents/trinity-codex.md" ] || \
+         [ ! -f "$fake_home/.claude/agents/trinity-agy-opus.md" ] || \
+         [ ! -x "$fake_home/.claude/skills/trinity/bin/agy-opus" ]; then
+        _fail "T12 ($mode): codex agent and agy-opus agent/wrapper must still install"
+    else
+        _pass "T12 ($mode): removed agent absent; codex and agy-opus installed"
+    fi
+    rm -rf "$fake_home"
+}
+
+t13_make_install_registry() {
+    local fake_home
+    fake_home=$(mktemp -d)
+    HOME="$fake_home" make -C "$REPO_DIR" install >/dev/null
+    if python3 - "$fake_home/.claude/trinity.json" <<'PYASSERT'
+import json
+import sys
+with open(sys.argv[1]) as source:
+    providers = json.load(source)["providers"]
+assert "codex" in providers, "codex must remain registered"
+assert "agy-opus" in providers, "agy-opus must remain registered"
+assert "gemini" not in providers, "removed provider still registered"
+PYASSERT
+    then
+        _pass "T13: make install registers only supported providers"
+    else
+        _fail "T13: gemini must be absent from make install registrations"
+    fi
+    rm -rf "$fake_home"
+}
+
 # Run all tests
 t0_path_sanity_guard_rejects_bad_paths
 t1_happy_path
@@ -338,6 +390,9 @@ t6_404_exits_nonzero
 t7_success_output_version
 t9_bin_scripts_and_absolute_cli
 t11_legacy_cli_migration
+t12_removed_agent_absent install.sh
+t12_removed_agent_absent make
+t13_make_install_registry
 
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"

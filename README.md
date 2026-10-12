@@ -1,6 +1,6 @@
 # Trinity — Multi-Model Orchestration
 
-Dispatch tasks to any LLM (GLM, Codex, Gemini, Claude Code, DeepSeek, OpenRouter, or your own) from your AI coding host. Trinity runs as a skill in Claude Code and as a skill / plugin in Codex; providers run in the background as sub-agents or direct CLI calls. Sessions persist across turns. Health monitoring tells you if they're alive.
+Dispatch tasks to any LLM (GLM, Codex, MiniMax, Claude Code, DeepSeek, OpenRouter, agy-opus, or your own) from your AI coding host. Trinity runs as a skill in Claude Code and as a skill / plugin in Codex; providers run in the background as sub-agents or direct CLI calls. Sessions persist across turns. Health monitoring tells you if they're alive.
 
 The name comes from 三位一体 — not a fixed count, but a philosophy: all AIs united, working together. Whoever runs Trinity is the Leader. Any external LLM with a CLI is a Member. Any host that can spawn sub-agents or shell out to a CLI can be the Leader.
 
@@ -21,7 +21,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 
 ## If You Are an AI
 
-> This section is for LLM agents (Claude, GPT, Gemini, etc.) installing Trinity on behalf of a user.
+> This section is for LLM agents (Claude, GPT, etc.) installing Trinity on behalf of a user.
 
 **You can install Trinity in one Bash call — no git clone required.**
 
@@ -31,7 +31,7 @@ The name comes from 三位一体 — not a fixed count, but a philosophy: all AI
 curl -fsSL https://raw.githubusercontent.com/frankyxhl/trinity/main/install.sh | bash
 ```
 
-This downloads all skill files to `~/.claude/` and registers the seven default providers (glm, minimax, codex, gemini, openrouter, deepseek, claude-code) in `~/.claude/trinity.json`. Expected output ends with:
+This downloads all skill files to `~/.claude/` and registers the seven default providers (glm, minimax, codex, openrouter, deepseek, claude-code, agy-opus) in `~/.claude/trinity.json`. Expected output ends with:
 
 ```
 Trinity 3.3.0 installed to ~/.claude/
@@ -51,7 +51,7 @@ Trinity's skill (`SKILL.md`) is loaded by Claude Code at startup. The install ta
 /trinity status
 ```
 
-Expected output: glm, minimax, codex, gemini, openrouter, deepseek, and claude-code all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
+Expected output: glm, minimax, codex, openrouter, deepseek, claude-code, and agy-opus all show ✅ usable. If any show ⚠️, run `/trinity install <provider>` to repair.
 
 ### What was installed
 
@@ -62,13 +62,14 @@ Expected output: glm, minimax, codex, gemini, openrouter, deepseek, and claude-c
 | `~/.claude/agents/trinity-glm.md` | GLM worker agent |
 | `~/.claude/agents/trinity-minimax.md` | MiniMax M3 worker agent |
 | `~/.claude/agents/trinity-codex.md` | Codex worker agent |
-| `~/.claude/agents/trinity-gemini.md` | Gemini worker agent |
 | `~/.claude/agents/trinity-openrouter.md` | OpenRouter worker agent |
 | `~/.claude/agents/trinity-deepseek.md` | DeepSeek V4 worker agent |
 | `~/.claude/agents/trinity-claude-code.md` | Claude Code worker agent |
+| `~/.claude/agents/trinity-agy-opus.md` | Antigravity Opus worker agent |
 | `~/.claude/skills/trinity/bin/deepseek` | DeepSeek `claude --dangerously-skip-permissions` wrapper (env injection + key-file loader) |
 | `~/.claude/skills/trinity/bin/openrouter` | OpenRouter wrapper (same shape) |
 | `~/.claude/skills/trinity/bin/claude-code` | Isolated nested Claude Code wrapper (`--model sonnet --effort high`) |
+| `~/.claude/skills/trinity/bin/agy-opus` | Antigravity Opus wrapper |
 | `~/.claude/trinity.json` | Global provider registry |
 
 ---
@@ -115,7 +116,7 @@ make install
 **Using the install command (recommended):**
 ```
 /trinity install codex
-/trinity install gemini
+/trinity install deepseek
 /trinity install glm
 ```
 
@@ -149,9 +150,6 @@ chmod 600 ~/.secrets/deepseek_api_key
 # Codex
 cp trinity/providers/codex.md ~/.claude/agents/trinity-codex.md
 
-# Gemini
-cp trinity/providers/gemini.md ~/.claude/agents/trinity-gemini.md
-
 # GLM
 cp trinity/providers/glm.md ~/.claude/agents/trinity-glm.md
 
@@ -167,12 +165,16 @@ cp trinity/providers/deepseek.md ~/.claude/agents/trinity-deepseek.md
 # Claude Code
 cp trinity/providers/claude-code.md ~/.claude/agents/trinity-claude-code.md
 
-# Wrapper bin scripts (deepseek + openrouter + claude-code)
+# Antigravity Opus
+cp trinity/providers/agy-opus.md ~/.claude/agents/trinity-agy-opus.md
+
+# Wrapper bin scripts (deepseek + openrouter + claude-code + agy-opus)
 mkdir -p ~/.claude/skills/trinity/bin
 cp trinity/providers/bin/deepseek   ~/.claude/skills/trinity/bin/deepseek
 cp trinity/providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
 cp trinity/providers/bin/claude-code ~/.claude/skills/trinity/bin/claude-code
-chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code
+cp trinity/providers/bin/agy-opus ~/.claude/skills/trinity/bin/agy-opus
+chmod +x ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code ~/.claude/skills/trinity/bin/agy-opus
 ```
 
 Then create `~/.claude/trinity.json`:
@@ -180,12 +182,12 @@ Then create `~/.claude/trinity.json`:
 {
   "providers": {
     "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-6.1-sol", "installed": true },
-    "gemini":     { "cli": "gemini -p",                        "installed": true },
     "glm":        { "cli": "droid exec --auto medium --model custom:GLM-5.2", "installed": true },
     "minimax":    { "cli": "droid exec --auto medium --model custom:MiniMax-M3", "installed": true },
     "openrouter":  { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p",  "installed": true },
     "deepseek":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",    "installed": true },
-    "claude-code": { "cli": "/Users/<you>/.claude/skills/trinity/bin/claude-code -p", "installed": true }
+    "claude-code": { "cli": "/Users/<you>/.claude/skills/trinity/bin/claude-code -p", "installed": true },
+    "agy-opus":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/agy-opus", "installed": true }
   },
   "defaults": {
     "heartbeat_interval": 120,
@@ -221,13 +223,17 @@ To use review presets via the Claude Code skill, add them to the same file:
 ```json
 {
   "presets": {
-    "review":      { "providers": ["glm", "gemini", "deepseek"], "optional_providers": ["codex", "claude-code"] },
+    "review":      { "providers": ["glm", "codex", "deepseek"] },
     "fast-review": { "providers": ["glm", "deepseek"] },
-    "deep-review": { "providers": ["glm", "gemini", "deepseek"], "optional_providers": ["codex", "claude-code"] }
+    "deep-review": { "providers": ["glm", "codex", "deepseek"] }
   },
   "preset_aliases": { "r": "review", "fr": "fast-review", "dr": "deep-review" }
 }
 ```
+
+`review` and `deep-review` require all three vendors: GLM, Codex, and DeepSeek.
+Codex uses `gpt-6.1-sol`; if it cannot run, the review fails instead of
+continuing with two providers. `fast-review` remains the explicit two-provider preset.
 
 ### Step 3: Configure global defaults (optional)
 

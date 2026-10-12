@@ -20,17 +20,22 @@ make install-codex
 | `~/.codex/trinity.json`                      | User-level Codex provider config |
 | `~/.local/bin/trinity`                       | Terminal wrapper |
 
-The default config (`.agents/trinity.codex.json`) registers `glm`, `gemini`,
+The default config (`.agents/trinity.codex.json`) registers `glm`, `codex`,
 and `deepseek` for direct CLI review and seeds the `review` / `fast-review` /
 `deep-review` presets (with `r` / `fr` / `dr` aliases) — same set documented
 under [Review presets](usage-guide.md#review-presets). `trinity review` chooses
 providers in this order: explicit `--providers`, explicit `--preset`,
 `review.default_preset`, then legacy `review.default_providers`.
 
+Both `review` and `deep-review` require GLM, Codex, and DeepSeek. Codex runs as
+`codex exec --skip-git-repo-check -m gpt-6.1-sol`. Missing configuration, an
+unavailable CLI, or a nonzero Codex exit fails the review; Codex is never
+silently skipped. `fast-review` explicitly selects GLM and DeepSeek.
+
 ### Provider health
 
 ```bash
-trinity doctor --providers glm,gemini,deepseek
+trinity doctor --providers glm,codex,deepseek
 trinity doctor --preset fast-review
 trinity review --check-providers --preset dr
 ```
@@ -53,7 +58,7 @@ still surface during an actual review.
 ### Live probe
 
 ```bash
-trinity doctor --live --providers glm,gemini,deepseek
+trinity doctor --live --providers glm,codex,deepseek
 trinity doctor --live --preset fast-review
 ```
 
@@ -68,7 +73,7 @@ results appear as additional lines in verbose output.
 ### Run a review
 
 ```bash
-trinity review --providers glm,gemini,deepseek --scope spikes/hardline
+trinity review --providers glm,codex,deepseek --scope spikes/hardline
 trinity review --preset fast-review --scope spikes/hardline
 trinity review --preset dr --scope .
 trinity review --base main --head HEAD --providers glm,deepseek

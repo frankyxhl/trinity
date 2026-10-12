@@ -1,5 +1,5 @@
 name: Provider-specific issue
-description: One of the 6 providers (glm / codex / gemini / openrouter / deepseek / claude-code) is broken at the install / dispatch / smoke-test boundary.
+description: One of the 7 providers (glm / minimax / codex / openrouter / deepseek / claude-code / agy-opus) is broken at the install / dispatch / smoke-test boundary.
 title: "provider:<name>: <one-line summary>"
 labels: ["bug"]
 body:
@@ -16,11 +16,12 @@ body:
       description: Pick the one provider this issue is about. If it's multiple, file separately or use the Bug report template.
       options:
         - glm
+        - minimax
         - codex
-        - gemini
         - openrouter
         - deepseek
         - claude-code
+        - agy-opus
     validations:
       required: true
 
@@ -32,9 +33,10 @@ body:
         Run the version check appropriate to the provider:
         - glm: `droid --version`
         - codex: `codex --version`
-        - gemini: `gemini --version`
+        - minimax: `droid --version`
+        - agy-opus: report the installed Antigravity CLI version
         - openrouter / deepseek / claude-code: `~/.claude/skills/trinity/bin/<name> --version` (Anthropic-compatible wrapper)
-      placeholder: "e.g. droid 0.4.2 / gpt-5.5 / gemini-3-pro / 4.7.0[1m]"
+      placeholder: "e.g. droid 0.4.2 / gpt-5.5 / 4.7.0[1m]"
     validations:
       required: true
 
