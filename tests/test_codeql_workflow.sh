@@ -58,6 +58,8 @@ check "CodeQL init receives language" grep -qF 'languages: ${{ matrix.language }
 check "CodeQL init receives build mode" grep -qF 'build-mode: ${{ matrix.build-mode }}' "$WORKFLOW"
 check "CodeQL analyze category set" grep -qF 'category: "/language:${{ matrix.language }}"' "$WORKFLOW"
 
+check "analyze job is GitHub-only" grep -qF "if: github.server_url == 'https://github.com'" "$WORKFLOW"
+
 echo
 echo "=== Result ==="
 echo "  passed: $PASS"

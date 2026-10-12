@@ -70,6 +70,11 @@
   #245.
 
 ### Changed
+- Secret Scan runs a pinned, checksum-verified gitleaks 8.30.1 binary instead
+  of gitleaks-action; CodeQL and the macOS test leg/gate run only on GitHub
+  (skipped on the self-hosted Forgejo, which has no action mirror for these and
+  no macOS runner). Shape tests updated. Historic dummy test tokens are listed
+  in `.gitleaksignore`.
 - Codex default pin `gpt-5.6-sol` → `gpt-6.1-sol`; documented `gpt-6-luna`
   as an optional alternative through the existing `trinity.json` CLI overlay.
   Both models verified on codex-cli 0.160.0.

@@ -20,6 +20,9 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # CodeQL is a GitHub service; forge has no codeql-action mirror nor a
+    # code-scanning page, so it is skipped there.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:

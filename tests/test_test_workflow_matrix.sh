@@ -35,7 +35,7 @@ else
 fi
 
 require_file_contains "${WORKFLOW}" 'name: test / \$\{\{ matrix\.os \}\} / Python \$\{\{ matrix\.python-version \}\}' "matrix job name includes OS and Python version"
-require_file_contains "${WORKFLOW}" 'os: \[ubuntu-latest, macos-latest\]' "OS matrix keeps ubuntu and macos"
+require_file_contains "${WORKFLOW}" 'os: \$\{\{ fromJSON\(github\.server_url == .https://github\.com. && .\["ubuntu-latest", "macos-latest"\]. \|\| .\["ubuntu-latest"\].\) \}\}$' "OS matrix uses fromJSON on server_url (both legs on GitHub, ubuntu only elsewhere)"
 require_file_contains "${WORKFLOW}" "python-version: \\['3\\.14'\\]" "Python matrix is 3.14 only (owner decision 2026-08-30; was 3.11–3.14)"
 require_file_contains "${WORKFLOW}" 'runs-on: \$\{\{ matrix\.os \}\}' "runner uses OS matrix"
 require_file_contains "${WORKFLOW}" 'uses: actions/setup-python@[0-9a-f]{40} # v[0-9]+' "setup-python action is pinned to SHA"
@@ -49,6 +49,7 @@ require_file_contains "${WORKFLOW}" '^  ubuntu-latest:$' "legacy ubuntu required
 require_file_contains "${WORKFLOW}" '^    name: ubuntu-latest$' "legacy ubuntu required-check name preserved"
 require_file_contains "${WORKFLOW}" '^  macos-latest:$' "legacy macos required-check gate present"
 require_file_contains "${WORKFLOW}" '^    name: macos-latest$' "legacy macos required-check name preserved"
+require_file_contains "${WORKFLOW}" "if: always\(\) && github\.server_url == 'https://github\.com'" "macos-latest gate is GitHub-only"
 require_file_contains "${WORKFLOW}" 'needs: test' "required-check gates depend on matrix job"
 require_file_contains "${WORKFLOW}" '\$\{\{ needs\.test\.result \}\}' "required-check gates inspect matrix result"
 
