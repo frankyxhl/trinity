@@ -1,2 +1,8 @@
 #!/usr/bin/env sh
+# Trinity CLI shim. Prefer the checkout beside this script, else the installed
+# skill copy; both reach scripts/codex.py, the one front end (NG-06).
+here=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+if [ -n "$here" ] && [ -f "$here/../scripts/codex.py" ]; then
+    exec python3 "$here/../scripts/codex.py" "$@"
+fi
 exec python3 "${HOME}/.codex/skills/trinity/scripts/codex.py" "$@"
