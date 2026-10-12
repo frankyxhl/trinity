@@ -307,6 +307,79 @@ def test_ordinary_multi_pair_line_is_unchanged_and_accepted(tmp_path, monkeypatc
     assert result["exit_class"] != "bad_request", result
 
 
+def _edge_a() -> str:
+    return "cred-" + ("Q1w2E3r4" * 2)
+
+
+def _edge_b() -> str:
+    return "cred-" + ("Z9y8X7w6" * 2)
+
+
+def _quoted_edge_shapes() -> list[dict]:
+    a = _edge_a()
+    b = _edge_b()
+    return [
+        {"tag": "double-unterminated", "text": f'password="{a}', "secrets": [a]},
+        {"tag": "single-unterminated", "text": f"password='{a}", "secrets": [a]},
+        {"tag": "concat-double", "text": f'password={a}"{b}"', "secrets": [a, b]},
+        {"tag": "concat-mixed", "text": f"password=\"{a}\"'{b}'", "secrets": [a, b]},
+    ]
+
+
+def _inner_secret_shapes() -> list[dict]:
+    secret = _synthetic_secret()
+    return [
+        {
+            "tag": "inner-double",
+            "text": f'message="hello password={secret}"',
+            "secret": secret,
+        },
+        {
+            "tag": "inner-single",
+            "text": f"message='hello password={secret}'",
+            "secret": secret,
+        },
+    ]
+
+
+def test_quoted_edge_assignments_remove_every_secret_part():
+    from scripts.trinity_core import journal
+
+    for case in _quoted_edge_shapes():
+        out = journal.redact(case["text"])
+        assert journal.would_redact(case["text"]) is True, case["tag"]
+        for secret in case["secrets"]:
+            assert secret not in out, (case["tag"], secret, out)
+
+
+def test_quoted_edge_assignments_are_refused_and_journal_stays_empty(
+    tmp_path, monkeypatch
+):
+    for case in _quoted_edge_shapes():
+        for field in ("step", "label"):
+            _refused(
+                tmp_path, monkeypatch, case["text"], field, f"{case['tag']}-{field}"
+            )
+
+
+def test_secret_inside_a_quoted_ordinary_value_is_masked():
+    from scripts.trinity_core import journal
+
+    for case in _inner_secret_shapes():
+        out = journal.redact(case["text"])
+        assert journal.would_redact(case["text"]) is True, case["tag"]
+        assert case["secret"] not in out, (case["tag"], out)
+        assert "message" in out, (case["tag"], out)
+
+
+def test_secret_inside_a_quoted_ordinary_value_is_refused(tmp_path, monkeypatch):
+    for case in _inner_secret_shapes():
+        for field in ("step", "label"):
+            _refused(
+                tmp_path, monkeypatch, case["text"], field, f"{case['tag']}-{field}"
+            )
+
+
 def test_ordinary_step_and_label_are_not_refused(tmp_path, monkeypatch):
     import scripts.trinity_core as core
 
