@@ -31,6 +31,8 @@ jobs:
   # ~3 min on a duplicate run that's destined to exit cleanly at publish.
   # `workflow_dispatch` events skip this check (operator intent: run it).
   preflight:
+    # GitHub-only; forge skips.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,7 +58,7 @@ jobs:
   # mutate releases. Outputs feed the publish job.
   verify:
     needs: preflight
-    if: needs.preflight.outputs.skip != 'true'
+    if: github.server_url == 'https://github.com' && needs.preflight.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -189,7 +191,7 @@ jobs:
   # actions other than first-party `actions/checkout` and `actions/download-artifact`.
   publish:
     needs: [preflight, verify]
-    if: needs.preflight.outputs.skip != 'true'
+    if: github.server_url == 'https://github.com' && needs.preflight.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
