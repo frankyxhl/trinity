@@ -10,6 +10,7 @@ fields and validated labels (DSP-017, LED-008).
 from __future__ import annotations
 
 import os
+import math
 import re
 import uuid
 from pathlib import Path
@@ -31,6 +32,8 @@ _USAGE_FIELDS = frozenset(
     }
 )
 _DEFAULT_POLL_S = 15.0
+_MIN_STALL_LIMIT_S = 60.0
+_MAX_STALL_LIMIT_S = 1_000_000_000.0
 
 
 def _new_id(prefix: str) -> str:
@@ -119,10 +122,36 @@ def _sanitize_usage(usage) -> dict | None:
 
 def _time_limit(request: dict) -> float | None:
     limits = request.get("limits") or {}
+    if not isinstance(limits, dict):
+        return None
     time_s = limits.get("time_s")
     if isinstance(time_s, bool) or not isinstance(time_s, (int, float)):
         return None
-    return float(time_s) if time_s > 0 else None
+    try:
+        value = float(time_s)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def _stall_limit(request: dict, profile: dict) -> float | None:
+    limits = request.get("limits")
+    if limits is None:
+        limits = {}
+    if not isinstance(limits, dict):
+        return None
+    value = limits.get(
+        "stall_s", profile.get("stall_limit_s", claude_code.DEFAULT_STALL_LIMIT_S)
+    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value < _MIN_STALL_LIMIT_S or value > _MAX_STALL_LIMIT_S:
+        return None
+    try:
+        normalized = float(value)
+    except OverflowError:
+        return None
+    return normalized if math.isfinite(normalized) else None
 
 
 def _heartbeat_poll_s() -> float:
@@ -176,6 +205,11 @@ def call(request: dict) -> dict:
     if not getattr(adapter, "accepts_profile", lambda _profile: True)(profile):
         return _result(None, None, "bad_request", None)
 
+    stall_limit_s = _stall_limit(request, profile)
+    if stall_limit_s is None:
+        return _result(None, None, "bad_request", None)
+    time_limit_s = _time_limit(request)
+
     if is_root:
         run_id = _new_id("r-")
         parent = None
@@ -201,71 +235,127 @@ def call(request: dict) -> dict:
     node_id = _new_id("n-")
     session_mode = request.get("session") or "new"
     session_id = _new_session_id() if session_mode == "new" else session_mode
+    node_written = False
 
-    if is_root:
+    journal_complete = True
+    journal_error_logged = False
+
+    def note_journal_unavailable() -> None:
+        nonlocal journal_complete, journal_error_logged
+        journal_complete = False
+        if journal_error_logged:
+            return
+        journal_error_logged = True
+        try:
+            journal.append_error(
+                root,
+                {"error": "journal_unavailable", "run": run_id, "node": node_id},
+            )
+        except OSError:
+            pass
+
+    def unavailable_result() -> dict:
+        note_journal_unavailable()
+        result = _result(
+            run_id, node_id if node_written else None, "journal_unavailable", None
+        )
+        result["journal_complete"] = False
+        return result
+
+    def append_after_start(record: dict) -> None:
+        if not journal_complete:
+            return
+        try:
+            journal.append(root, record)
+        except TimeoutError:
+            note_journal_unavailable()
+
+    try:
+        if is_root:
+            journal.append(
+                root,
+                {
+                    "kind": "run",
+                    "run": run_id,
+                    "event": "start",
+                    "t": journal.utc_now(),
+                },
+            )
         journal.append(
             root,
-            {"kind": "run", "run": run_id, "event": "start", "t": journal.utc_now()},
+            {
+                "kind": "node",
+                "run": run_id,
+                "node": node_id,
+                "parent": parent,
+                "step": step,
+                "round": 1,
+                "label": step,
+                "depth": depth,
+                "harness": adapter.ADAPTER,
+                "profile": profile.get("name"),
+                "profile_reason": "named",
+                "model": profile.get("model"),
+                "stall_limit_s": stall_limit_s,
+                "session": {
+                    "id": session_id,
+                    "mode": session_mode,
+                    "source": "assigned",
+                },
+                "t": journal.utc_now(),
+            },
         )
-    journal.append(
-        root,
-        {
-            "kind": "node",
-            "run": run_id,
-            "node": node_id,
-            "parent": parent,
-            "step": step,
-            "round": 1,
-            "label": step,
-            "depth": depth,
-            "harness": adapter.ADAPTER,
-            "profile": profile.get("name"),
-            "profile_reason": "named",
-            "model": profile.get("model"),
-            "session": {"id": session_id, "mode": session_mode, "source": "assigned"},
-            "t": journal.utc_now(),
-        },
-    )
-    journal.append(
-        root,
-        {
-            "kind": "state",
-            "run": run_id,
-            "node": node_id,
-            "state": "queued",
-            "t": journal.utc_now(),
-        },
-    )
+        node_written = True
+        journal.append(
+            root,
+            {
+                "kind": "state",
+                "run": run_id,
+                "node": node_id,
+                "state": "queued",
+                "t": journal.utc_now(),
+            },
+        )
+    except TimeoutError:
+        return unavailable_result()
 
     check = quota.check(profile)
-    journal.append(
-        root,
-        {
-            "kind": "check",
-            "run": run_id,
-            "node": node_id,
-            "check": "quota",
-            **check,
-            "t": journal.utc_now(),
-        },
-    )
-    if check.get("result") != "ok":
-        return _finish(root, run_id, node_id, is_root, "check_failed", "none", 0)
-
-    journal.append(
-        root,
-        {
-            "kind": "state",
-            "run": run_id,
-            "node": node_id,
-            "state": "running",
-            "t": journal.utc_now(),
-        },
-    )
-
-    def record_heartbeat(source: str) -> None:
+    try:
         journal.append(
             root,
+            {
+                "kind": "check",
+                "run": run_id,
+                "node": node_id,
+                "check": "quota",
+                **check,
+                "t": journal.utc_now(),
+            },
+        )
+    except TimeoutError:
+        return unavailable_result()
+    if check.get("result") != "ok":
+        try:
+            return _finish(root, run_id, node_id, is_root, "check_failed", "none", 0)
+        except TimeoutError:
+            return unavailable_result()
+
+    try:
+        journal.append(
+            root,
+            {
+                "kind": "state",
+                "run": run_id,
+                "node": node_id,
+                "state": "running",
+                "t": journal.utc_now(),
+            },
+        )
+    except TimeoutError:
+        return unavailable_result()
+
+    def record_heartbeat(source: str) -> None:
+        append_after_start(
             {
                 "kind": "heartbeat",
                 "run": run_id,
@@ -287,13 +377,25 @@ def call(request: dict) -> dict:
         root=root,
         heartbeat=record_heartbeat,
         poll_s=_heartbeat_poll_s(),
-        time_s=_time_limit(request),
+        time_s=time_limit_s,
     )
 
     exit_class = outcome.get("exit_class", "unknown")
+    if exit_class == "timeout" and time_limit_s is not None:
+        append_after_start(
+            {
+                "kind": "check",
+                "run": run_id,
+                "node": node_id,
+                "check": "deadline",
+                "limit_s": time_limit_s,
+                "decision": "stop",
+                "reason": "time limit reached",
+                "t": journal.utc_now(),
+            },
+        )
     if exit_class == "harness_error" and not outcome.get("session_id"):
-        journal.append(
-            root,
+        append_after_start(
             {
                 "kind": "session",
                 "run": run_id,
@@ -304,8 +406,7 @@ def call(request: dict) -> dict:
             },
         )
     usage = _sanitize_usage(outcome.get("usage"))
-    journal.append(
-        root,
+    append_after_start(
         {
             "kind": "state",
             "run": run_id,
@@ -319,8 +420,8 @@ def call(request: dict) -> dict:
         },
     )
     if is_root:
-        journal.append(
-            root, {"kind": "run", "run": run_id, "event": "end", "t": journal.utc_now()}
+        append_after_start(
+            {"kind": "run", "run": run_id, "event": "end", "t": journal.utc_now()}
         )
 
     return {
@@ -333,7 +434,7 @@ def call(request: dict) -> dict:
         "transcript_ref": None,
         "usage": usage,
         "ended_at": journal.utc_now(),
-        "journal_complete": True,
+        "journal_complete": journal_complete,
     }
 
 

@@ -13,12 +13,14 @@ import json
 import math
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 JOURNAL_NAME = "journal.jsonl"
 ERROR_LOG_NAME = "error.log"
 VERSION = 1
+LOCK_WAIT_S = 5.0
 
 _SECRET_SEGMENTS = frozenset(
     {
@@ -182,11 +184,13 @@ def load_guard() -> dict | None:
 
 
 def append(root: str | os.PathLike, record: dict) -> None:
+    if record.get("kind") == "state" and record.get("state") == "stuck":
+        raise ValueError("stuck is a derived state and cannot be written")
     path = journal_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps({"v": VERSION, **record}, separators=(",", ":")) + "\n"
     with open(path, "a", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _lock(handle)
         try:
             handle.write(line)
             handle.flush()
@@ -216,9 +220,23 @@ def append_error(root: str | os.PathLike, fields: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(fields, separators=(",", ":")) + "\n"
     with open(path, "a", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _lock(handle)
         try:
             handle.write(line)
             handle.flush()
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _lock(handle) -> None:
+    """Acquire a journal lock without waiting beyond the fixed lock deadline."""
+    deadline = time.monotonic() + LOCK_WAIT_S
+    while True:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except (BlockingIOError, InterruptedError):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("journal lock deadline exceeded")
+            time.sleep(min(0.02, remaining))
