@@ -152,8 +152,10 @@ def run(
     result = _last_result(out)
     usage = result.get("usage") if result else None
     is_error = bool(result.get("is_error")) if result else True
-    if auth_hint is None and result is not None:
-        auth_hint = _claude_json_auth_hint(result)
+    if auth_hint is None:
+        final = _final_result(out)
+        if final is not None:
+            auth_hint = _claude_json_auth_hint(final)
 
     reported = result.get("session_id") if result else None
     if auth_hint is not None:
@@ -235,6 +237,20 @@ def _last_result(out: str) -> dict | None:
             continue
         if isinstance(parsed, dict) and parsed.get("type") == "result":
             return parsed
+    return None
+
+
+def _final_result(out: str) -> dict | None:
+    """The strict Claude JSON auth record: only the last non-empty stdout line."""
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    if not lines:
+        return None
+    try:
+        parsed = json.loads(lines[-1])
+    except ValueError:
+        return None
+    if isinstance(parsed, dict) and parsed.get("type") == "result":
+        return parsed
     return None
 
 
