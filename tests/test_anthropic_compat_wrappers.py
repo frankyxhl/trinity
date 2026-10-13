@@ -835,3 +835,92 @@ def test_wrappers_use_posix_sh_shebang():
         assert first_line == "#!/bin/sh", (
             f"{p}: expected POSIX sh shebang, got {first_line!r}"
         )
+
+
+# --- WO005R item 1 small: wrapper auth refusal and controls (S1-S3) ----------
+
+AUTH_MARKER = "trinity-claude-code: auth_error:"
+CLAUDE_LOGIN_RESULT = "Not logged in \u00b7 Please run /login"
+
+
+def _isolated_login_command(config_dir: Path) -> str:
+    return f"CLAUDE_CONFIG_DIR={shlex.quote(str(config_dir))} claude"
+
+
+def _assert_single_line_start_auth_marker(stderr: str) -> None:
+    lines = stderr.splitlines()
+    matching = [line for line in lines if line.startswith(AUTH_MARKER)]
+    assert lines, "expected an auth refusal diagnostic on stderr"
+    assert len(matching) == 1, (stderr,)
+    assert lines[0].startswith(AUTH_MARKER), stderr
+
+
+def test_wo005r_i1s_s1_missing_token_refusal_uses_marker_before_claude(stub_env):
+    """The wrapper's own login refusal emits the exact marker and runs no Claude."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    _assert_single_line_start_auth_marker(res.stderr)
+    assert "account a" in res.stderr, res.stderr
+    token_path = Path(env["HOME"]) / ".claude" / "fleet-token.a"
+    assert shlex.quote(str(token_path)) in res.stderr, res.stderr
+    assert "600" in res.stderr, res.stderr
+    config_dir = Path(env["HOME"]) / ".claude-trinity-claude-code"
+    assert _isolated_login_command(config_dir) in res.stderr, res.stderr
+    assert "/login" in res.stderr, res.stderr
+    assert not rec.exists(), "an auth refusal still executed Claude"
+
+
+def test_wo005r_i1s_s2_auth_hint_quotes_hard_token_path_and_mode(stub_env):
+    """Token refusal hints safely render hard paths and the exact mode fix."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    hard_home = Path(env["HOME"]) / "ho me's\\path"
+    hard_home.mkdir()
+    env["HOME"] = str(hard_home)
+    token_path = _write_token_file(hard_home, "a", FLEET_TOKEN_A, mode=0o644)
+
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    _assert_single_line_start_auth_marker(res.stderr)
+    assert "account a" in res.stderr, res.stderr
+    assert "0644" in res.stderr, res.stderr
+    assert "chmod 600" in res.stderr, res.stderr
+    assert shlex.quote(str(token_path)) in res.stderr, res.stderr
+    config_dir = hard_home / ".claude-trinity-claude-code"
+    assert _isolated_login_command(config_dir) in res.stderr, res.stderr
+    assert "/login" in res.stderr, res.stderr
+    _assert_token_absent(res, FLEET_TOKEN_A)
+    assert not rec.exists(), "an auth refusal still executed Claude"
+
+
+def test_wo005r_i1s_s2_missing_token_hint_names_isolated_login(stub_env):
+    """A missing-token hint safely names a hard isolated config and login."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_ACCOUNT": "a"})
+    hard_home = Path(env["HOME"]) / "ho me's\\path"
+    hard_home.mkdir()
+    env["HOME"] = str(hard_home)
+    token_path = hard_home / ".claude" / "fleet-token.a"
+    config_dir = hard_home / ".claude-trinity-claude-code"
+
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    assert AUTH_MARKER in res.stderr, res.stderr
+    assert "account a" in res.stderr, res.stderr
+    assert shlex.quote(str(token_path)) in res.stderr, res.stderr
+    assert _isolated_login_command(config_dir) in res.stderr, res.stderr
+    assert res.stderr.rstrip().endswith("/login"), res.stderr
+    assert not rec.exists()
+
+
+def test_wo005r_i1s_s3_invalid_effort_refusal_has_no_auth_marker(stub_env):
+    """Invalid effort is a non-auth wrapper validation, not an auth refusal."""
+    env, rec = stub_env({"TRINITY_CLAUDE_CODE_EFFORT": "ultra"})
+    res = _run(CLAUDE_CODE_BIN, ["-p", "hello"], env)
+
+    assert res.returncode == 1, (res.stdout, res.stderr)
+    assert "invalid effort" in res.stderr, res.stderr
+    assert AUTH_MARKER not in res.stderr, res.stderr
+    assert not rec.exists(), "invalid effort still executed Claude"

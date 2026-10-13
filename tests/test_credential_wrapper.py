@@ -16,6 +16,7 @@ import builtins
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -428,3 +429,446 @@ def test_install_manifest_lists_account_wrappers_with_mode_755():
         assert entry.get("dest") == (
             f".claude/skills/trinity/bin/{WRAPPER_NAME}-{account}"
         ), entry
+
+
+# --- WO005R item 1 small: exact auth sources and controls (S3-S8) ------------
+
+AUTH_MARKER = "trinity-claude-code: auth_error:"
+CLAUDE_LOGIN_RESULT = "Not logged in \u00b7 Please run /login"
+
+
+def _isolated_login_command(config_dir: Path) -> str:
+    return f"CLAUDE_CONFIG_DIR={shlex.quote(str(config_dir))} claude"
+
+
+def _result_harness(
+    result: str,
+    *,
+    is_error: bool = True,
+    code: int = 1,
+    usage: dict | None = None,
+    stderr: str = "",
+) -> str:
+    payload = {
+        "type": "result",
+        "is_error": is_error,
+        "session_id": "assigned-session-0001",
+        "result": result,
+    }
+    if usage is not None:
+        payload["usage"] = usage
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import json, sys
+        sys.stderr.write({stderr!r})
+        sys.stdout.write(json.dumps({payload!r}) + "\\n")
+        sys.exit({code})
+        """
+    )
+
+
+def _events_harness(events: list[dict], *, code: int = 1) -> str:
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import json, sys
+        for event in {events!r}:
+            sys.stdout.write(json.dumps(event) + "\\n")
+        sys.exit({code})
+        """
+    )
+
+
+def _plain_harness(*, stdout: str = "", stderr: str = "", code: int = 1) -> str:
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import sys
+        sys.stdout.write({stdout!r})
+        sys.stderr.write({stderr!r})
+        sys.exit({code})
+        """
+    )
+
+
+def _sleeping_harness(
+    text: str, *, stream: str = "stderr", seconds: float = 0.5
+) -> str:
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import sys, time
+        getattr(sys, {stream!r}).write({text!r})
+        sys.stdout.flush()
+        time.sleep({seconds!r})
+        """
+    )
+
+
+def test_wo005r_i1s_s4_line_start_marker_failure_is_auth_error(tmp_path, monkeypatch):
+    """A failed process whose stderr line starts with the wrapper marker is auth."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    message = f"{AUTH_MARKER} isolated Claude login is missing"
+    _executable(bin_dir / WRAPPER_NAME, _plain_harness(stderr=message + "\n"))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "auth_error", outcome
+    assert outcome.get("hint"), outcome
+    assert AUTH_MARKER in outcome["hint"], outcome
+
+
+@pytest.mark.parametrize(
+    ("stderr", "description"),
+    [
+        (
+            f"claude: {AUTH_MARKER} this marker is not at a line start\n",
+            "mid-line marker",
+        ),
+        (
+            "trinity-claude-code: invalid effort 'ultra' (expected low|medium|high).\\n",
+            "non-auth validation",
+        ),
+        (
+            "Not logged in to the staging application; run /login to continue\\n",
+            "unrelated service wording",
+        ),
+    ],
+    ids=["mid-line-marker", "non-auth-validation", "unrelated-wording"],
+)
+def test_wo005r_i1s_s4_non_marker_stderr_stays_unknown(
+    tmp_path, monkeypatch, stderr, description
+):
+    """Only a line-start marker changes class; arbitrary stderr stays unknown."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER_NAME, _plain_harness(stderr=stderr))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", (description, outcome)
+    assert not outcome.get("hint"), (description, outcome)
+
+
+def test_wo005r_i1s_s4_marker_on_success_and_usage_stays_ok(tmp_path, monkeypatch):
+    """A successful result is not reclassified by incidental marker stderr."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    harness = _result_harness(
+        "done",
+        is_error=False,
+        code=0,
+        usage={"input_tokens": 7, "output_tokens": 3},
+        stderr=AUTH_MARKER + "\n",
+    )
+    _executable(bin_dir / WRAPPER_NAME, harness)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "ok", outcome
+    assert outcome["session_id"] == "assigned-session-0001", outcome
+    assert outcome["usage"] == {"input_tokens": 7, "output_tokens": 3}, outcome
+    assert not outcome.get("hint"), outcome
+
+
+def _result_object_harness(fields: dict, *, code: int = 1) -> str:
+    payload = dict(fields)
+    payload["result"] = CLAUDE_LOGIN_RESULT
+    return textwrap.dedent(
+        f"""\
+        #!{sys.executable}
+        import json, sys
+        sys.stdout.write(json.dumps({payload!r}) + "\\n")
+        sys.exit({code})
+        """
+    )
+
+
+def test_wo005r_i1s_s5_exact_final_login_result_is_auth_error(tmp_path, monkeypatch):
+    """The exact final result object is the only Claude JSON auth source."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER_NAME, _result_harness(CLAUDE_LOGIN_RESULT, code=1))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "auth_error", outcome
+    assert outcome.get("hint"), outcome
+    assert "Claude result" in outcome["hint"], outcome
+    config_dir = home / ".claude-trinity-claude-code"
+    assert _isolated_login_command(config_dir) in outcome["hint"], outcome["hint"]
+    assert outcome["hint"].rstrip().endswith("/login"), outcome["hint"]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"type": "result", "is_error": False},
+        {"type": "result"},
+        {"type": "result", "is_error": "true"},
+        {"type": "system", "is_error": True},
+        {"is_error": True},
+    ],
+    ids=[
+        "is-error-false",
+        "is-error-absent",
+        "is-error-non-boolean",
+        "type-system",
+        "type-absent",
+    ],
+)
+def test_wo005r_i1s_s5_exact_login_with_wrong_metadata_stays_unknown(
+    tmp_path, monkeypatch, fields
+):
+    """Exact text alone is insufficient; each metadata field is mandatory."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER_NAME, _result_object_harness(fields))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", (fields, outcome)
+    assert not outcome.get("hint"), (fields, outcome)
+
+
+@pytest.mark.parametrize(
+    ("events", "description"),
+    [
+        (
+            [
+                {
+                    "type": "result",
+                    "is_error": True,
+                    "result": f"prefix {CLAUDE_LOGIN_RESULT} suffix",
+                }
+            ],
+            "substring",
+        ),
+        (
+            [
+                {
+                    "type": "result",
+                    "is_error": True,
+                    "result": CLAUDE_LOGIN_RESULT.lower(),
+                }
+            ],
+            "case-insensitive",
+        ),
+        (
+            [
+                {
+                    "type": "result",
+                    "is_error": True,
+                    "result": {"message": CLAUDE_LOGIN_RESULT},
+                }
+            ],
+            "nested field",
+        ),
+        (
+            [
+                {
+                    "type": "result",
+                    "is_error": True,
+                    "result": CLAUDE_LOGIN_RESULT,
+                },
+                {
+                    "type": "result",
+                    "is_error": True,
+                    "result": "some other failure",
+                },
+            ],
+            "not final",
+        ),
+    ],
+    ids=["substring", "case-insensitive", "nested-field", "not-final"],
+)
+def test_wo005r_i1s_s5_similar_result_objects_stay_unknown(
+    tmp_path, monkeypatch, events, description
+):
+    """Substring, case, nesting, and non-final event matching are refused."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER_NAME, _events_harness(events))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", (description, outcome)
+    assert not outcome.get("hint"), (description, outcome)
+
+
+def test_wo005r_i1s_s5_malformed_final_login_json_stays_unknown(tmp_path, monkeypatch):
+    """Malformed output is not repaired into a Claude JSON auth result."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    malformed = '{"type": "result", "is_error": true, "result": unfinished'
+    _executable(bin_dir / WRAPPER_NAME, _plain_harness(stdout=malformed + "\\n"))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", outcome
+    assert not outcome.get("hint"), outcome
+
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr"),
+    [
+        (CLAUDE_LOGIN_RESULT + "\n", ""),
+        ("", CLAUDE_LOGIN_RESULT + "\n"),
+        ("Not logged in\n", ""),
+        ("Not logged in\nPlease run /login\n", ""),
+        (
+            "Not logged in to the staging application; run /login to continue\n",
+            "",
+        ),
+    ],
+    ids=[
+        "plain-stdout-exact",
+        "plain-stderr-exact",
+        "bare-not-logged-in",
+        "multiline-recovery",
+        "staging-service",
+    ],
+)
+def test_wo005r_i1s_s6_plain_login_text_stays_unknown(
+    tmp_path, monkeypatch, stdout, stderr
+):
+    """Plain process text never becomes auth_error, even when it is exact."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER_NAME, _plain_harness(stdout=stdout, stderr=stderr))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", outcome
+    assert not outcome.get("hint"), outcome
+
+
+def test_wo005r_i1s_s7_json_hint_quotes_hard_isolated_path(tmp_path, monkeypatch):
+    """The JSON auth hint survives spaces, apostrophes, and backslashes safely."""
+    home = tmp_path / "ho me's\\path"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(bin_dir / WRAPPER_NAME, _result_harness(CLAUDE_LOGIN_RESULT, code=1))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "auth_error", outcome
+    config_dir = home / ".claude-trinity-claude-code"
+    assert "Claude result" in outcome["hint"], outcome["hint"]
+    assert _isolated_login_command(config_dir) in outcome["hint"], outcome["hint"]
+    assert outcome["hint"].rstrip().endswith("/login"), outcome["hint"]
+
+
+def test_wo005r_i1s_s8_timeout_with_login_text_remains_timeout(tmp_path, monkeypatch):
+    """Timeout classification wins over plain login-looking process output."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(
+        bin_dir / WRAPPER_NAME,
+        _sleeping_harness(CLAUDE_LOGIN_RESULT + "\n", stream="stdout"),
+    )
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path,
+        {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}},
+        time_s=0.05,
+    )
+    assert outcome["exit_class"] == "timeout", outcome
+    assert outcome["session_id"] == "assigned-session-0001", outcome
+    assert not outcome.get("hint"), outcome
+
+
+def test_wo005r_i1s_s8_non_auth_wrapper_refusal_stays_unknown(tmp_path, monkeypatch):
+    """A failed non-auth wrapper validation remains ordinary unknown failure."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stderr = (
+        "trinity-claude-code: invalid effort 'ultra' "
+        "(expected low|medium|high|xhigh|max).\n"
+    )
+    _executable(bin_dir / WRAPPER_NAME, _plain_harness(stderr=stderr))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", outcome
+    assert not outcome.get("hint"), outcome
+
+
+# --- WO005R item 1 small R1 amend: only the final result is authoritative ----
+
+
+def test_wo005r_i1s_r1_exact_auth_then_malformed_final_stays_unknown(
+    tmp_path, monkeypatch
+):
+    """A malformed final result prevents matching an earlier exact auth result."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    earlier_auth = {
+        "type": "result",
+        "is_error": True,
+        "session_id": "assigned-session-0001",
+        "result": CLAUDE_LOGIN_RESULT,
+    }
+    malformed = '{"type": "result", "is_error": true, "result": unfinished'
+    stdout = json.dumps(earlier_auth) + "\n" + malformed + "\n"
+    _executable(bin_dir / WRAPPER_NAME, _plain_harness(stdout=stdout))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", outcome
+    assert not outcome.get("hint"), outcome
+
+
+def test_wo005r_i1s_r1_exact_auth_then_system_final_stays_unknown(
+    tmp_path, monkeypatch
+):
+    """A non-result final event prevents matching an earlier exact auth result."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    events = [
+        {
+            "type": "result",
+            "is_error": True,
+            "session_id": "assigned-session-0001",
+            "result": CLAUDE_LOGIN_RESULT,
+        },
+        {"type": "system", "subtype": "notice", "message": "ignored"},
+    ]
+    _executable(bin_dir / WRAPPER_NAME, _events_harness(events))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", outcome
+    assert not outcome.get("hint"), outcome
