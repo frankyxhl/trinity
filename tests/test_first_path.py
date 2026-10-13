@@ -198,8 +198,8 @@ def _build_and_run(mode: str) -> SimpleNamespace:
             SLEEP_S = {POLL_SLEEP_S!r}
 
             argv = sys.argv[1:]
-            if "--output-format" not in argv or "json" not in argv:
-                sys.stderr.write("harness requires --output-format json\\n")
+            if "--output-format" not in argv or argv[argv.index("--output-format") + 1] not in {"json", "stream-json"}:
+                sys.stderr.write("harness requires --output-format stream-json\\n")
                 sys.exit(2)
 
             guard = {{}}
@@ -243,6 +243,11 @@ def _build_and_run(mode: str) -> SimpleNamespace:
             (TRANSCRIPTS / (session_id + ".jsonl")).write_text(
                 "\\n".join(json.dumps(e) for e in events) + "\\n"
             )
+
+            print(json.dumps({{
+                "type": "stream_event",
+                "event": {{"type": "content_block_delta"}},
+            }}), flush=True)
 
             if depth == 0:
                 subprocess.run(
@@ -487,25 +492,16 @@ def test_quota_check_record_before_each_node():
 # --- Then: at least one heartbeat row per node longer than one poll ----------
 
 
-def test_heartbeat_rows_per_case_rule():
+def test_heartbeat_rows_come_only_from_stdout_evidence():
     fm = _run_path()
     _ready(fm)
+    root_node = _node_by_step(fm, "root")
+    root_rows = _heartbeats(fm, root_node["node"])
+    assert root_rows, "the root emitted stdout growth but no heartbeat row"
     for node in _nodes(fm):
-        states = _states(fm, node["node"])
-        wall = next(
-            (s.get("wall_s") for s in states if s.get("wall_s") is not None), None
-        )
-        assert wall is not None, f"node {node['step']!r} has no wall_s"
-        interval = HEARTBEAT_POLL_S if node["step"] == "root" else DEFAULT_POLL_S
-        rows = _heartbeats(fm, node["node"])
-        if wall > interval:
-            assert len(rows) >= 1, (
-                f"node {node['step']!r} ran {wall}s past a {interval}s poll "
-                "with no heartbeat row"
-            )
-        for row in rows:
+        for row in _heartbeats(fm, node["node"]):
             assert row.get("t"), row
-            assert row.get("source") == "process_alive", row
+            assert row.get("source") == "stdout", row
 
 
 # --- Then: state lines queued -> running -> done -----------------------------
@@ -678,17 +674,19 @@ def test_harness_environment_is_allow_listed():
         ), capture
 
 
-def test_harness_is_run_with_json_output():
+def test_harness_is_run_with_stream_json_output():
     fm = _run_path()
     _ready(fm)
     assert fm.refuse_rc != 0, (
-        "the double must refuse to run without --output-format json"
+        "the double must refuse to run without --output-format stream-json"
     )
     assert fm.captures, "the harness was never invoked"
     for capture in fm.captures:
         argv = capture["argv"]
         assert "--output-format" in argv, argv
-        assert argv[argv.index("--output-format") + 1] == "json", argv
+        assert argv[argv.index("--output-format") + 1] == "stream-json", argv
+        assert "--verbose" in argv, argv
+        assert "--include-partial-messages" in argv, argv
 
 
 # --- Then: session id is compared with the assigned id (DSP-020) -------------
