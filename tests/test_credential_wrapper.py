@@ -820,3 +820,55 @@ def test_wo005r_i1s_s8_non_auth_wrapper_refusal_stays_unknown(tmp_path, monkeypa
     )
     assert outcome["exit_class"] == "unknown", outcome
     assert not outcome.get("hint"), outcome
+
+
+# --- WO005R item 1 small R1 amend: only the final result is authoritative ----
+
+
+def test_wo005r_i1s_r1_exact_auth_then_malformed_final_stays_unknown(
+    tmp_path, monkeypatch
+):
+    """A malformed final result prevents matching an earlier exact auth result."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    earlier_auth = {
+        "type": "result",
+        "is_error": True,
+        "session_id": "assigned-session-0001",
+        "result": CLAUDE_LOGIN_RESULT,
+    }
+    malformed = '{"type": "result", "is_error": true, "result": unfinished'
+    stdout = json.dumps(earlier_auth) + "\n" + malformed + "\n"
+    _executable(bin_dir / WRAPPER_NAME, _plain_harness(stdout=stdout))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", outcome
+    assert not outcome.get("hint"), outcome
+
+
+def test_wo005r_i1s_r1_exact_auth_then_system_final_stays_unknown(
+    tmp_path, monkeypatch
+):
+    """A non-result final event prevents matching an earlier exact auth result."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    events = [
+        {
+            "type": "result",
+            "is_error": True,
+            "session_id": "assigned-session-0001",
+            "result": CLAUDE_LOGIN_RESULT,
+        },
+        {"type": "system", "subtype": "notice", "message": "ignored"},
+    ]
+    _executable(bin_dir / WRAPPER_NAME, _events_harness(events))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]))
+
+    outcome = _run_adapter(
+        tmp_path, {"model": MODEL, "credential_source": {"wrapper": WRAPPER_NAME}}
+    )
+    assert outcome["exit_class"] == "unknown", outcome
+    assert not outcome.get("hint"), outcome
