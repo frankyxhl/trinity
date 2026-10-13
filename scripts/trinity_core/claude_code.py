@@ -22,6 +22,7 @@ import selectors
 import shutil
 import signal
 import subprocess
+import sys
 import time
 
 from . import journal
@@ -198,24 +199,31 @@ def run(
         _kill_group(proc.pid)
     except BaseException:
         _kill_group(proc.pid)
-        drain_for(_DRAIN_GRACE_S)
-        try:
-            proc.wait(timeout=_DRAIN_GRACE_S)
-        except subprocess.TimeoutExpired:
-            pass
         raise
     finally:
-        if timed_out or interrupted:
-            drain_for(_DRAIN_GRACE_S)
+        cleanup_failure = sys.exc_info()
+
+        def attempt_cleanup(action, *, timeout_ok=False):
+            nonlocal cleanup_failure
             try:
-                proc.wait(timeout=_DRAIN_GRACE_S)
+                action()
             except subprocess.TimeoutExpired:
-                pass
+                if not timeout_ok and cleanup_failure[0] is None:
+                    cleanup_failure = sys.exc_info()
+            except BaseException:
+                if cleanup_failure[0] is None:
+                    cleanup_failure = sys.exc_info()
+
+        if timed_out or interrupted or cleanup_failure[0] is not None:
+            attempt_cleanup(lambda: drain_for(_DRAIN_GRACE_S))
+            attempt_cleanup(lambda: proc.wait(timeout=_DRAIN_GRACE_S), timeout_ok=True)
         if selector is not None:
-            selector.close()
-        os.close(stdout_read)
+            attempt_cleanup(selector.close)
+        attempt_cleanup(lambda: os.close(stdout_read))
         if proc.stderr is not None:
-            proc.stderr.close()
+            attempt_cleanup(proc.stderr.close)
+        if cleanup_failure[0] is not None:
+            raise cleanup_failure[1].with_traceback(cleanup_failure[2])
     wall_s = int(time.monotonic() - started)
     out = output.decode("utf-8", errors="replace")
     stderr_text = errors.decode("utf-8", errors="replace")

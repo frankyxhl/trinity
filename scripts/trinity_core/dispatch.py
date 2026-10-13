@@ -235,72 +235,127 @@ def call(request: dict) -> dict:
     node_id = _new_id("n-")
     session_mode = request.get("session") or "new"
     session_id = _new_session_id() if session_mode == "new" else session_mode
+    node_written = False
 
-    if is_root:
+    journal_complete = True
+    journal_error_logged = False
+
+    def note_journal_unavailable() -> None:
+        nonlocal journal_complete, journal_error_logged
+        journal_complete = False
+        if journal_error_logged:
+            return
+        journal_error_logged = True
+        try:
+            journal.append_error(
+                root,
+                {"error": "journal_unavailable", "run": run_id, "node": node_id},
+            )
+        except OSError:
+            pass
+
+    def unavailable_result() -> dict:
+        note_journal_unavailable()
+        result = _result(
+            run_id, node_id if node_written else None, "journal_unavailable", None
+        )
+        result["journal_complete"] = False
+        return result
+
+    def append_after_start(record: dict) -> None:
+        if not journal_complete:
+            return
+        try:
+            journal.append(root, record)
+        except TimeoutError:
+            note_journal_unavailable()
+
+    try:
+        if is_root:
+            journal.append(
+                root,
+                {
+                    "kind": "run",
+                    "run": run_id,
+                    "event": "start",
+                    "t": journal.utc_now(),
+                },
+            )
         journal.append(
             root,
-            {"kind": "run", "run": run_id, "event": "start", "t": journal.utc_now()},
+            {
+                "kind": "node",
+                "run": run_id,
+                "node": node_id,
+                "parent": parent,
+                "step": step,
+                "round": 1,
+                "label": step,
+                "depth": depth,
+                "harness": adapter.ADAPTER,
+                "profile": profile.get("name"),
+                "profile_reason": "named",
+                "model": profile.get("model"),
+                "stall_limit_s": stall_limit_s,
+                "session": {
+                    "id": session_id,
+                    "mode": session_mode,
+                    "source": "assigned",
+                },
+                "t": journal.utc_now(),
+            },
         )
-    journal.append(
-        root,
-        {
-            "kind": "node",
-            "run": run_id,
-            "node": node_id,
-            "parent": parent,
-            "step": step,
-            "round": 1,
-            "label": step,
-            "depth": depth,
-            "harness": adapter.ADAPTER,
-            "profile": profile.get("name"),
-            "profile_reason": "named",
-            "model": profile.get("model"),
-            "stall_limit_s": stall_limit_s,
-            "session": {"id": session_id, "mode": session_mode, "source": "assigned"},
-            "t": journal.utc_now(),
-        },
-    )
-    journal.append(
-        root,
-        {
-            "kind": "state",
-            "run": run_id,
-            "node": node_id,
-            "state": "queued",
-            "t": journal.utc_now(),
-        },
-    )
+        node_written = True
+        journal.append(
+            root,
+            {
+                "kind": "state",
+                "run": run_id,
+                "node": node_id,
+                "state": "queued",
+                "t": journal.utc_now(),
+            },
+        )
+    except TimeoutError:
+        return unavailable_result()
 
     check = quota.check(profile)
-    journal.append(
-        root,
-        {
-            "kind": "check",
-            "run": run_id,
-            "node": node_id,
-            "check": "quota",
-            **check,
-            "t": journal.utc_now(),
-        },
-    )
-    if check.get("result") != "ok":
-        return _finish(root, run_id, node_id, is_root, "check_failed", "none", 0)
-
-    journal.append(
-        root,
-        {
-            "kind": "state",
-            "run": run_id,
-            "node": node_id,
-            "state": "running",
-            "t": journal.utc_now(),
-        },
-    )
-
-    def record_heartbeat(source: str) -> None:
+    try:
         journal.append(
             root,
+            {
+                "kind": "check",
+                "run": run_id,
+                "node": node_id,
+                "check": "quota",
+                **check,
+                "t": journal.utc_now(),
+            },
+        )
+    except TimeoutError:
+        return unavailable_result()
+    if check.get("result") != "ok":
+        try:
+            return _finish(root, run_id, node_id, is_root, "check_failed", "none", 0)
+        except TimeoutError:
+            return unavailable_result()
+
+    try:
+        journal.append(
+            root,
+            {
+                "kind": "state",
+                "run": run_id,
+                "node": node_id,
+                "state": "running",
+                "t": journal.utc_now(),
+            },
+        )
+    except TimeoutError:
+        return unavailable_result()
+
+    def record_heartbeat(source: str) -> None:
+        append_after_start(
             {
                 "kind": "heartbeat",
                 "run": run_id,
@@ -327,8 +382,7 @@ def call(request: dict) -> dict:
 
     exit_class = outcome.get("exit_class", "unknown")
     if exit_class == "timeout" and time_limit_s is not None:
-        journal.append(
-            root,
+        append_after_start(
             {
                 "kind": "check",
                 "run": run_id,
@@ -341,8 +395,7 @@ def call(request: dict) -> dict:
             },
         )
     if exit_class == "harness_error" and not outcome.get("session_id"):
-        journal.append(
-            root,
+        append_after_start(
             {
                 "kind": "session",
                 "run": run_id,
@@ -353,8 +406,7 @@ def call(request: dict) -> dict:
             },
         )
     usage = _sanitize_usage(outcome.get("usage"))
-    journal.append(
-        root,
+    append_after_start(
         {
             "kind": "state",
             "run": run_id,
@@ -368,8 +420,8 @@ def call(request: dict) -> dict:
         },
     )
     if is_root:
-        journal.append(
-            root, {"kind": "run", "run": run_id, "event": "end", "t": journal.utc_now()}
+        append_after_start(
+            {"kind": "run", "run": run_id, "event": "end", "t": journal.utc_now()}
         )
 
     return {
@@ -382,7 +434,7 @@ def call(request: dict) -> dict:
         "transcript_ref": None,
         "usage": usage,
         "ended_at": journal.utc_now(),
-        "journal_complete": True,
+        "journal_complete": journal_complete,
     }
 
 
