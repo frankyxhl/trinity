@@ -821,7 +821,7 @@ def _write_mid_call_harness(root: Path) -> Path:
         "    'type': 'result',\n"
         "    'subtype': 'success',\n"
         "    'is_error': False,\n"
-        "    'session_id': 'wo006-session',\n"
+        "    'session_id': sys.argv[sys.argv.index('--session-id') + 1],\n"
         "    'usage': {'input_tokens': 4, 'output_tokens': 1},\n"
         "}), flush=True)\n"
     )
