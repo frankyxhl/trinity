@@ -790,3 +790,284 @@ def test_wo006_a7_ok_and_auth_use_the_existing_final_result_parser(
     assert outcome["exit_class"] == "unknown", outcome
     assert outcome["usage"] is None, outcome
     assert outcome["session_id"] == "wo006-session", outcome
+
+
+def _write_sleep_harness(root: Path) -> Path:
+    harness = root / "wo006-wrapper"
+    harness.write_text("#!" + sys.executable + "\nimport time\ntime.sleep(1)\n")
+    harness.chmod(0o755)
+    return harness
+
+
+def _write_mid_call_harness(root: Path) -> Path:
+    harness = root / "wo006-wrapper"
+    harness.write_text(
+        "#!" + sys.executable + "\n"
+        "import json, sys, time\n"
+        "from pathlib import Path\n"
+        "root = Path(sys.argv[0]).resolve().parent\n"
+        "started = root / 'harness-started'\n"
+        "locked = root / 'holder-ready'\n"
+        "complete = root / 'harness-complete'\n"
+        "started.write_text('ready')\n"
+        "deadline = time.monotonic() + 2\n"
+        "while not locked.exists() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.005)\n"
+        "assert locked.exists(), 'journal holder never became ready'\n"
+        "print(json.dumps({'type': 'stream_event'}), flush=True)\n"
+        "time.sleep(0.35)\n"
+        "complete.write_text('complete')\n"
+        "print(json.dumps({\n"
+        "    'type': 'result',\n"
+        "    'subtype': 'success',\n"
+        "    'is_error': False,\n"
+        "    'session_id': 'wo006-session',\n"
+        "    'usage': {'input_tokens': 4, 'output_tokens': 1},\n"
+        "}), flush=True)\n"
+    )
+    harness.chmod(0o755)
+    return harness
+
+
+def _start_lock_holder(
+    journal_file: Path, ready: Path, *, wait_for: Path | None = None
+) -> subprocess.Popen:
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl, os, sys, time\n"
+            "from pathlib import Path\n"
+            "journal_file, ready = map(Path, sys.argv[1:3])\n"
+            "wait_for = Path(sys.argv[3]) if len(sys.argv) > 3 else None\n"
+            "if wait_for is not None:\n"
+            "    deadline = time.monotonic() + 3\n"
+            "    while not wait_for.exists() and time.monotonic() < deadline:\n"
+            "        time.sleep(0.005)\n"
+            "    assert wait_for.exists(), 'holder trigger never appeared'\n"
+            "with open(journal_file, 'a', encoding='utf-8') as handle:\n"
+            "    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)\n"
+            "    ready.write_text(str(os.getpid()))\n"
+            "    time.sleep(3)\n",
+            str(journal_file),
+            str(ready),
+            *([str(wait_for)] if wait_for is not None else []),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return holder
+
+
+_R2_MID_CALL_WORKER = r"""
+import json
+import os
+import sys
+from pathlib import Path
+
+from scripts.trinity_core import dispatch, journal, profiles, quota
+
+root = Path(sys.argv[1])
+journal.LOCK_WAIT_S = 0.2
+profiles.load = lambda _path: {
+    "wo006-profile": {
+        "name": "wo006-profile",
+        "adapter": "claude-code",
+        "model": "wo006-model",
+        "credential_source": {"wrapper": "wo006-wrapper"},
+    }
+}
+quota.check = lambda _profile: {"result": "ok"}
+os.environ["TRINITY_ROOT"] = str(root)
+os.environ["PATH"] = str(root)
+os.environ["TRINITY_HEARTBEAT_POLL_S"] = "0.01"
+os.environ.pop("TRINITY_GUARD", None)
+result = dispatch.call(
+    {
+        "profiles_path": "wo006-profiles.json",
+        "profile": "wo006-profile",
+        "step": "wo006",
+        "prompt": "wo006 synthetic prompt",
+        "cwd": str(root),
+        "limits": {"time_s": 3},
+    }
+)
+print(json.dumps(result))
+"""
+
+
+def test_wo006_r1_post_deadline_drain_fault_closes_and_reaps(monkeypatch, tmp_path):
+    harness = _write_sleep_harness(tmp_path)
+    real_pipe = os.pipe
+    real_popen = subprocess.Popen
+    real_selector = claude_code.selectors.DefaultSelector
+    real_kill_group = claude_code._kill_group
+    allocated = []
+    selector_objects = []
+    children = []
+    fault_armed = False
+
+    def tracked_pipe():
+        pair = real_pipe()
+        allocated.extend(pair)
+        return pair
+
+    def tracked_popen(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        children.append(proc)
+        return proc
+
+    def kill_group_then_arm_fault(*args, **kwargs):
+        nonlocal fault_armed
+        result = real_kill_group(*args, **kwargs)
+        fault_armed = True
+        return result
+
+    class FaultAfterDeadlineSelector:
+        def __init__(self):
+            self.selector = real_selector()
+
+        def register(self, *args, **kwargs):
+            return self.selector.register(*args, **kwargs)
+
+        def unregister(self, *args, **kwargs):
+            return self.selector.unregister(*args, **kwargs)
+
+        def get_map(self):
+            return self.selector.get_map()
+
+        def select(self, timeout=None):
+            if fault_armed:
+                raise OSError("synthetic post-deadline drain fault")
+            return self.selector.select(timeout)
+
+        def close(self):
+            self.selector.close()
+
+    def faulting_selector():
+        selector = FaultAfterDeadlineSelector()
+        selector_objects.append(selector)
+        return selector
+
+    monkeypatch.setattr(claude_code.shutil, "which", lambda _name: str(harness))
+    monkeypatch.setattr(claude_code.os, "pipe", tracked_pipe)
+    monkeypatch.setattr(claude_code.subprocess, "Popen", tracked_popen)
+    monkeypatch.setattr(claude_code, "_kill_group", kill_group_then_arm_fault)
+    monkeypatch.setattr(claude_code.selectors, "DefaultSelector", faulting_selector)
+    try:
+        try:
+            _adapter_run(tmp_path, time_s=0.05)
+        except OSError:
+            pass
+        stdout_read = allocated[0]
+        leaked_stdout = False
+        try:
+            os.fstat(stdout_read)
+            leaked_stdout = True
+        except OSError:
+            pass
+        assert not leaked_stdout, "post-deadline drain fault leaked the stdout read fd"
+        assert children and children[0].stderr is not None, (
+            "adapter did not create a tracked stderr pipe"
+        )
+        assert children[0].stderr.closed, "post-deadline drain fault leaked stderr"
+        assert children[0].returncode is not None, (
+            "post-deadline drain fault left child unreaped"
+        )
+    finally:
+        for selector in selector_objects:
+            selector.close()
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=2)
+            if child.stderr is not None and not child.stderr.closed:
+                try:
+                    child.stderr.close()
+                except OSError:
+                    pass
+        for descriptor in allocated:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def test_wo006_r2_lock_deadline_before_start_returns_journal_unavailable(
+    monkeypatch, tmp_path
+):
+    journal_file = journal.journal_path(tmp_path)
+    journal_file.parent.mkdir(parents=True, exist_ok=True)
+    journal_file.touch()
+    ready = tmp_path / "holder-ready"
+    holder = _start_lock_holder(journal_file, ready)
+    calls = []
+    try:
+        deadline = claude_code.time.monotonic() + 2
+        while not ready.exists() and claude_code.time.monotonic() < deadline:
+            assert holder.poll() is None, "journal holder exited before locking"
+            claude_code.time.sleep(0.005)
+        assert ready.exists(), "journal holder never locked"
+        assert holder.poll() is None, "journal holder exited before locking"
+        monkeypatch.setattr(journal, "LOCK_WAIT_S", 0.2)
+        error = None
+        try:
+            result = _dispatch(
+                monkeypatch,
+                tmp_path,
+                {"wo006-profile": _profile()},
+                lambda *args, **kwargs: calls.append(args) or _ok(*args, **kwargs),
+            )
+        except TimeoutError as exc:
+            error = exc
+        assert error is None, f"journal lock deadline escaped dispatch: {error}"
+        assert result["exit_class"] == "journal_unavailable", result
+        assert not [row for row in journal.read(tmp_path) if row["kind"] == "node"]
+        assert calls == [], calls
+    finally:
+        holder.kill()
+        holder.wait(timeout=2)
+
+
+def test_wo006_r2_mid_call_lock_deadline_preserves_harness_outcome(tmp_path):
+    root = tmp_path
+    journal_file = journal.journal_path(root)
+    journal_file.parent.mkdir(parents=True, exist_ok=True)
+    journal_file.touch()
+    _write_mid_call_harness(root)
+    holder_ready = root / "holder-ready"
+    holder = _start_lock_holder(
+        journal_file,
+        holder_ready,
+        wait_for=root / "harness-started",
+    )
+    try:
+        timed_out = False
+        try:
+            worker = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _R2_MID_CALL_WORKER,
+                    str(root),
+                ],
+                cwd=str(Path(__file__).resolve().parent.parent),
+                capture_output=True,
+                text=True,
+                timeout=4,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        assert not timed_out, "journal lock deadline hung the dispatch call"
+        assert worker.returncode == 0, worker.stderr
+        result = json.loads(worker.stdout)
+        assert result["exit_class"] == "ok", result
+        assert result["journal_complete"] is False, result
+        assert (root / "harness-complete").exists(), (
+            "journal deadline killed the harness"
+        )
+    finally:
+        holder.kill()
+        holder.wait(timeout=2)
