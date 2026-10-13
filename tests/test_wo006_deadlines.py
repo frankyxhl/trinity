@@ -478,12 +478,14 @@ _HEARTBEAT_WORKER = r'''
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from scripts.trinity_core import claude_code, journal
 
 root = Path(sys.argv[1])
 mode = sys.argv[2]
 harness = root / "wo006-wrapper"
+result_at = root / "result-at"
 if mode == "growth":
     harness.write_text("#!" + sys.executable + "\n" + """
 import json, sys, time
@@ -502,7 +504,10 @@ print(json.dumps(final), flush=True)
 else:
     harness.write_text("#!" + sys.executable + "\n" + """
 import json, sys, time
-time.sleep(0.12)
+from pathlib import Path
+marker = Path(%r)
+time.sleep(0.3)
+marker.write_text(repr(time.time()))
 print(json.dumps({
     "type": "result",
     "subtype": "success",
@@ -510,7 +515,7 @@ print(json.dumps({
     "session_id": "wo006-session",
     "usage": {"input_tokens": 4, "output_tokens": 1},
 }), flush=True)
-""")
+""" % (str(result_at),))
 harness.chmod(0o755)
 os.environ["PATH"] = str(root)
 
@@ -520,6 +525,7 @@ def heartbeat(source):
         "run": "r-wo006",
         "node": "n-wo006",
         "source": source,
+        "at": time.time(),
         "t": journal.utc_now(),
     })
 
@@ -574,7 +580,12 @@ def test_wo006_a2_silent_stdout_writes_no_heartbeat(tmp_path):
     assert worker.returncode == 0, worker.stderr
     assert json.loads(worker.stdout)["outcome"]["exit_class"] == "ok", worker.stdout
     rows = [row for row in journal.read(tmp_path) if row.get("kind") == "heartbeat"]
-    assert rows == [], rows
+    marker = tmp_path / "result-at"
+    assert marker.exists(), "silent worker never reached its result line"
+    result_at = float(marker.read_text())
+    assert len(rows) <= 1, rows
+    assert all(row.get("source") == "stdout" for row in rows), rows
+    assert all(row["at"] >= result_at for row in rows), rows
 
 
 # Acceptance 3: crashes are derived; a dead lock holder cannot wedge a writer.
