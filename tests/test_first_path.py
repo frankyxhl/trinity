@@ -921,6 +921,9 @@ def test_harness_timeout_kills_only_its_process_group(tmp_path, monkeypatch):
 
 
 def test_harness_interrupt_kills_only_its_process_group(tmp_path, monkeypatch):
+    import signal
+    import threading
+
     import scripts.trinity_core.claude_code as claude_code
 
     bin_dir = tmp_path / "bin"
@@ -931,34 +934,36 @@ def test_harness_interrupt_kills_only_its_process_group(tmp_path, monkeypatch):
         "PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
     )
 
-    real_communicate = subprocess.Popen.communicate
-    state = {"raised": False}
+    state = {"sent": False}
 
-    def interrupting(self, *args, **kwargs):
-        if not state["raised"] and kwargs.get("timeout") is None:
-            state["raised"] = True
-            import time as _time
+    def send_interrupt():
+        state["sent"] = True
+        os.kill(os.getpid(), signal.SIGINT)
 
-            _time.sleep(0.5)
-            raise KeyboardInterrupt
-        return real_communicate(self, *args, **kwargs)
-
-    monkeypatch.setattr(subprocess.Popen, "communicate", interrupting)
-    outcome = claude_code.run(
-        {"model": MODEL, "credential_source": {"wrapper": "claude"}},
-        prompt="x",
-        cwd=str(tmp_path),
-        session_id="s",
-        run_id="r",
-        node_id="n",
-        depth=0,
-        max_depth=0,
-        root=str(tmp_path),
-        heartbeat=lambda source: None,
-        poll_s=100.0,
-    )
+    timer = threading.Timer(0.5, send_interrupt)
+    timer.start()
+    try:
+        outcome = claude_code.run(
+            {"model": MODEL, "credential_source": {"wrapper": "claude"}},
+            prompt="x",
+            cwd=str(tmp_path),
+            session_id="s",
+            run_id="r",
+            node_id="n",
+            depth=0,
+            max_depth=0,
+            root=str(tmp_path),
+            heartbeat=lambda source: None,
+            poll_s=100.0,
+            time_s=3.0,
+        )
+    except KeyboardInterrupt as exc:
+        raise AssertionError("interrupt escaped adapter.run") from exc
+    finally:
+        timer.cancel()
+        timer.join(timeout=1.0)
     assert outcome["exit_class"] == "interrupted", outcome
-    assert state["raised"] is True
+    assert state["sent"] is True
     pid = int(pid_file.read_text())
     for _ in range(50):
         if _gone(pid):
