@@ -10,6 +10,7 @@ fields and validated labels (DSP-017, LED-008).
 from __future__ import annotations
 
 import os
+import math
 import re
 import uuid
 from pathlib import Path
@@ -31,6 +32,8 @@ _USAGE_FIELDS = frozenset(
     }
 )
 _DEFAULT_POLL_S = 15.0
+_MIN_STALL_LIMIT_S = 60.0
+_MAX_STALL_LIMIT_S = 1_000_000_000.0
 
 
 def _new_id(prefix: str) -> str:
@@ -119,10 +122,36 @@ def _sanitize_usage(usage) -> dict | None:
 
 def _time_limit(request: dict) -> float | None:
     limits = request.get("limits") or {}
+    if not isinstance(limits, dict):
+        return None
     time_s = limits.get("time_s")
     if isinstance(time_s, bool) or not isinstance(time_s, (int, float)):
         return None
-    return float(time_s) if time_s > 0 else None
+    try:
+        value = float(time_s)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def _stall_limit(request: dict, profile: dict) -> float | None:
+    limits = request.get("limits")
+    if limits is None:
+        limits = {}
+    if not isinstance(limits, dict):
+        return None
+    value = limits.get(
+        "stall_s", profile.get("stall_limit_s", claude_code.DEFAULT_STALL_LIMIT_S)
+    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value < _MIN_STALL_LIMIT_S or value > _MAX_STALL_LIMIT_S:
+        return None
+    try:
+        normalized = float(value)
+    except OverflowError:
+        return None
+    return normalized if math.isfinite(normalized) else None
 
 
 def _heartbeat_poll_s() -> float:
@@ -176,6 +205,11 @@ def call(request: dict) -> dict:
     if not getattr(adapter, "accepts_profile", lambda _profile: True)(profile):
         return _result(None, None, "bad_request", None)
 
+    stall_limit_s = _stall_limit(request, profile)
+    if stall_limit_s is None:
+        return _result(None, None, "bad_request", None)
+    time_limit_s = _time_limit(request)
+
     if is_root:
         run_id = _new_id("r-")
         parent = None
@@ -222,6 +256,7 @@ def call(request: dict) -> dict:
             "profile": profile.get("name"),
             "profile_reason": "named",
             "model": profile.get("model"),
+            "stall_limit_s": stall_limit_s,
             "session": {"id": session_id, "mode": session_mode, "source": "assigned"},
             "t": journal.utc_now(),
         },
@@ -287,10 +322,24 @@ def call(request: dict) -> dict:
         root=root,
         heartbeat=record_heartbeat,
         poll_s=_heartbeat_poll_s(),
-        time_s=_time_limit(request),
+        time_s=time_limit_s,
     )
 
     exit_class = outcome.get("exit_class", "unknown")
+    if exit_class == "timeout" and time_limit_s is not None:
+        journal.append(
+            root,
+            {
+                "kind": "check",
+                "run": run_id,
+                "node": node_id,
+                "check": "deadline",
+                "limit_s": time_limit_s,
+                "decision": "stop",
+                "reason": "time limit reached",
+                "t": journal.utc_now(),
+            },
+        )
     if exit_class == "harness_error" and not outcome.get("session_id"):
         journal.append(
             root,

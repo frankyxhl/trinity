@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shlex
+import selectors
 import shutil
 import signal
 import subprocess
-import threading
 import time
 
 from . import journal
@@ -28,8 +29,10 @@ from . import journal
 ADAPTER = "claude-code"
 WRAPPER_AUTH_MARKER = "trinity-claude-code: auth_error:"
 CLAUDE_LOGIN_RESULT = "Not logged in · Please run /login"
-HEARTBEAT_SOURCE = "process_alive"
+HEARTBEAT_SOURCE = "stdout"
 DEFAULT_POLL_S = 15.0
+DEFAULT_STALL_LIMIT_S = 660.0
+_DRAIN_GRACE_S = 0.5
 
 _ENV_KEEP = frozenset(
     {
@@ -91,7 +94,9 @@ def run(
         "--session-id",
         session_id,
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
     ]
     model = profile.get("model")
     if model:
@@ -107,55 +112,128 @@ def run(
         }
     )
 
+    interval = _poll_interval(poll_s)
     started = time.monotonic()
-    proc = subprocess.Popen(
-        argv,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    pgid = os.getpgid(proc.pid)
-    stop = threading.Event()
-    thread = threading.Thread(
-        target=_poll, args=(stop, proc, heartbeat, poll_s), daemon=True
-    )
-    thread.start()
-    interrupted = False
-    timed_out = False
+    timeout_s = _finite_timeout(time_s)
+    deadline = started + timeout_s if timeout_s is not None else None
+    stdout_read, stdout_write = os.pipe()
     try:
-        out, _err = proc.communicate(timeout=time_s)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill_group(pgid)
-        out, _err = proc.communicate()
+        proc = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            env=env,
+            stdout=stdout_write,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+            start_new_session=True,
+        )
+    except BaseException:
+        os.close(stdout_read)
+        os.close(stdout_write)
+        raise
+    os.close(stdout_write)
+
+    output = bytearray()
+    errors = bytearray()
+    timed_out = False
+    interrupted = False
+    selector = None
+    last_heartbeat = None
+
+    def read_ready(events, *, emit_heartbeat=True):
+        nonlocal last_heartbeat
+        for key, _mask in events:
+            descriptor = key.fd
+            try:
+                chunk = os.read(descriptor, 65536)
+            except (BlockingIOError, InterruptedError):
+                continue
+            if not chunk:
+                selector.unregister(descriptor)
+                continue
+            if key.data == "stdout":
+                output.extend(chunk)
+                observed_at = time.monotonic()
+                if emit_heartbeat and (
+                    last_heartbeat is None or observed_at - last_heartbeat >= interval
+                ):
+                    heartbeat(HEARTBEAT_SOURCE)
+                    last_heartbeat = observed_at
+            else:
+                errors.extend(chunk)
+
+    def drain_for(grace_s, *, emit_heartbeat=False):
+        if selector is None:
+            return
+        drain_deadline = time.monotonic() + grace_s
+        while selector.get_map():
+            remaining = drain_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            read_ready(selector.select(remaining), emit_heartbeat=emit_heartbeat)
+
+    try:
+        selector = selectors.DefaultSelector()
+        stderr_fd = proc.stderr.fileno()
+        os.set_blocking(stdout_read, False)
+        os.set_blocking(stderr_fd, False)
+        selector.register(stdout_read, selectors.EVENT_READ, "stdout")
+        selector.register(stderr_fd, selectors.EVENT_READ, "stderr")
+        while True:
+            if proc.poll() is not None and not selector.get_map():
+                break
+            remaining = (
+                deadline - time.monotonic() if deadline is not None else interval
+            )
+            if deadline is not None and remaining <= 0:
+                timed_out = True
+                _kill_group(proc.pid)
+                break
+            wait_s = min(interval, remaining) if deadline is not None else interval
+            if not selector.get_map():
+                wait_s = min(wait_s, 0.05)
+            read_ready(selector.select(wait_s))
     except KeyboardInterrupt:
         interrupted = True
-        _kill_group(pgid)
-        proc.communicate()
-        out = ""
+        _kill_group(proc.pid)
+    except BaseException:
+        _kill_group(proc.pid)
+        drain_for(_DRAIN_GRACE_S)
+        try:
+            proc.wait(timeout=_DRAIN_GRACE_S)
+        except subprocess.TimeoutExpired:
+            pass
+        raise
     finally:
-        stop.set()
-        thread.join()
+        if timed_out or interrupted:
+            drain_for(_DRAIN_GRACE_S)
+            try:
+                proc.wait(timeout=_DRAIN_GRACE_S)
+            except subprocess.TimeoutExpired:
+                pass
+        if selector is not None:
+            selector.close()
+        os.close(stdout_read)
+        if proc.stderr is not None:
+            proc.stderr.close()
     wall_s = int(time.monotonic() - started)
+    out = output.decode("utf-8", errors="replace")
+    stderr_text = errors.decode("utf-8", errors="replace")
 
     if interrupted:
         return _outcome("interrupted", None, None, wall_s)
     if timed_out:
-        result = _last_result(out)
+        result = _final_result(out)
         usage = result.get("usage") if result else None
         return _outcome("timeout", session_id, usage, wall_s)
 
-    auth_hint = _wrapper_auth_hint(proc.returncode, _err)
-    result = _last_result(out)
+    auth_hint = _wrapper_auth_hint(proc.returncode, stderr_text)
+    result = _final_result(out)
     usage = result.get("usage") if result else None
     is_error = bool(result.get("is_error")) if result else True
     if auth_hint is None:
-        final = _final_result(out)
-        if final is not None:
-            auth_hint = _claude_json_auth_hint(final)
+        if result is not None:
+            auth_hint = _claude_json_auth_hint(result)
 
     reported = result.get("session_id") if result else None
     if auth_hint is not None:
@@ -185,6 +263,24 @@ def run(
     return outcome
 
 
+def _poll_interval(value) -> float:
+    try:
+        interval = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return DEFAULT_POLL_S
+    return interval if math.isfinite(interval) and interval > 0 else DEFAULT_POLL_S
+
+
+def _finite_timeout(value) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return timeout if math.isfinite(timeout) and timeout > 0 else None
+
+
 def _fingerprint(value) -> str | None:
     """One-way id fingerprint: first 12 hex of SHA-256, never the raw id."""
     if not isinstance(value, str):
@@ -208,15 +304,6 @@ def _build_env(guard: dict) -> dict:
             env[name] = os.environ[name]
     env["TRINITY_GUARD"] = json.dumps(guard)
     return env
-
-
-def _poll(
-    stop: threading.Event, proc: subprocess.Popen, heartbeat, poll_s: float
-) -> None:
-    while not stop.wait(poll_s):
-        if proc.poll() is not None:
-            return
-        heartbeat(HEARTBEAT_SOURCE)
 
 
 def _kill_group(pgid: int) -> None:

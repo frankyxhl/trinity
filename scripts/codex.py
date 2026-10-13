@@ -579,7 +579,11 @@ def cmd_call(args):
 
 def cmd_tree(args):
     root = trinity_core.journal_root()
-    lines = trinity_core.render_tree(root, args.run)
+    try:
+        lines = trinity_core.render_tree(root, args.run)
+    except ValueError as error:
+        sys.stderr.write(f"trinity tree: {error}\n")
+        return 1
     if not lines:
         sys.stderr.write(f"trinity tree: unknown run {args.run}\n")
         return 1

@@ -8,10 +8,18 @@ and output kind. Children are drawn indented under their parent.
 from __future__ import annotations
 
 import json
+import math
+from datetime import datetime
 
-from . import journal
+from . import claude_code, journal
 
-_GLYPHS = {"done": "✓", "running": "●", "failed": "!", "interrupted": "!"}
+_GLYPHS = {
+    "done": "✓",
+    "running": "●",
+    "stuck": "!",
+    "failed": "!",
+    "interrupted": "!",
+}
 # LED-017: a node whose session is unknown has no short id; the field shows this.
 UNKNOWN_SHORT_ID = "?"
 # LED-017: a session line after a final session_unknown is a defect; the node
@@ -39,6 +47,7 @@ def _read_lines(root: str) -> list[tuple[int, dict]]:
 
 def render(root: str, run_id: str) -> list[str]:
     records = _read_lines(root)
+    values = [record for _number, record in records]
     nodes = [
         r for _n, r in records if r.get("kind") == "node" and r.get("run") == run_id
     ]
@@ -59,10 +68,92 @@ def render(root: str, run_id: str) -> list[str]:
         if record.get("id") is None:
             unknown.add(node_id)
         sessions[node_id] = record.get("id")
+    now = None
+    if any(
+        (states.get(node.get("node")) or [{}])[-1].get("state") == "running"
+        for node in nodes
+    ):
+        now = _core_now()
     return [
-        _line(node, states.get(node.get("node"), []), sessions, defects, level)
+        _line(
+            node,
+            states.get(node.get("node"), []),
+            sessions,
+            defects,
+            level,
+            derive_state(values, node.get("node"), now=now),
+        )
         for node, level in _ordered(nodes)
     ]
+
+
+def _parse_timestamp(value) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("malformed core clock: timestamp is not text")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("malformed core clock: invalid timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("malformed core clock: timezone is required")
+    return parsed
+
+
+def _core_now() -> datetime:
+    return _parse_timestamp(journal.utc_now())
+
+
+def derive_state(records: list[dict], node_id: str, *, now=None) -> dict:
+    """Derive a live node's running/stuck state from its latest stdout evidence."""
+    node = next(
+        (
+            record
+            for record in reversed(records)
+            if record.get("kind") == "node" and record.get("node") == node_id
+        ),
+        None,
+    )
+    if node is None:
+        return {"state": "unknown", "age_s": None}
+    states = [
+        record
+        for record in records
+        if record.get("kind") == "state" and record.get("node") == node_id
+    ]
+    latest_state = states[-1].get("state") if states else "unknown"
+    if latest_state in {"done", "failed", "interrupted"}:
+        return {"state": latest_state, "age_s": None}
+    if latest_state != "running":
+        return {"state": latest_state, "age_s": None}
+
+    current = _core_now() if now is None else now
+    if not isinstance(current, datetime) or current.tzinfo is None:
+        raise ValueError("malformed core clock: current time must be timezone-aware")
+    evidence = [
+        record
+        for record in records
+        if record.get("kind") == "heartbeat"
+        and record.get("node") == node_id
+        and record.get("source") == "stdout"
+    ]
+    start = (
+        evidence[-1]
+        if evidence
+        else next(
+            (record for record in reversed(states) if record.get("state") == "running"),
+            node,
+        )
+    )
+    age_s = max(0.0, (current - _parse_timestamp(start.get("t"))).total_seconds())
+    limit = node.get("stall_limit_s", claude_code.DEFAULT_STALL_LIMIT_S)
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, (int, float))
+        or (isinstance(limit, float) and not math.isfinite(limit))
+        or limit < 60
+    ):
+        limit = claude_code.DEFAULT_STALL_LIMIT_S
+    return {"state": "stuck" if age_s > limit else "running", "age_s": age_s}
 
 
 def _effective_session_id(node: dict, sessions: dict) -> object:
@@ -92,10 +183,16 @@ def _ordered(nodes: list[dict]) -> list[tuple[dict, int]]:
 
 
 def _line(
-    node: dict, state_rows: list[dict], sessions: dict, defects: dict, level: int
+    node: dict,
+    state_rows: list[dict],
+    sessions: dict,
+    defects: dict,
+    level: int,
+    derived: dict | None = None,
 ) -> str:
     end = state_rows[-1] if state_rows else {}
-    glyph = _GLYPHS.get(end.get("state"), "?")
+    state = derived.get("state") if derived else end.get("state")
+    glyph = _GLYPHS.get(state, "?")
     session = node.get("session") or {}
     mark = "新" if session.get("mode") == "new" else "续"
     session_id = _effective_session_id(node, sessions)
