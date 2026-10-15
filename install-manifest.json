@@ -20,7 +20,6 @@
     {"src": "scripts/trinity_core/dispatch.py", "dest": ".claude/skills/trinity/scripts/trinity_core/dispatch.py"},
     {"src": "scripts/trinity_core/journal.py", "dest": ".claude/skills/trinity/scripts/trinity_core/journal.py"},
     {"src": "scripts/trinity_core/profiles.py", "dest": ".claude/skills/trinity/scripts/trinity_core/profiles.py"},
-    {"src": "scripts/trinity_core/quota.py", "dest": ".claude/skills/trinity/scripts/trinity_core/quota.py"},
     {"src": "scripts/trinity_core/tree.py", "dest": ".claude/skills/trinity/scripts/trinity_core/tree.py"},
     {"src": "scripts/_doctor.py", "dest": ".claude/skills/trinity/scripts/_doctor.py"},
     {"src": "scripts/_status.py", "dest": ".claude/skills/trinity/scripts/_status.py"},

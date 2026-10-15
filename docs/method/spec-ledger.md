@@ -11,7 +11,7 @@ Record every run, call, round, check and heartbeat as a tree, so that views, sta
 
 In:
 
-- Record kinds: `run` (start/end), `node` (one call), `edge` (`depends`, `round` with reason, `revises`; the `parent` edge is the node's own `parent` field — `../contracts/graph.md`), `check` (quota/lock result), `heartbeat` (time + source kind), `state` (node state change). Prune lines go to a separate prune log, not the journal (LED-013).
+- Record kinds: `run` (start/end), `node` (one call), `edge` (`depends`, `round` with reason, `revises`; the `parent` edge is the node's own `parent` field — `../contracts/graph.md`), `check` (lock or dependency result), `heartbeat` (time + source kind), `state` (node state change). Prune lines go to a separate prune log, not the journal (LED-013).
 - Append API used by the core; read API used by views and metrics.
 - 90-day retention prune.
 
@@ -44,11 +44,11 @@ Every line is one self-contained JSON object. No line has a free-text field hold
 A `round` edge runs `from` the new round `to` the round before it; `revises` likewise runs from the later node to the earlier one (GRF-004, GRF-007).
 
 ```json
-{"v":1,"kind":"check","run":"r-…","node":"n-…","check":"quota","result":"ok|unknown|exhausted|override","source_kind":"vendor_cli","read_at":"…","t":"…"}
+{"v":1,"kind":"check","run":"r-…","node":"n-…","check":"heavy_lock","result":"acquired|override","waited_s":0,"t":"…"}
 ```
 
 ```json
-{"v":1,"kind":"check","run":"r-…","node":"n-…","check":"quota","result":"override","override_reason":"source_outage","override_ref":{"path":"…","offset":0},"t":"…"}
+{"v":1,"kind":"check","run":"r-…","node":"n-…","check":"heavy_lock","result":"override","override_reason":"lock_holder_known","override_ref":{"path":"…","offset":0},"t":"…"}
 ```
 
 ```json
@@ -84,7 +84,7 @@ A `round` edge runs `from` the new round `to` the round before it; `revises` lik
 | LED-011 | Format carries a version `v`; readers refuse unknown major versions with a clear error naming the version found and the versions supported. A line with no `v` is a defect: reported by line number and skipped, never guessed. |
 | LED-012 | A repeated call is always a new node; two calls are never merged, even with identical prompt and session. Two `node` records with the same node id are a defect (state, check and heartbeat lines repeat the id by design): readers keep the first and report the second. |
 | LED-013 | **Retention: 90 days.** A prune removes whole runs whose end time — or, for a run with no end record, its last record time — is older than 90 days, and appends a `prune` line (run ids, count, time) to a separate prune log that is itself never pruned. The same pass prunes the error log (CHK-009). Edges are pruned with their run; an edge never points into another run (GRF-002). |
-| LED-014 | `check` and `heartbeat` lines are written by the core (CHK-001..006); every quota `check` line names result, source kind and read time; every heavy-lock `check` line names result and wait time; every dependency `check` line names result and target node, and a `cycle` result also names its `members` (DSP-007, GRF-006); an `override` result carries a closed `override_reason` code and an optional `override_ref` pointer (CHK-004), never free text. `node` lines carry nesting `depth` (CHK-005). |
+| LED-014 | `check` and `heartbeat` lines are written by the core (CHK-001..006); every heavy-lock `check` line names result and wait time; every dependency `check` line names result and target node, and a `cycle` result also names its `members` (DSP-007, GRF-006); an `override` result carries a closed `override_reason` code and an optional `override_ref` pointer (CHK-004), never free text. `node` lines carry nesting `depth` (CHK-005). |
 | LED-015 | `output_kind` is a closed enum (`commit`, `verdict`, `none`), never free text; the commit id or verdict word itself is read from `output_ref` on demand. |
 | LED-016 | A ref whose path the redaction function's shape kinds (RDR-008 kinds 1–7) would change is stored as `{"withheld": "secret_pattern"}`, never as the path (RDR-014). |
 | LED-017 | A node's session id is the one in its `node` record, or, if that is `null` or a later `session` line names another, the last `session` line's id. `session_unknown` (id `null`) is final for that node: a later `session` line for that node is a defect, reported by line, and the node stays unknown. The core writes `session` lines only per DSP-020. |

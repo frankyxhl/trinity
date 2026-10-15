@@ -12,11 +12,8 @@ Spellings the contract leaves open (kept by the implementation):
   ``$TRINITY_ROOT/journal.jsonl``, the error log ``$TRINITY_ROOT/error.log``.
 - Profile set: JSON ``{"profiles": [...]}`` passed with ``--profiles <file>``.
   A profile: ``name``, ``adapter``, ``provider``, ``billing``, ``model``,
-  ``credential_source`` (``{"wrapper": "<command name>"}``), ``quota_source``
-  (``{"kind": "vendor_cli", "command": "<path>"}``), ``freshness_limit``,
+  ``credential_source`` (``{"wrapper": "<command name>"}``),
   ``transcript_retention``, ``enabled``.
-- Quota stub: the ``command`` prints one JSON line
-  ``{"used_pct": 20, "read_at": "<iso8601 UTC>"}`` and exits 0.
 - ``call`` flags: ``--profiles --profile --step --session --prompt --cwd
   --allow-nesting-max-depth``.
 - Guard env: ``TRINITY_GUARD`` holds JSON
@@ -133,21 +130,6 @@ def _build_and_run(mode: str) -> SimpleNamespace:
         directory.mkdir(parents=True)
     capture_file = capture / "harness.jsonl"
 
-    stub = bin_dir / "quota_stub"
-    stub.write_text(
-        textwrap.dedent(
-            f"""\
-            #!{sys.executable}
-            import json, datetime
-            print(json.dumps({{
-                "used_pct": 20,
-                "read_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            }}))
-            """
-        )
-    )
-    stub.chmod(0o755)
-
     profiles = root / "profiles.json"
     profiles.write_text(
         json.dumps(
@@ -160,11 +142,6 @@ def _build_and_run(mode: str) -> SimpleNamespace:
                         "billing": "subscription",
                         "model": MODEL,
                         "credential_source": {"wrapper": WRAPPER},
-                        "quota_source": {
-                            "kind": "vendor_cli",
-                            "command": str(stub),
-                        },
-                        "freshness_limit": 300,
                         "transcript_retention": "30 days",
                         "enabled": True,
                     }
@@ -422,14 +399,6 @@ def _heartbeats(fm, node_id: str) -> list[dict]:
     return [r for r in _records(fm, "heartbeat") if r.get("node") == node_id]
 
 
-def _checks(fm, node_id: str, check: str) -> list[dict]:
-    return [
-        r
-        for r in _records(fm, "check")
-        if r.get("node") == node_id and r.get("check") == check
-    ]
-
-
 # --- Then: one run start and one run end -------------------------------------
 
 
@@ -461,32 +430,6 @@ def test_two_nodes_root_depth_0_child_depth_1_with_one_parent_edge():
     assert len(parents) == 1, f"expected exactly one child of root: {parents}"
     parent_edges = [e for e in _records(fm, "edge") if e.get("type") == "parent"]
     assert parent_edges == [], "the parent edge is the node's own parent field"
-
-
-# --- Then: a quota check record before each node -----------------------------
-
-
-def test_quota_check_record_before_each_node():
-    fm = _run_path()
-    _ready(fm)
-    for node in _nodes(fm):
-        checks = _checks(fm, node["node"], "quota")
-        assert checks, f"no quota check for {node['step']!r}"
-        assert checks[0].get("result") == "ok", checks[0]
-        assert checks[0].get("source_kind"), checks[0]
-        assert checks[0].get("read_at"), checks[0]
-        check_index = fm.journal.index(checks[0])
-        running = [
-            i
-            for i, r in enumerate(fm.journal)
-            if r.get("kind") == "state"
-            and r.get("node") == node["node"]
-            and r.get("state") == "running"
-        ]
-        assert running, f"node {node['step']!r} never entered running"
-        assert check_index < running[0], (
-            f"quota check for {node['step']!r} is not before it runs"
-        )
 
 
 # --- Then: at least one heartbeat row per node longer than one poll ----------
@@ -736,11 +679,6 @@ def _profiles_file(tmp_path: Path) -> Path:
                         "billing": "subscription",
                         "model": MODEL,
                         "credential_source": {"wrapper": WRAPPER},
-                        "quota_source": {
-                            "kind": "vendor_cli",
-                            "command": str(tmp_path / "quota_stub"),
-                        },
-                        "freshness_limit": 300,
                         "transcript_retention": "30 days",
                         "enabled": True,
                     }
@@ -769,76 +707,6 @@ def test_bad_step_is_refused_and_writes_nothing(tmp_path, monkeypatch):
     )
     assert result["exit_class"] == "bad_request", result
     assert not (tmp_path / "state" / "journal.jsonl").exists()
-
-
-def test_quota_missing_or_invalid_value_is_unknown(tmp_path):
-    import scripts.trinity_core.quota as quota
-
-    stub = tmp_path / "stub"
-    stub.write_text(
-        f"#!{sys.executable}\nimport json,sys\nsys.stdout.write(json.dumps({{}}))\n"
-    )
-    stub.chmod(0o755)
-    profile = {
-        "quota_source": {"kind": "vendor_cli", "command": str(stub)},
-        "freshness_limit": 300,
-    }
-    assert quota.check(profile)["result"] == "unknown"
-
-    stub.write_text(
-        f"#!{sys.executable}\nimport json,sys\n"
-        f"sys.stdout.write(json.dumps({{'used_pct': 'many', 'read_at': {_iso()!r}}}))\n"
-    )
-    stub.chmod(0o755)
-    assert quota.check(profile)["result"] == "unknown"
-
-
-def test_quota_stale_read_is_unknown(tmp_path):
-    import scripts.trinity_core.quota as quota
-
-    stub = tmp_path / "stub"
-    stub.write_text(
-        f"#!{sys.executable}\nimport json,sys\n"
-        f"sys.stdout.write(json.dumps({{'used_pct': 20, 'read_at': {_iso(-100000)!r}}}))\n"
-    )
-    stub.chmod(0o755)
-    profile = {
-        "quota_source": {"kind": "vendor_cli", "command": str(stub)},
-        "freshness_limit": 300,
-    }
-    result = quota.check(profile)
-    assert result["result"] == "unknown", result
-
-
-def test_quota_unknown_stops_the_node(tmp_path, monkeypatch):
-    import scripts.trinity_core as core
-
-    root = tmp_path / "state"
-    monkeypatch.setenv("TRINITY_ROOT", str(root))
-    monkeypatch.delenv("TRINITY_GUARD", raising=False)
-    profiles = _profiles_file(tmp_path)
-    stub = tmp_path / "quota_stub"
-    stub.write_text(
-        f"#!{sys.executable}\nimport json,sys\n"
-        f"sys.stdout.write(json.dumps({{'used_pct': 20, 'read_at': {_iso(-100000)!r}}}))\n"
-    )
-    stub.chmod(0o755)
-    result = core.call(
-        {
-            "profiles_path": str(profiles),
-            "profile": PROFILE,
-            "step": "root",
-            "session": "new",
-            "prompt": {"text": "x"},
-            "cwd": str(tmp_path),
-            "allow_nesting": {"max_depth": 1},
-        }
-    )
-    assert result["exit_class"] == "check_failed", result
-    states = [
-        r.get("state") for r in core.journal.read(root) if r.get("kind") == "state"
-    ]
-    assert states == ["queued", "failed"], states
 
 
 # --- Then: a timeout or interrupt kills only the groups this call started ----
@@ -972,69 +840,6 @@ def test_harness_interrupt_kills_only_its_process_group(tmp_path, monkeypatch):
 
         _time.sleep(0.1)
     assert _gone(pid), "the harness process outlived its interrupt"
-
-
-def test_quota_hang_is_unknown_and_killed(tmp_path, monkeypatch):
-    import scripts.trinity_core.quota as quota
-
-    pid_file = tmp_path / "pid"
-    stub = _write_sleeper(tmp_path, "stub", pid_file)
-    monkeypatch.setattr(quota, "READ_TIMEOUT_S", 1)
-    profile = {
-        "quota_source": {"kind": "vendor_cli", "command": str(stub)},
-        "freshness_limit": 300,
-    }
-    result = quota.check(profile)
-    assert result["result"] == "unknown", result
-    pid = int(pid_file.read_text())
-    for _ in range(50):
-        if _gone(pid):
-            break
-        import time as _time
-
-        _time.sleep(0.1)
-    assert _gone(pid), "the quota grandchild outlived its timeout"
-
-
-# --- E1: quota values must be finite before they steer a decision ------------
-
-
-def _quota_stub(tmp_path: Path, expression: str) -> Path:
-    stub = tmp_path / "stub"
-    stub.write_text(
-        f"#!{sys.executable}\nimport json,sys\n"
-        f"sys.stdout.write(json.dumps({expression}))\n"
-    )
-    stub.chmod(0o755)
-    return stub
-
-
-def test_quota_non_finite_value_is_unknown(tmp_path):
-    import scripts.trinity_core.quota as quota
-
-    for expression in (
-        '{"used_pct": float("nan"), "read_at": ' + repr(_iso()) + "}",
-        '{"used_pct": float("inf"), "read_at": ' + repr(_iso()) + "}",
-    ):
-        stub = _quota_stub(tmp_path, expression)
-        profile = {
-            "quota_source": {"kind": "vendor_cli", "command": str(stub)},
-            "freshness_limit": 300,
-        }
-        assert quota.check(profile)["result"] == "unknown", expression
-
-
-def test_quota_non_finite_freshness_with_stale_read_is_unknown(tmp_path):
-    import scripts.trinity_core.quota as quota
-
-    stub = _quota_stub(
-        tmp_path, '{"used_pct": 20, "read_at": ' + repr(_iso(-100000)) + "}"
-    )
-    profile = {
-        "quota_source": {"kind": "vendor_cli", "command": str(stub)},
-        "freshness_limit": float("nan"),
-    }
-    assert quota.check(profile)["result"] == "unknown"
 
 
 # --- E2: secret-shaped step and label are refused ----------------------------
@@ -1384,12 +1189,6 @@ def test_prompt_file_reaches_adapter_and_missing_file_is_refused(tmp_path, monke
 
     monkeypatch.setenv("TRINITY_ROOT", str(tmp_path / "state"))
     monkeypatch.delenv("TRINITY_GUARD", raising=False)
-    stub = tmp_path / "quota_stub"
-    stub.write_text(
-        f"#!{sys.executable}\nimport json,sys\n"
-        f"sys.stdout.write(json.dumps({{'used_pct': 20, 'read_at': {_iso()!r}}}))\n"
-    )
-    stub.chmod(0o755)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     capture = tmp_path / "capture.jsonl"

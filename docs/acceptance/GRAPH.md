@@ -117,7 +117,7 @@ Note: GRF-007 and DSP-003 name both refusals.
 Covers: LED-005, CHK-001, SCO-05
 Given: node A submitted first (slow: the fake harness waits 2 s on the test clock), its id known; node B then submitted naming A in `depends` (`depends` can only name an existing node, DSP-003).
 When: B is submitted while A runs.
-Then: B does not enter `running` before A is `done`; B's check record (quota) is written after A is done, not before; the fake harness for B is not invoked until then.
+Then: B does not enter `running` before A is `done`; B does not perform a quota check; its post-dependency lock check, if any, is written after A is done; the fake harness for B is not invoked until then.
 Observable: ordering of state lines across A and B; harness invocation timestamps.
 Fails if: B starts while A runs.
 
