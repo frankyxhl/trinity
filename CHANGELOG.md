@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [4.0.2] - 2026-10-15
+
+### Changed
+- Dispatch no longer reads or checks quota: a call runs, and a provider 429 ends on the existing error path. quota.py removed.
+- agy-opus wrapper no longer reads `/usage` or refuses on the five-hour budget; `AGY_OPUS_MIN_5H_PCT` and `AGY_OPUS_USAGE_TIMEOUT` are removed.
+
 ## [4.0.1] - 2026-10-12
 
 ### Security

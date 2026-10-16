@@ -220,8 +220,6 @@ def _profiles_json(tmp_path: Path, credential_source) -> Path:
         "provider": "claude-code",
         "billing": "subscription",
         "model": MODEL,
-        "quota_source": {"kind": "vendor_cli", "command": str(tmp_path / "quota")},
-        "freshness_limit": 300,
         "transcript_retention": "30 days",
         "enabled": True,
     }

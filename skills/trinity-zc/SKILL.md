@@ -43,7 +43,7 @@ command -v python3 >/dev/null 2>&1 || { echo "trinity-zc: python3 not found"; ex
 # REQUIRED_VERSION is rewritten by `make bump` (same as the root SKILL.md), so
 # it tracks the shipped scripts version and never goes stale on release.
 SCRIPTS_VERSION=$(python3 ~/.claude/skills/trinity/scripts/session.py --version 2>/dev/null)
-REQUIRED_VERSION="4.0.1"
+REQUIRED_VERSION="4.0.2"
 [ "$SCRIPTS_VERSION" = "$REQUIRED_VERSION" ] || {
   echo "trinity-zc: trinity scripts missing/outdated (found ${SCRIPTS_VERSION:-none}, need ${REQUIRED_VERSION})"
   echo "Run: make install (trinity repo) or cp -r trinity/scripts/. ~/.claude/skills/trinity/scripts/"

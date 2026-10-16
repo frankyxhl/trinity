@@ -17,7 +17,6 @@ from pathlib import Path
 
 from . import claude_code, journal
 from . import profiles as profiles_mod
-from . import quota
 
 _ADAPTERS = {claude_code.ADAPTER: claude_code}
 
@@ -318,27 +317,6 @@ def call(request: dict) -> dict:
         )
     except TimeoutError:
         return unavailable_result()
-
-    check = quota.check(profile)
-    try:
-        journal.append(
-            root,
-            {
-                "kind": "check",
-                "run": run_id,
-                "node": node_id,
-                "check": "quota",
-                **check,
-                "t": journal.utc_now(),
-            },
-        )
-    except TimeoutError:
-        return unavailable_result()
-    if check.get("result") != "ok":
-        try:
-            return _finish(root, run_id, node_id, is_root, "check_failed", "none", 0)
-        except TimeoutError:
-            return unavailable_result()
 
     try:
         journal.append(

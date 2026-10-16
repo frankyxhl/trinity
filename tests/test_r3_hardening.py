@@ -1,10 +1,9 @@
-"""Hardening: redaction refusals, prompt encoding, huge quota, mismatch log.
+"""Hardening: redaction refusals, prompt encoding, mismatch log.
 
 These tests pin fail-closed behaviour for sharp edges found in review:
 caller labels that the redaction function would change are refused; an invalid
-UTF-8 prompt file is refused like a missing one; a quota source that answers
-with an integer too large for a float must not crash the call; and a session
-mismatch records run, node and one-way fingerprints instead of a raw id.
+UTF-8 prompt file is refused like a missing one; and a session mismatch records
+run, node and one-way fingerprints instead of a raw id.
 
 Every value is synthetic and built at test time; HOME and the state root are
 always temp directories. No test reads a real credential file, and none touches
@@ -59,24 +58,9 @@ def _last_json(text: str) -> dict | None:
     return None
 
 
-def _write_executable_stub(path: Path, body: str) -> Path:
-    return _executable(path, f"#!{sys.executable}\n{body}")
-
-
-def _ok_quota_stub(tmp_path: Path, name: str = "quota_stub") -> Path:
-    return _write_executable_stub(
-        tmp_path / name,
-        "import json, datetime\n"
-        "print(json.dumps({'used_pct': 20, 'read_at': "
-        "datetime.datetime.now(datetime.timezone.utc).isoformat()}))\n",
-    )
-
-
 def _write_profiles(
     tmp_path: Path,
     *,
-    quota_command: str,
-    freshness=300,
     name: str = "profiles.json",
 ) -> Path:
     profile = {
@@ -86,8 +70,6 @@ def _write_profiles(
         "billing": "subscription",
         "model": MODEL,
         "credential_source": {"wrapper": WRAPPER},
-        "quota_source": {"kind": "vendor_cli", "command": quota_command},
-        "freshness_limit": freshness,
         "transcript_retention": "30 days",
         "enabled": True,
     }
@@ -172,11 +154,7 @@ def _refused(tmp_path, monkeypatch, value, field, tag):
     state = tmp_path / f"state-{tag}"
     monkeypatch.setenv("TRINITY_ROOT", str(state))
     monkeypatch.delenv("TRINITY_GUARD", raising=False)
-    profiles = _write_profiles(
-        tmp_path,
-        quota_command=str(tmp_path / "no-such-quota"),
-        name=f"profiles-{tag}.json",
-    )
+    profiles = _write_profiles(tmp_path, name=f"profiles-{tag}.json")
     result = core.call(
         {
             "profiles_path": str(profiles),
@@ -292,7 +270,7 @@ def test_ordinary_multi_pair_line_is_unchanged_and_accepted(tmp_path, monkeypatc
     state = tmp_path / "state"
     monkeypatch.setenv("TRINITY_ROOT", str(state))
     monkeypatch.delenv("TRINITY_GUARD", raising=False)
-    profiles = _write_profiles(tmp_path, quota_command=str(tmp_path / "no-such-quota"))
+    profiles = _write_profiles(tmp_path)
     result = core.call(
         {
             "profiles_path": str(profiles),
@@ -387,11 +365,7 @@ def test_ordinary_step_and_label_are_not_refused(tmp_path, monkeypatch):
         state = tmp_path / f"state-{tag}"
         monkeypatch.setenv("TRINITY_ROOT", str(state))
         monkeypatch.delenv("TRINITY_GUARD", raising=False)
-        profiles = _write_profiles(
-            tmp_path,
-            quota_command=str(tmp_path / "no-such-quota"),
-            name=f"profiles-{tag}.json",
-        )
+        profiles = _write_profiles(tmp_path, name=f"profiles-{tag}.json")
         result = core.call(
             {
                 "profiles_path": str(profiles),
@@ -415,7 +389,7 @@ def test_invalid_utf8_prompt_file_is_refused_without_journal(tmp_path, monkeypat
     state = tmp_path / "state"
     monkeypatch.setenv("TRINITY_ROOT", str(state))
     monkeypatch.delenv("TRINITY_GUARD", raising=False)
-    profiles = _write_profiles(tmp_path, quota_command=str(tmp_path / "no-such-quota"))
+    profiles = _write_profiles(tmp_path)
     prompt_file = tmp_path / "prompt.bin"
     prompt_file.write_bytes(b"task \xff\xfe not utf-8")
 
@@ -439,7 +413,7 @@ def test_invalid_utf8_prompt_file_is_refused_without_journal(tmp_path, monkeypat
     assert not (state / "journal.jsonl").exists()
 
 
-# --- 3. a quota value too large for a float must not crash the call ----------
+# --- 3. helper environment for later CLI cases -------------------------------
 
 
 def _cli_env(tmp_path: Path) -> dict:
@@ -456,82 +430,6 @@ def _cli_env(tmp_path: Path) -> dict:
         }
     )
     return env
-
-
-def _run_call(tmp_path: Path, profiles: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [
-            str(CLI),
-            "call",
-            "--profiles",
-            str(profiles),
-            "--profile",
-            PROFILE,
-            "--step",
-            "root",
-            "--session",
-            "new",
-            "--prompt",
-            "x",
-        ],
-        cwd=REPO,
-        env=_cli_env(tmp_path),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-
-
-def _check_records(tmp_path: Path) -> list[dict]:
-    from scripts.trinity_core import journal
-
-    return [
-        record
-        for record in journal.read(tmp_path / "state")
-        if record.get("kind") == "check"
-    ]
-
-
-def test_huge_used_pct_does_not_crash_and_is_unknown(tmp_path):
-    stub = _write_executable_stub(
-        tmp_path / "quota_huge_used",
-        "import json, datetime\n"
-        "print(json.dumps({'used_pct': 10 ** 400, 'read_at': "
-        "datetime.datetime.now(datetime.timezone.utc).isoformat()}))\n",
-    )
-    profiles = _write_profiles(
-        tmp_path, quota_command=str(stub), name="profiles-huge-used.json"
-    )
-    proc = _run_call(tmp_path, profiles)
-    assert "Traceback" not in proc.stderr, proc.stderr
-    result = _last_json(proc.stdout)
-    assert result and result["exit_class"] == "check_failed", (
-        proc.returncode,
-        proc.stdout,
-        proc.stderr,
-    )
-    checks = _check_records(tmp_path)
-    assert checks and checks[0].get("result") == "unknown", checks
-
-
-def test_huge_freshness_limit_does_not_crash_and_is_unknown(tmp_path):
-    stub = _ok_quota_stub(tmp_path)
-    profiles = _write_profiles(
-        tmp_path,
-        quota_command=str(stub),
-        freshness=10**400,
-        name="profiles-huge-freshness.json",
-    )
-    proc = _run_call(tmp_path, profiles)
-    assert "Traceback" not in proc.stderr, proc.stderr
-    result = _last_json(proc.stdout)
-    assert result and result["exit_class"] == "check_failed", (
-        proc.returncode,
-        proc.stdout,
-        proc.stderr,
-    )
-    checks = _check_records(tmp_path)
-    assert checks and checks[0].get("result") == "unknown", checks
 
 
 # --- 4. a session mismatch logs run, node and fingerprints, never the id -----
@@ -572,10 +470,7 @@ def test_mismatch_log_keeps_run_node_and_fingerprints_without_raw_id(
 
     work = tmp_path / "work"
     work.mkdir()
-    quota = _ok_quota_stub(tmp_path)
-    profiles = _write_profiles(
-        tmp_path, quota_command=str(quota), name="profiles-mismatch.json"
-    )
+    profiles = _write_profiles(tmp_path, name="profiles-mismatch.json")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     script = _mismatch_harness(profiles)
@@ -660,10 +555,7 @@ def test_surrogate_reported_session_id_logs_attributable_failure(tmp_path):
 
     work = tmp_path / "work"
     work.mkdir()
-    quota = _ok_quota_stub(tmp_path)
-    profiles = _write_profiles(
-        tmp_path, quota_command=str(quota), name="profiles-surrogate.json"
-    )
+    profiles = _write_profiles(tmp_path, name="profiles-surrogate.json")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _executable(bin_dir / WRAPPER, _surrogate_harness())

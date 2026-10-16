@@ -27,11 +27,11 @@ A case needs these to be runnable. If the contract offers a different mechanism,
 | Seam | What it is |
 | --- | --- |
 | S-1 | Journal, state, error-log and cache locations can be moved under a temporary root. |
-| S-2 | An injectable clock (wall and monotonic) for age, freshness, stall, retention and prune tests. |
+| S-2 | An injectable clock (wall and monotonic) for stall, retention and prune tests. |
 | S-3 | Fake harness executables found through the search path, one per adapter (see 0.4). |
-| S-4 | A quota source stub per profile: value, read time, failure, hang. |
+| S-4 | **Retired.** No quota source stub exists. |
 | S-5 | The heavy-lock location and wait limit can be set. |
-| S-6 | Heartbeat poll interval, stall limit, freshness limit, depth limit and live-update target can be set per test. |
+| S-6 | Heartbeat poll interval, stall limit, depth limit and live-update target can be set per test. |
 | S-7 | Views can be pointed at a journal file that no run is writing. |
 | S-8 | The direct-HTTP adapter's endpoint base URL can be pointed at DBL-A. |
 
@@ -39,7 +39,6 @@ A case needs these to be runnable. If the contract offers a different mechanism,
 
 - **DBL-H (fake harness)**: an executable that follows a script. It records its argv, its environment variable *names* and its working directory to a capture file; writes a native transcript in the format of the adapter under test; can exit with any code, sleep, hang, spawn a grandchild, write given bytes to stdout and stderr, and report or withhold usage. For session-id cases it can also: report a session id at a scripted moment in a scripted place (first output chunk, a later chunk, never), never report one, report a different id than the one it was given, and, at its own start, read the journal file and record what it holds.
 - **DBL-A (API double)**: a local HTTP server that stands in for a vendor API (seam S-8). It follows a script (status, body, streamed chunks, delay, hang), and records every request's method, path, header names and values, and body to a capture file.
-- **DBL-Q (quota stub)**: returns a scripted value with a read time, or fails, or hangs.
 - **DBL-C (clock)**: seam S-2.
 - **Reader fixtures**: per adapter, a transcript file with all five event types, summary and encrypted thinking, unknown lines, and a deleted-file variant.
 - **Sampler**: records the complete argument list of every process of a child tree every 10 ms.
@@ -59,9 +58,9 @@ These files contain no tokens, accounts, host names, paths of any deployment, wo
 
 ### ACC-001 One profile, new session, one child, journal and CLI tree
 Covers: SUC-01, SCO-03, SCO-05, SCO-06, SCO-08, LED-010, VIEW-001, ADP-003, PRF-006
-Given: one neutral example profile for the claude-code adapter (subscription billing, quota stub reporting 20% used, fresh), DBL-H scripted for a root call and one child call, a clean temporary root; the root request sets `allow_nesting: {max_depth: 1}` (without it the root's own child call is refused, ACC-303).
+Given: one neutral example profile for the claude-code adapter (subscription billing, enabled), DBL-H scripted for a root call and one child call, a clean temporary root; the root request sets `allow_nesting: {max_depth: 1}` (without it the root's own child call is refused, ACC-303).
 When: through the CLI, the caller makes the root call with `session=new`, and the root's task makes one child call from inside the root harness; both finish; then `trinity tree <run>` runs.
-Then: the journal holds one run start and end, two nodes (root depth 0, child depth 1 with exactly one `parent` edge to the root), a quota check record before each node, at least one heartbeat row per node that ran longer than one poll interval, state lines `queued -> running -> done`, `exit_class` ok, `profile_reason` recorded; the tree shows two lines with correct indentation, 新 session mark with a short id for both, state glyph done, wall time, tokens, exit class and output kind; the journal contains none of the fixture's prompt, thinking, tool or output text.
+Then: the journal holds one run start and end, two nodes (root depth 0, child depth 1 with exactly one `parent` edge to the root), no quota check record, at least one heartbeat row per node that ran longer than one poll interval, state lines `queued -> running -> done`, `exit_class` ok, `profile_reason` recorded; the tree shows two lines with correct indentation, 新 session mark with a short id for both, state glyph done, wall time, tokens, exit class and output kind; the journal contains none of the fixture's prompt, thinking, tool or output text.
 Observable: parsed journal; the tree text; marker-string scan of the journal.
 Fails if: a node missing, a wrong parent, session shown as 续, a number not equal to the journal's, or any text in the journal.
 
@@ -119,7 +118,7 @@ Fails if: a collision, or an id that changes.
 
 ### ACC-013 Record kinds and required fields
 Covers: LED-014, SCO-05
-Given: a run exercising every kind: run start/end, node, state, edge, check (quota), check (heavy lock), heartbeat, session (one captured, one `session_unknown`, ACC-165, ACC-166).
+Given: a run exercising every kind: run start/end, node, state, edge, check (heavy lock), heartbeat, session (one captured, one `session_unknown`, ACC-165, ACC-166).
 When: the journal is parsed.
 Then: every line is one JSON object with a version field; each kind carries the fields the contract lists; no kind carries a free-text field holding prompt, thinking, tool or output content; prune lines are absent from the journal.
 Observable: schema validation of every line; absence of prune lines.
@@ -231,9 +230,9 @@ Fails if: an orphan appears, a live line is lost, or the file is rewritten witho
 
 ### ACC-027 Check and heartbeat lines carry what the contract says
 Covers: LED-014, CHK-001, CHK-003, CHK-006
-Given: a run with a quota check, a heavy-lock check, a heartbeat, and an override.
+Given: a run with a heavy-lock check, a heartbeat, and an override.
 When: parsed.
-Then: every quota check line names result, source kind and read time; every heavy-lock check line names result and wait time; a heartbeat line has time and source kind and no other content; every node line carries nesting depth.
+Then: every heavy-lock check line names result and wait time; a heartbeat line has time and source kind and no other content; every node line carries nesting depth.
 Observable: field presence per line.
 Fails if: any field missing or extra text present.
 
@@ -281,25 +280,25 @@ Then: 600 and 400 are usable; the others make the profile unusable with the reas
 Observable: usability per mode; DBL-H invocation count.
 Fails if: a wide mode is accepted, or the reason leaks the path.
 
-### ACC-053 Quota reads carry their time; stale means unknown
-Covers: PRF-004, CHK-002
-Given: freshness limit 300 s; reads aged 0 s, 299 s, 300 s, 301 s; a profile without a freshness limit.
-When: usability is evaluated.
-Then: 0, 299 and 300 s are known; 301 s counts as unknown; every read in the journal and in the listing shows its read time; the profile without a freshness limit is refused at load with a message naming the missing field.
-Observable: state per age; refusal.
-Fails if: 301 s counts as fresh, a read has no time, or a missing limit is defaulted silently.
+### ACC-053 Retired: quota reads no longer exist
+Covers: PRF-004, CHK-002 — both retired
+Given: a profile, including one carrying legacy `quota_source` and `freshness_limit` fields.
+When: dispatch prepares the call.
+Then: no quota read is performed or journaled; legacy fields are ignored.
+Observable: journal and profile resolution trace.
+Fails if: dispatch performs a quota read or refuses the legacy profile because of quota fields.
 
 ### ACC-054 Default pick
 Covers: PRF-005, SCO-02, NG-02
-Given: provider `claude` with profiles at 70%, 20%, 20% (tie), unknown, exhausted and disabled.
+Given: provider `claude` with enabled and disabled profiles.
 When: the caller names only the provider, ten times.
-Then: the pick is the lowest known use among enabled, non-exhausted profiles; the tie resolves the same way every time; unknown, exhausted and disabled are never picked; when only those remain, dispatch stops with a stated reason and nothing starts, unless the caller names a profile; the core never picks a profile of another provider.
+Then: the pick is among enabled profiles; quota is not consulted; the tie resolves the same way every time; disabled profiles are never picked; when no enabled profile remains, dispatch ends `check_failed` and nothing starts, unless the caller names a profile; the core never picks a profile of another provider.
 Observable: the chosen profile across ten runs; DBL-H invocation counts.
 Fails if: an excluded profile is picked, the tie flips, or dispatch starts with nothing eligible.
 
 ### ACC-055 The reason for the pick is journaled
 Covers: PRF-006
-Given: three calls: profile named, provider only, and an override of a failed check.
+Given: three calls: profile named, provider only, and an override of a failed heavy-lock check.
 When: they run.
 Then: each node line carries `profile_reason` = `named`, `default:lowest-use`, `override` respectively.
 Observable: the three values.
@@ -346,12 +345,12 @@ Observable: outcomes.
 Fails if: the disabled profile runs.
 
 ### ACC-061 The profile listing
-Covers: SCO-02, PRF-002, PRF-004
-Given: profiles with different billing modes, fresh and stale reads, and one default.
+Covers: SCO-02, PRF-002
+Given: profiles with different billing modes and one default.
 When: `trinity profiles` runs.
-Then: each row shows name, label, billing, current use with read time (stale or failed reads shown as unknown, not as a number), and the default marker sits on exactly one profile per provider, the one ACC-054 would pick.
+Then: each row shows name, label, billing, and the default marker sits on exactly one profile per provider, the one ACC-054 would pick.
 Observable: parsed rows.
-Fails if: a stale read is shown as a number or two defaults appear.
+Fails if: two defaults appear or a quota-read column is shown.
 
 ---
 
@@ -499,21 +498,21 @@ Fails if: a mode is lost.
 
 ## 5. Dispatch core
 
-### ACC-110 A quota check precedes every node
-Covers: CHK-001, SCO-04, LED-014
+### ACC-110 Retired: no quota check precedes a node
+Covers: CHK-001, SCO-04, LED-014 — retired
 Given: a run of three nodes.
 When: it runs.
-Then: for each node a quota check line (result, source kind, read time) is written before the node enters `running`.
+Then: each node runs without any quota check line.
 Observable: line order.
-Fails if: a node runs without a preceding check.
+Fails if: a quota check line is written.
 
-### ACC-111 Unknown, stale, failed and exhausted all stop the node
-Covers: CHK-002, LAW-06, SCO-04
-Given: DBL-Q scripted as: source missing; source errors; read older than the limit; value exhausted; value unknown.
+### ACC-111 Retired: quota state no longer stops a node
+Covers: CHK-002 — retired
+Given: profiles whose legacy quota fields would previously be missing, stale, failed, or exhausted.
 When: a node is requested for each.
-Then: the node goes `queued -> failed` with exit class `check_failed`, never runs, a check line records the result, the CLI exits non-zero with a stated reason naming the profile and the check (not the source location); with the caller's override flag and reason (ACC-113) it runs.
-Observable: states; invocation count 0; message.
-Fails if: any case starts a process without an override.
+Then: dispatch does not evaluate quota; each node proceeds through the unchanged post-profile gates.
+Observable: journal; invocation count.
+Fails if: a legacy quota state stops a node.
 
 ### ACC-112 Heavy lock
 Covers: CHK-003, SCO-04, LED-014
@@ -525,8 +524,8 @@ Fails if: unbounded waiting, a lock left held, or the non-heavy node blocked.
 
 ### ACC-113 Override is a closed code, explicit and recorded
 Covers: CHK-004, DSP-003, DSP-014, LAW-06
-Given: a failing quota check and a failing lock check.
-When: the caller passes an override for the failing check (a) with each code of the closed list (`owner_approved`, `source_outage`, `lock_holder_known`, `other`), optionally with an `override_ref`; (b) with no code; (c) with a code not on the list (for example `because`, an empty string, or a sentence).
+Given: a failing lock check.
+When: the caller passes an override for it (a) with each code of the closed list (`owner_approved`, `lock_holder_known`, `other`), optionally with an `override_ref`; (b) with no code; (c) with a code not on the list (for example `because`, an empty string, or a sentence).
 Then: (a) the node runs and the check line records result `override`, the code and the ref if given, and no free text; (b) and (c) are refused with `bad_request`, no node is written and no process starts; an `override_ref` is a pointer, not text (see ACC-211).
 Observable: check line fields; refusal class; node count.
 Fails if: an override works silently, without a code, with an unlisted code, or stores text.
@@ -595,19 +594,19 @@ Then: behaviour equals the baseline; nothing in them reads or writes the journal
 Observable: output equivalence; file access trace.
 Fails if: behaviour changed or they touch the journal.
 
-### ACC-122 Fail-closed checks are bounded
-Covers: LAW-06, CHK-002, DSP-016, DSP-008
-Given: a quota source that hangs; a lock location that is unreachable.
+### ACC-122 Retired quota timeout; heavy-lock failure remains bounded
+Covers: LAW-06, DSP-008 — CHK-002/DSP-016 retired
+Given: a lock location that is unreachable.
 When: a node is requested (test clock).
-Then: the quota read gives no answer at 10 s (9 s still waiting, 10 s ends), counts as unknown (CHK-002), and the node ends `queued -> failed` with `check_failed`; the unreachable lock location ends the node `lock_unavailable` at once, without waiting out `lock_wait_s` (DSP-008); the CLI does not hang.
+Then: dispatch performs no quota read; the unreachable lock location ends the node `lock_unavailable` at once, without waiting out `lock_wait_s` (DSP-008); the CLI does not hang.
 Observable: time to the failure on the test clock; state; exit class.
-Fails if: unbounded waiting, a different timeout, a wait on the unreachable lock, or a start without an answer.
+Fails if: dispatch reads quota, waits on the unreachable lock, or starts the node.
 
 ### ACC-123 Order of the steps in one call
-Covers: DSP-002, CHK-001, CHK-002
-Given: a call that fails the quota check, a call whose journal append fails at step 3, a call that fails the heavy lock, a call that is refused at validation, and a call that passes everything; a spy sees each step.
+Covers: DSP-002
+Given: a call whose journal append fails at step 3, a call that fails the heavy lock, a call that is refused at validation, and a call that passes everything; a spy sees each step.
 When: they run.
-Then: the order is (1) validate, (2) resolve the profile, (3) under the journal lock: assign the round number and, for `session: new` on an adapter that pre-assigns, generate the session id, append the node record `queued` with its edges (and that id, source `assigned`), release the lock, (4) profile check, (5) dependency gate, (6) quota check, (7) heavy lock, (8) adapter call, (9) end state; a stop at validation, or a journal failure at step 3 (lock or append), leaves no node; the lock is released before step 4 and never held across a check, a wait or the adapter call; a stop at profile check, dependency gate, quota check or heavy lock ends the node `queued -> failed` with the class of that step (exception: a dependency cycle, see ACC-314b and ACC-316), and no later step is reached.
+Then: the order is (1) validate, (2) resolve the profile, (3) under the journal lock: assign the round number and, for `session: new` on an adapter that pre-assigns, generate the session id, append the node record `queued` with its edges (and that id, source `assigned`), release the lock, (4) profile check, (5) dependency gate, (6) heavy lock, (7) adapter call, (8) end state; a stop at validation, or a journal failure at step 3 (lock or append), leaves no node; the lock is released before step 4 and never held across a check, a wait or the adapter call; a stop at profile check, dependency gate or heavy lock ends the node `queued -> failed` with the class of that step (exception: a dependency cycle, see ACC-314b and ACC-316), and no later step is reached.
 Observable: step trace (including lock acquire and release marks); node lines.
 Fails if: a step runs out of order, a node exists after a validation stop or a step-3 journal failure, the lock is held while a check or the adapter runs, or a step after the stopping one runs.
 
@@ -644,13 +643,13 @@ Then: the core polls every 15 s (poll times 15 s apart, at most one row per poll
 Observable: row times; count; refusal.
 Fails if: a different default interval, a row per poll without new evidence, or the floor not enforced.
 
-### ACC-128 Overrides cover the quota check and the heavy lock only
+### ACC-128 Overrides cover the heavy lock only
 Covers: DSP-014, CHK-004, LAW-06
-Given: an override code supplied on a call that ends (a) `profile_refused` (wide credential mode), (b) blocked by a failed dependency, (c) refused by the recursion guard, (d) hit by `journal_unavailable`, (e) blocked by the quota check, (f) blocked by the heavy lock.
+Given: an override code supplied on a call that ends (a) `profile_refused` (wide credential mode), (b) blocked by a failed dependency, (c) refused by the recursion guard, (d) hit by `journal_unavailable`, (e) blocked by the heavy lock.
 When: each runs.
-Then: (a) to (d) are not overridden: the same class as without the override; no override check line is written for them; (e) and (f) run and write a check line `override` with the code.
+Then: (a) to (d) are not overridden: the same class as without the override; no override check line is written for them; (e) runs and writes a check line `override` with the code.
 Observable: class per case; check lines; invocation counts.
-Fails if: any of (a) to (d) starts a process, or (e)/(f) ignore the override.
+Fails if: any of (a) to (d) starts a process, or (e) ignores the override.
 
 ### ACC-129 Dependency gate: waiting, failed targets, interrupts
 Covers: DSP-007, DSP-013, GRF-005, GRF-009
@@ -672,9 +671,9 @@ Fails if: a queued node runs after the interrupt, a survivor remains in the grou
 Covers: DSP-006, PRF-005, PRF-010, ADP-010
 Given: (a) a named profile; (b) provider only; (c) a continue whose session is found in the journal; (d) a continue whose session id is in no journal node and no profile named; (e) a disabled profile; (f) a credential file with wide mode; (g) a retired model id; (h) a provider whose default pick finds no candidate (two profiles skipped).
 When: each call is made.
-Then: (a) is used as named; (b) default pick; (c) the session's own profile is used; (d) the caller must name the profile (`bad_request`, no node); (e), (f), (g) end the node `queued -> failed` with `profile_refused` and no process starts; (h) the node carries `profile: null`, one quota check line per skipped candidate, and ends `check_failed`.
-Observable: result class; node `profile` field; check line count; invocation count.
-Fails if: any refused profile starts a process, (h) leaves no per-candidate check line, or (d) guesses a profile.
+Then: (a) is used as named; (b) default pick; (c) the session's own profile is used; (d) the caller must name the profile (`bad_request`, no node); (e), (f), (g) end the node `queued -> failed` with `profile_refused` and no process starts; (h) the node carries `profile: null` and ends `check_failed`.
+Observable: result class; node `profile` field; invocation count.
+Fails if: any refused profile starts a process, (h) performs a quota read, or (d) guesses a profile.
 
 ### ACC-144 One class per result, and the retry owner
 Covers: DSP-010, DSP-011, CHK-008
@@ -832,7 +831,7 @@ Note: `session_unknown` covers any end with no id, not only a clean one; the fai
 Covers: DSP-021, OPEN-D1, DSP-006, DSP-018, LAW-02
 Given: two copies of one fixture journal holding run R with a finished node N (step S, parent P, profile X, session id I, round 1); a prompt Q; for each adapter whose continue form is settled (ADP-016 table; the rest are "not applicable until probed").
 When: on copy 1 `trinity resume R/N "Q"`; on copy 2 the explicit call: continue, run R, session I, profile X, step S, parent P, prompt Q, no other option. Then a third pair: both forms with an override requested but no code; and a pair naming a node that is not in R.
-Then: the two runs append the same lines apart from generated ids and times: same kinds in the same order (node, edges, state, checks), same mode `continue`, same session id, profile, step, parent, run, same round number (DSP-018), same harness argv and environment names, same quota check and lock behaviour, the same result field set and exit class; resume writes no field that the explicit call does not and drops none; the override without a code is refused alike (`bad_request`, nothing written); a node not in R is refused as the explicit call with an unknown parent is, `bad_request` and nothing written; a code spy shows `resume` reaches the dispatch core through the same single call entry (ACC-070, ACC-120) and holds no check or step logic of its own.
+Then: the two runs append the same lines apart from generated ids and times: same kinds in the same order (node, edges, state, checks), same mode `continue`, same session id, profile, step, parent, run, same round number (DSP-018), same harness argv and environment names, same lock behaviour, the same result field set and exit class; resume writes no field that the explicit call does not and drops none; the override without a code is refused alike (`bad_request`, nothing written); a node not in R is refused as the explicit call with an unknown parent is, `bad_request` and nothing written; a code spy shows `resume` reaches the dispatch core through the same single call entry (ACC-070, ACC-120) and holds no check or step logic of its own.
 Observable: normalised journal tail of both copies compared; argv capture; result key sets; call-entry spy.
 Fails if: the tails differ beyond ids and times, resume skips or adds a check, picks another profile, starts a new session, has its own validation, or accepts `--profile` or `--session`.
 Sub-case: `trinity resume R/N "Q" --profile Y` and `trinity resume R/N "Q" --session J` (each, and both) are refused with `bad_request` (DSP-021: resume takes both from the node only), nothing is written, no process starts.
@@ -1274,7 +1273,7 @@ Status against the contracts at draft 0.2: gaps 1 to 4 and 6 to 10 are closed by
 4. **Stuck.** Closed: a mutual wait is derived, never written (GRF-006); a `depends` on an ancestor is refused at validation (GRF-010); indirect loops through nesting return `dependency_cycle` (ACC-314, ACC-314b, ACC-316).
 5. **The older session store and per-review metadata** (LED-R5, OPEN-L3) are still open in the specs; until they are settled there is no case that proves they are derived caches.
 6. **Depth limit.** Closed: default 2 when `allow_nesting: true`, 1 to 5, inherited and not raisable (DSP-015; ACC-304, ACC-162).
-7. **Live update delay, quota-read timeout, missing `v`, exit status.** Closed: 2 s (VIEW-012), 10 s (DSP-016), a defect by line (LED-011), exit 0/1/2/3 (VIEW-013); ACC-141, ACC-122, ACC-019, ACC-158.
+7. **Live update delay, missing `v`, exit status.** Closed: 2 s (VIEW-012), a defect by line (LED-011), exit 0/1/2/3 (VIEW-013); ACC-141, ACC-019, ACC-158. The quota-read timeout is retired.
 8. **Clock injection.** Closed: one replaceable clock function (DSP-019; seam S-2, ACC-159).
 9. **Terminal control sequences.** Closed: VIEW-007 covers the terminal as well as HTML (ACC-135).
 10. **Length bound.** Closed: a journal line is at most 4 KiB (DSP-017; ACC-224, ACC-160).

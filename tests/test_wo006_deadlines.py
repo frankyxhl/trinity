@@ -104,7 +104,6 @@ def _dispatch(
     monkeypatch.delenv("TRINITY_GUARD", raising=False)
     monkeypatch.delenv("TRINITY_HEARTBEAT_POLL_S", raising=False)
     monkeypatch.setattr(profiles, "load", lambda _path: entries)
-    monkeypatch.setattr(dispatch.quota, "check", lambda _profile: {"result": "ok"})
     monkeypatch.setattr(dispatch.claude_code, "run", runner)
     return dispatch.call(
         {
@@ -866,7 +865,7 @@ import os
 import sys
 from pathlib import Path
 
-from scripts.trinity_core import dispatch, journal, profiles, quota
+from scripts.trinity_core import dispatch, journal, profiles
 
 root = Path(sys.argv[1])
 journal.LOCK_WAIT_S = 0.2
@@ -878,7 +877,6 @@ profiles.load = lambda _path: {
         "credential_source": {"wrapper": "wo006-wrapper"},
     }
 }
-quota.check = lambda _profile: {"result": "ok"}
 os.environ["TRINITY_ROOT"] = str(root)
 os.environ["PATH"] = str(root)
 os.environ["TRINITY_HEARTBEAT_POLL_S"] = "0.01"

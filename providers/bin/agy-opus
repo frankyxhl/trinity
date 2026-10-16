@@ -11,10 +11,6 @@
 #   Output: agy --output-format json on stdout — {conversation_id, status,
 #   response, duration_seconds, num_turns, usage}; the worker card parses it.
 #
-# Budget guard (pfc D120): refuses to start when the 'Claude and GPT models'
-# five-hour bucket shows < 20% remaining (floor overridable via
-# AGY_OPUS_MIN_5H_PCT). The /usage read is a zero-quota status call.
-#
 # Quirk handled (TRI-0002 §4): agy print-mode runs SHARE
 # ~/.gemini/antigravity-cli/scratch. Runs are serialised by a lock dir held
 # for the WHOLE run (B1, forge pilot/trinity#1), and the pre-run clear is
@@ -23,11 +19,7 @@
 set -eu
 
 MODEL="claude-opus-4-6-thinking"
-FAMILY="Claude and GPT models"
-WINDOW="Five Hour Limit Remaining"
-MIN_PCT="${AGY_OPUS_MIN_5H_PCT:-20}"
 SCRATCH="$HOME/.gemini/antigravity-cli/scratch"
-USAGE_TIMEOUT="${AGY_OPUS_USAGE_TIMEOUT:-45}"
 LOCK_DIR="${SCRATCH}.lock"
 LOCK_WAIT="${AGY_OPUS_LOCK_WAIT:-600}"
 
@@ -52,20 +44,6 @@ done
 if [ "$#" -eq 0 ]; then
     echo "usage: agy-opus [agy flags…] \"<task text>\"" >&2
     exit 2
-fi
-
-# Budget guard — one zero-quota /usage status read.
-PCT=$(agy --print="/usage" --print-timeout "${USAGE_TIMEOUT}s" 2>/dev/null \
-    | awk -F'\t' -v fam="$FAMILY" -v win="$WINDOW" \
-        '$1 == fam && $2 == win { gsub(/%/, "", $3); print int($3); exit }')
-case "${PCT:-}" in
-    ''|*[!0-9]*)
-        echo "agy-opus: cannot read /usage (signed out? offline?) — refusing to start" >&2
-        exit 1 ;;
-esac
-if [ "$PCT" -lt "$MIN_PCT" ]; then
-    echo "agy-opus: budget guard — $FAMILY $WINDOW at ${PCT}% (floor ${MIN_PCT}%) — try later or another provider" >&2
-    exit 1
 fi
 
 # Run lock (B1, forge pilot/trinity#1): one agy-opus run at a time. The

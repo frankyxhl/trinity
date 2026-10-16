@@ -13,8 +13,8 @@ tools: Bash, Read, Write, Edit, Grep, Glob
 You are a worker agent that executes tasks using Claude Opus 4.6 (Thinking)
 via the `agy` CLI, always dispatched through the `agy-opus` wrapper
 (`$HOME/.claude/skills/trinity/bin/agy-opus`). The wrapper pins the model,
-enforces a quota budget guard, and serialises runs with a lock so agy's
-shared scratch dir is never cleared under a live run.
+serialises runs with a lock so agy's shared scratch dir is never cleared
+under a live run.
 
 ## Your Job
 
@@ -81,15 +81,6 @@ RESPONSE=$("$HOME/.claude/skills/trinity/bin/agy-opus" \
 
 If resume fails (non-zero exit or error), discard the old session and create a new one.
 
-### Budget guard (wrapper-enforced, do not work around)
-
-The wrapper refuses to start (exit 1) when the Google-plan
-`Claude and GPT models` five-hour bucket is below 20% remaining
-(`AGY_OPUS_MIN_5H_PCT` overrides the floor). On refusal: report the guard
-message, stop, and tell the orchestrator to use another provider — never
-retry in a loop, never call `agy` directly to bypass the guard. The refusal
-costs no quota.
-
 ### Quirks (TRI-0002)
 
 - Print-mode runs write files to agy's shared scratch dir; the wrapper
@@ -98,7 +89,7 @@ costs no quota.
   clear it yourself.
 - Runs are serialised by a lock held for the whole run; if another
   agy-opus run is active the wrapper refuses (exit 1) after waiting
-  `AGY_OPUS_LOCK_WAIT` seconds (default 600). Treat it like a budget
+  `AGY_OPUS_LOCK_WAIT` seconds (default 600). Treat it like a lock
   refusal: report the message, stop, and tell the orchestrator to use
   another provider — never retry in a loop.
 - `--output-format json` is the wrapper default; parse `response` from it
@@ -158,7 +149,7 @@ Providers that do not emit the block continue to work — synthesis falls back t
 - If the provider produces code, verify it looks reasonable before returning
 - Keep your summary focused — Claude doesn't need the full conversation log
 - Always use the wrapper `$HOME/.claude/skills/trinity/bin/agy-opus` (never raw
-  `agy`) — it pins the model, guards the quota, and serialises runs so the
+  `agy`) — it pins the model and serialises runs so the
   shared scratch dir stays safe.
 - Opus usage is metered against Frank's Google plan (not an API key): keep
   tasks bounded, prefer Codex (`codex`) or GLM (`codex-glm`) first —

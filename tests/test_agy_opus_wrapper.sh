@@ -4,22 +4,25 @@
 # plus the pinned-model contract; review-judge verdict 2026-09-05, F2).
 #
 # Every scenario runs the wrapper under a fake HOME with doubles on PATH —
-# `agy` (answers /usage with the TSV the wrapper parses, records argv) and
+# `agy` (records every invocation and argv) and
 # `pgrep` (reports whether another agy process is alive). Nothing touches the
-# real ~/.gemini/antigravity-cli or the real quota.
+# real ~/.gemini/antigravity-cli or the real CLI.
 #
 # Helper vocabulary (QA-0001 R9 — helpers may branch; scenarios may not):
-#   given_fake_agy <pct> — install the fake `agy` answering /usage at <pct>% five-hour
+#   given_fake_agy — install the fake `agy` that logs every call and records argv
 #   given_quiet_pgrep    — install a fake `pgrep` reporting NO other agy alive
 #   given_busy_pgrep     — install a fake `pgrep` reporting an agy process alive
 #   given_stale_file     — drop stale.txt into the shared scratch dir
 #   given_live_lock      — pre-create the run lock held by a live foreign process
 #   given_dead_lock      — pre-create the run lock held by an exited process
+#   given_fake_agy_no_usage — install the fake `agy` that logs every call and
+#   answers a normal run like given_fake_agy
 #   when_wrapper <args…> — run the wrapper; captures RC (exit) / OUT / ERR
 #   assert_rc <n> <msg>          — exit status is exactly n
 #   assert_err <text> <msg>      — stderr contains text
 #   assert_argv <text> <msg>     — the fake agy received text in its argv
-#   assert_no_argv <msg>         — the fake agy was never exec'd
+#   assert_no_argv <msg>         — the fake agy was never exec'd for a normal run
+#   assert_no_usage_call <msg>   — the fake agy never received --print=/usage
 #   assert_present / assert_absent <path> <msg> — file exists / does not
 
 set -u
@@ -44,6 +47,8 @@ setup() {
     mkdir -p "$BIN"
     ARGV_LOG="$T/argv.log"
     : > "$ARGV_LOG"
+    CALLS_LOG="$T/calls.log"
+    : > "$CALLS_LOG"
     export PATH="$ORIG_PATH"
     export HOME="$HOME_DIR"
     export AGY_OPUS_LOCK_WAIT=2
@@ -61,13 +66,26 @@ trap teardown EXIT
 given_fake_agy() {
     cat > "$BIN/agy" <<FAKE
 #!/bin/sh
+printf '%s\n' "\$*" >> '${CALLS_LOG}'
+i=0
+for a in "\$@"; do
+    i=\$((i + 1))
+    printf 'ARG%d=[%s]\n' "\$i" "\$a"
+done > '${ARGV_LOG}'
+printf '{"conversation_id":"c-1","status":"SUCCESS","response":"ok"}\n'
+FAKE
+    chmod +x "$BIN/agy"
+    export PATH="$BIN:$ORIG_PATH"
+}
+
+given_fake_agy_no_usage() {
+    cat > "$BIN/agy" <<FAKE
+#!/bin/sh
+printf '%s\n' "\$*" >> '${CALLS_LOG}'
 for a in "\$@"; do
     case "\$a" in
         --print=/usage)
-            printf 'Gemini models\tFive Hour Limit Remaining\t90%%\n'
-            printf 'Claude and GPT models\tFive Hour Limit Remaining\t${1}%%\n'
-            printf 'Claude and GPT models\tWeekly Limit Remaining\t70%%\n'
-            exit 0 ;;
+            exit 1 ;;
     esac
 done
 i=0
@@ -134,6 +152,10 @@ assert_no_argv() {
     if [ ! -s "$ARGV_LOG" ]; then pass "$1"; else fail "$1: agy was invoked ($(cat "$ARGV_LOG"))"; fi
 }
 
+assert_no_usage_call() {
+    if ! grep -qF -- "--print=/usage" "$CALLS_LOG"; then pass "$1"; else fail "$1: agy received --print=/usage"; fi
+}
+
 assert_present() {
     if [ -e "$1" ]; then pass "$2"; else fail "$2: $1 missing"; fi
 }
@@ -149,30 +171,19 @@ run_scenario() {
     T=""
 }
 
-t_guard_refuses_below_floor() {
-    given_fake_agy 15
+t_pins_model() {
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper "hello"
 
-    assert_rc 1 "budget guard refuses below the 20% five-hour floor"
-    assert_err "budget guard" "refusal names the budget guard"
-    assert_err "Claude and GPT models" "refusal names the model family"
-}
-
-t_guard_passes_and_pins_model() {
-    given_fake_agy 55
-    given_quiet_pgrep
-
-    when_wrapper "hello"
-
-    assert_rc 0 "guard passes at 55% five-hour remaining"
+    assert_rc 0 "wrapper starts and execs agy"
     assert_argv "claude-opus-4-6-thinking" "model is pinned to claude-opus-4-6-thinking"
     assert_argv "[15m]" "print timeout defaults to 15m"
 }
 
 t_task_text_preserved_verbatim() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper "say 'hi' \$HOME & done"
@@ -182,7 +193,7 @@ t_task_text_preserved_verbatim() {
 }
 
 t_caller_flags_survive_quoting() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper --add-dir "/tmp/my proj" --conversation c-9 "task"
@@ -193,7 +204,7 @@ t_caller_flags_survive_quoting() {
 }
 
 t_refuses_model_override_without_exec() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper --model gemini-3.8-flash "hello"
@@ -204,7 +215,7 @@ t_refuses_model_override_without_exec() {
 }
 
 t_task_dash_p_is_still_the_task() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper "-p"
@@ -214,7 +225,7 @@ t_task_dash_p_is_still_the_task() {
 }
 
 t_task_model_prefix_is_still_the_task() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper "--model=evil task"
@@ -224,7 +235,7 @@ t_task_model_prefix_is_still_the_task() {
 }
 
 t_clears_stale_scratch_on_solo_run() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
     given_stale_file
 
@@ -235,7 +246,7 @@ t_clears_stale_scratch_on_solo_run() {
 }
 
 t_skips_clear_while_agy_alive() {
-    given_fake_agy 55
+    given_fake_agy
     given_busy_pgrep
     given_stale_file
 
@@ -246,7 +257,7 @@ t_skips_clear_while_agy_alive() {
 }
 
 t_refuses_while_lock_held() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
     given_live_lock
 
@@ -258,7 +269,7 @@ t_refuses_while_lock_held() {
 }
 
 t_takes_over_dead_holder_lock() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
     given_dead_lock
 
@@ -269,7 +280,7 @@ t_takes_over_dead_holder_lock() {
 }
 
 t_finished_run_does_not_block_the_next() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper "first run"
@@ -280,7 +291,7 @@ t_finished_run_does_not_block_the_next() {
 }
 
 t_no_arguments_is_a_usage_error() {
-    given_fake_agy 55
+    given_fake_agy
     given_quiet_pgrep
 
     when_wrapper
@@ -290,18 +301,29 @@ t_no_arguments_is_a_usage_error() {
     assert_no_argv "agy is never invoked"
 }
 
-t_refuses_when_usage_unreadable() {
-    export PATH="/usr/bin:/bin"
+t_runs_without_usage_read() {
+    given_fake_agy
+    given_quiet_pgrep
 
     when_wrapper "hello"
 
-    assert_rc 1 "unreadable /usage refuses to start"
-    assert_err "cannot read /usage" "refusal names the /usage read"
-    assert_no_argv "agy is never invoked after the refusal"
+    assert_rc 0 "wrapper runs without reading /usage"
+    assert_no_usage_call "wrapper does not read /usage"
+    assert_argv "hello" "task reaches agy without a usage read"
+    assert_argv "claude-opus-4-6-thinking" "model pin survives without a usage read"
 }
 
-run_scenario t_guard_refuses_below_floor
-run_scenario t_guard_passes_and_pins_model
+t_runs_when_usage_unreadable() {
+    given_fake_agy_no_usage
+    given_quiet_pgrep
+
+    when_wrapper "hello"
+
+    assert_rc 0 "wrapper runs when /usage is unreadable"
+    assert_argv "hello" "run reaches agy when /usage is unreadable"
+}
+
+run_scenario t_pins_model
 run_scenario t_task_text_preserved_verbatim
 run_scenario t_caller_flags_survive_quoting
 run_scenario t_refuses_model_override_without_exec
@@ -313,7 +335,8 @@ run_scenario t_refuses_while_lock_held
 run_scenario t_takes_over_dead_holder_lock
 run_scenario t_finished_run_does_not_block_the_next
 run_scenario t_no_arguments_is_a_usage_error
-run_scenario t_refuses_when_usage_unreadable
+run_scenario t_runs_without_usage_read
+run_scenario t_runs_when_usage_unreadable
 
 echo "agy-opus wrapper: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

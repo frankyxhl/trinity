@@ -10,7 +10,7 @@ This file states what every Trinity component must agree on: scope, terms, rules
 - Code baseline: Trinity 3.3.0, i.e. the public `main` plus later commits not yet public; the exact commit is recorded outside this repo. Other copies (an unmerged model-id guard branch, locally installed copies) are **reference input only**; any fix they carry is re-specified from WO-002, not ported.
 - Today's shape at the baseline: a host skill (`SKILL.md`) that spawns one background worker per call from generated agent files (`providers/<p>.delta.md` + `providers/_base/*.md`); a registry (`providers/registry.json`: cli, resume flag, timeout per provider); shell wrappers in `providers/bin/`; sessions per instance key in `<project>/.claude/trinity.json` (`scripts/session.py`, `fcntl.flock`); a review pipeline (`scripts/_review.py`, `provider_runtime.py`, per-review `metadata.json`). No run, no parent, no rounds are recorded today.
 - Decision record TRN-3000 (stay a CLI backend, not ACP) stands. It means event detail must come from vendor transcripts, not structured events.
-- Owner plan for this rework: all harnesses in current use, profiles for multiple accounts, one call path with continue/new session, quota and heavy-lock checks, a call-tree journal, CLI and web views with live update, retry rounds shown as ↺, remove gemini.
+- Owner plan for this rework: all harnesses in current use, profiles for multiple accounts, one call path with continue/new session and heavy-lock check, a call-tree journal, CLI and web views with live update, retry rounds shown as ↺, remove gemini.
 - A design sketch of the views exists outside the repo; the parts this spec relies on are written out in `spec-tree-view.md`.
 
 ## 1. Purpose and scope
@@ -22,7 +22,7 @@ This file states what every Trinity component must agree on: scope, terms, rules
 | SCO-01 | Adapters for every harness in current use: claude-code, codex, droid (glm, minimax), agy, anthropic-compat (openrouter; deepseek metered, OPEN-A3), opencode, deepseek-api. Mapping in §2.1 | owner plan |
 | SCO-02 | Profiles: named credential + model + billing + retention bundles (e.g. `claude:account-1`); default by lowest current use | owner plan |
 | SCO-03 | One common call path: new session or continue session, same for every harness | owner plan |
-| SCO-04 | Pre-dispatch checks: quota and heavy-job lock (§5) | owner plan |
+| SCO-04 | Pre-dispatch check: heavy-job lock (§5) | owner plan |
 | SCO-05 | Journal (账本) as a call tree, with rounds (↺) | owner plan |
 | SCO-06 | Views over the journal: CLI tree and web page, both live | owner plan |
 | SCO-07 | Remove gemini | owner plan |
@@ -50,11 +50,9 @@ Component specs use these terms and do not redefine them.
 | Harness | 工具壳 | A vendor CLI or API endpoint that runs a model session (claude, codex, droid, agy, opencode, HTTP API). |
 | Adapter | 提供方适配 | Core code that turns one call into one harness invocation and back, and reads that harness's transcripts. One per harness. |
 | Provider | 提供方 | Name users type (`codex`, `glm`). Maps to one adapter (§2.1). Kept for compatibility. |
-| Profile | profile | A named bundle: provider + credential source + model + billing mode + quota source + transcript retention. |
+| Profile | profile | A named bundle: provider + credential source + model + billing mode + transcript retention. |
 | Profile pack | profile 包 | The private set of real profiles for one deployment. Lives in a separate private repository, never in this repo (LAW-09). |
 | Credential source | 凭据来源 | Where a credential is read from: an env var name or a file path. Never the value. |
-| Quota source | 额度来源 | Where current use is read from, by kind: vendor CLI status, API balance, or a shared status board. |
-| Freshness limit | 新鲜度上限 | Maximum age of a quota read before it counts as unknown. |
 | Billing mode | 计费 | `subscription` (window/weekly quota) or `metered` (pay per token/request). |
 | Session | 会话 | The harness's own conversation id. Continue (续) reuses it; new (新) starts one. |
 | Run | 运行 | One orchestrator task and every call made under it. Has a run id. |
@@ -63,7 +61,7 @@ Component specs use these terms and do not redefine them.
 | Step | 步骤 | A named role inside a run (author, review, check). A step has one or more rounds. |
 | Round | 轮次 | Any attempt at a step. Each round is its own node; a further round is linked by a `round` edge and drawn as ↺; its reason is one of: review rejection, failure, timeout, stuck, manual. |
 | Journal | 账本 | Append-only record of runs, nodes, edges, checks and heartbeats. Holds **pointers, never transcript text** (LAW-08). File layout: OPEN-L1. |
-| Check record | 检查记录 | Journal record of a pre-dispatch check result (quota, heavy lock) for one node. |
+| Check record | 检查记录 | Journal record of a pre-dispatch check result (heavy lock) for one node. |
 | Transcript | 原始记录 | The vendor's own session record (file or API history). Owned by the vendor, not by Trinity. |
 | Ref (pointer) | 指针 | Journal field locating transcript data: path + byte offset or content hash, plus harness type. |
 | Reader | 读取器 | Per-harness code that turns a transcript (via ref) into unified events, on demand. |
@@ -98,7 +96,7 @@ Component specs use these terms and do not redefine them.
 | LAW-03 | **No in-place edits.** Journal lines are never edited. Corrections are new lines. The only removal is the retention prune of whole runs older than 90 days (LED-013), and every prune is logged. |
 | LAW-04 | **No secret in any Trinity output.** Credential values never appear in the journal, logs, argv, prompts or views. Profiles name a credential *source*, not a value. Credential text that reaches a reader through a transcript is caught by pattern redaction (ADP-012), which is best-effort; the WO-002 leak-test fixture defines the bar. |
 | LAW-05 | **Model ids are data.** A model id appears in profile data only, never in adapter code or agent prose. Retired ids are refused (mechanism to be specified in WO-002; TRN-1006). |
-| LAW-06 | **Fail closed on checks.** If the quota or heavy-lock check cannot get an answer, dispatch stops with a stated reason unless the caller passes an explicit override, which is journaled. |
+| LAW-06 | **Fail closed on checks.** If the heavy-lock check cannot get an answer, dispatch stops with a stated reason unless the caller passes an explicit override, which is journaled. |
 | LAW-07 | **Recursion guard.** A child harness must not dispatch Trinity again unless the run explicitly allows nesting, and then only up to the run's depth limit (DSP-015); nesting depth is journaled. |
 | LAW-08 | **Pointers, never text.** The journal stores ref + harness type only. It never stores prompt, thinking, tool or output text — no per-run option, no archive exception (decided, OPEN-05). |
 | LAW-09 | **Deployment facts stay outside the repo.** Real accounts, token locations, status-board locations, lock paths and host names live in the private profile pack, which this repo never names or points to. The repo ships neutral examples only. |
@@ -124,7 +122,7 @@ Component specs use these terms and do not redefine them.
 | Component | Spec | Changes for one reason |
 | --- | --- | --- |
 | Provider adapters (call + reader) | `spec-provider-adapters.md`; reader contract `contracts/transcript-reader.md` | A vendor CLI/API or transcript format changes |
-| Profiles | `spec-profiles.md` | Accounts, models, billing, quota sources, retention change |
+| Profiles | `spec-profiles.md` | Accounts, models, billing, retention change |
 | Journal (账本) | `spec-ledger.md`; graph clause `contracts/graph.md` | The record format changes |
 | Tree render + live view | `spec-tree-view.md` | Presentation changes |
 | Dispatch core | §5 below (summary) + `contracts/dispatch-core.md` | Call path, checks, retry ownership change |
@@ -134,10 +132,10 @@ Component specs use these terms and do not redefine them.
 
 | ID | Requirement |
 | --- | --- |
-| CHK-001 | Before each node starts, the core runs the quota check for the chosen profile and writes a check record (result, source kind, read time). |
-| CHK-002 | A quota read that is missing, failed, or older than the profile's freshness limit counts as unknown; unknown or exhausted stops the node before it starts (state `queued → failed`, exit class `check_failed`, LED-005) unless overridden. |
+| CHK-001 | **Retired.** Dispatch performs no pre-call quota check. |
+| CHK-002 | **Retired.** Dispatch performs no quota staleness or exhaustion gate; a provider 429 follows the existing adapter error path. |
 | CHK-003 | A node marked heavy acquires the heavy lock before start and releases it at end; failure to acquire within the lock wait limit (default 1200 s, DSP-008; settles OPEN-11) stops the node before it starts (`queued → failed`, exit class `lock_unavailable`), and a lock check record is written. |
-| CHK-004 | An override of CHK-002/003 is a caller flag, journaled in the check record as a closed `override_reason` code (`owner_approved`, `source_outage`, `lock_holder_known`, `other`) plus an optional `override_ref` pointer to the caller's own text — never free text in the journal. |
+| CHK-004 | An override of CHK-003 is a caller flag, journaled in the check record as a closed `override_reason` code (`owner_approved`, `lock_holder_known`, `other`) plus an optional `override_ref` pointer to the caller's own text — never free text in the journal. |
 | CHK-005 | The core sets the recursion guard on every child (ADP-007) and journals nesting depth per node (LAW-07). |
 | CHK-006 | The core owns heartbeat rows: it polls the adapter's heartbeat source and appends a heartbeat row (time + source kind) at most once per poll interval (default 15 s, DSP-009; settles OPEN-12), and only when the source shows new evidence. |
 | CHK-007 | Session not found (ADP-004) is surfaced to the caller; starting a new session instead is a caller decision and appears as a new node. |
@@ -163,7 +161,6 @@ Environment limits (each spec has its detail):
   - **Error log** (local file, core-owned): holds the redacted stderr tail for `unknown` exits (ADP-002); same redaction as readers (ADP-012); pruned at 90 days by the core (CHK-009).
   - **Prune log** (local file, core-owned): one line per prune of journal runs or error-log entries; never pruned (LED-013).
   - **Vendor transcript stores** (vendor-owned): readable by path, retention set by the vendor and noted per profile (PRF-009); Trinity cannot guarantee they still exist, so readers report "gone" (LAW-11).
-- Quota sources may be stale; freshness limits apply (CHK-002).
 - Views: UTF-8 terminal; local browser; the web view binds to localhost only.
 
 Comparison record: for each work order, the retro records wall time, rejection rounds, defects and human minutes. The comparison is against the same metrics for comparable units run by the existing development process (the standard multi-review process and its shortened variant) over the same period. The record lives in the method project's retro file, outside this repo (WR-05).

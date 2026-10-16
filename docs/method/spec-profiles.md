@@ -5,17 +5,15 @@ Terms: METHOD.md §2. Laws that bind this component: LAW-04, 05, 06, 09.
 
 ## 1. Purpose
 
-Give each usable (harness, account, model, billing) combination a short name, say where its credential and its quota are read from and how long the vendor keeps its transcripts, and pick a default when the caller names only a provider.
+Give each usable (harness, account, model, billing) combination a short name, say where its credential is read from and how long the vendor keeps its transcripts, and pick a default when the caller names only a provider.
 
 ## 2. Scope
 
 In:
 
-- Profile records: `name` (e.g. `claude:account-1`), `adapter`, `credential_source`, `model` (+ optional effort), `billing` (`subscription` | `metered`), `quota_source` (kind + location), `freshness_limit`, `transcript_retention`, `label` (display), `enabled`.
-- `trinity profiles` listing: name, label, billing, current use with read time, default marker.
-- Default pick when the caller names only a provider: lowest current use among enabled profiles of that provider.
-- Quota reads: value, unit (weekly %, window %, money today), read time.
-
+- Profile records: `name` (e.g. `claude:account-1`), `adapter`, `credential_source`, `model` (+ optional effort), `billing` (`subscription` | `metered`), `transcript_retention`, `label` (display), `enabled`.
+- `trinity profiles` listing: name, label, billing, default marker.
+- Default pick when the caller names only a provider: deterministic choice among enabled profiles of that provider; quota is not consulted.
 Out:
 
 - Storing or rotating secrets (NG-05).
@@ -29,8 +27,8 @@ Out:
 | PRF-001 | A profile names its credential by a wrapper command it declares (`credential_source.wrapper`, the ready-made per-account command found on PATH). The adapter runs that command in place of the harness; the command alone reads the account's credential, so the core never reads the value. An env-var or file-path credential source, or a claude-code profile with no wrapper, is refused. |
 | PRF-002 | Listings and the journal show `name` and `label` only — never the credential source (path or env name) and never its contents (settles OPEN-P4). |
 | PRF-003 | A credential file with mode wider than 600/400 makes the profile unusable, with the reason shown (same rule as the baseline's compatible-endpoint wrappers). |
-| PRF-004 | Each quota read carries `read_at`. A read older than `freshness_limit` (seconds, required field) counts as unknown. |
-| PRF-005 | Default pick skips profiles whose quota is unknown, exhausted, or disabled; if none remain, dispatch stops (LAW-06) unless the caller names a profile. |
+| PRF-004 | **Retired.** Profiles carry no quota read or freshness limit; existing quota fields are ignored. |
+| PRF-005 | Default pick considers enabled profiles only and does not skip on quota; if none remain, dispatch stops with `check_failed` unless the caller names a profile. |
 | PRF-006 | The chosen profile and why (`named` / `default:lowest-use` / `override`) are journaled per node. |
 | PRF-007 | Model ids live only in profile data (LAW-05); a profile with a retired id is refused at load. |
 | PRF-008 | Profile data is layered: neutral examples in this repo (no real accounts), then the private profile pack from a separate private repository (LAW-09; the repo never names its location — it is passed by env var or config at run time), then a project override. |
@@ -52,7 +50,6 @@ Out:
 ## 5. Environment assumptions
 
 - One credential file per account at the source the private pack names, mode 600. The account's wrapper command reads it; the core never does.
-- A side-effect-free quota source per provider (vendor CLI status, API balance, or a shared status board).
 - Host clock; read times compared in UTC.
 
 ## 6. Risks
@@ -69,7 +66,7 @@ Out:
 
 | ID | Question | Status |
 | --- | --- | --- |
-| OPEN-P1 | Quota source per provider and its freshness limit | Open — WO-002 |
+| OPEN-P1 | Quota source per provider and its freshness limit | **Retired**: dispatch does not read quota. |
 | OPEN-P2 | Is "lowest use" right, or should urgent work reserve a profile? | Open — WO-002 |
 | OPEN-P3 | Can a continued session switch profile? | **Decided by author:** no (PRF-010); reviewer to confirm |
 | OPEN-P4 | May the credential source appear in listings/journal? | **Decided by author:** no (PRF-002); reviewer to confirm |
