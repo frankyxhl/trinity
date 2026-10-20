@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+import time
+
+from tests import one_support as one
+
+
+def test_pid_is_live_treats_a_zombie_as_gone(tmp_path):
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    pid_file = tmp_path / "child.pid"
+    pid_file.write_text(str(proc.pid))
+    try:
+        assert one.pid_is_live(pid_file) is True
+        os.kill(proc.pid, signal.SIGKILL)
+        state = ""
+        for _ in range(100):
+            state = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(proc.pid)],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if state.startswith("Z"):
+                break
+            time.sleep(0.05)
+        assert state.startswith("Z"), state
+        assert one.pid_is_live(pid_file) is False, "a zombie must not count as live"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=5)
