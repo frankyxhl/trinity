@@ -21,6 +21,10 @@ request = {
   provider:      "<provider name>" | null,# provider only → default pick (PRF-005)
   session:       "new" | "<session id>",
   prompt:        {text: "…"} | {file: "<path>"},
+  model:         "<model id>" | null,     # overrides the profile's model for this call (ONE-015)
+  output:        "<path>" | null,         # the final answer text is written here after the call (ONE-011)
+  log_dir:       "<path>" | null,         # the call writes its log files there (ONE-012)
+  gate:          "none" | "light" | "heavy" | null,  # memory gate for this call (ONE-014)
   cwd:           "<path>",
   heavy:         false,
   limits:        {time_s?, stall_s?, lock_wait_s?},
@@ -69,6 +73,8 @@ Round reasons: `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (LED-
 | DSP-022 | **Live file (the channel for following a running node).** While a node runs, the core appends the child's stdout to one live file per node, mode 600 under Trinity's state directory. Redaction comes before any cut (RDR-008): the core holds each line until it ends, passes the whole line through the redaction function, and writes only the masked line; no part of a line is written before the line ends. The hold-back window W is therefore the whole line, because the RDR-008 kinds have no upper length (kinds 1, 2, 4, 5 and 8 match runs of any length, kind 3 a whole block), so no fixed window catches every match. A line still open when the core holds 1 MiB of it is never written: the core drops what it holds and the rest of that line, and when the line ends writes one `[line omitted: over 1 MiB]` line instead; an open line when the node ends is dropped unwritten. The file holds at most 1 MiB; at the cap the core empties it and writes one `[truncated]` line, then continues. It is never journaled and never a record (LAW-02): the core removes it when it writes the node's end line, and the prune pass (DSP-023) removes any left by a dead core. A view shows it only while the journal says the node is `running`. Reason: a file needs no server and no protocol, works for the CLI and the web view alike, and a viewer may start or stop at any time; holding whole lines costs only latency inside one line (a harness that streams JSONL writes each event as one line); the transcript ref (LAW-08) stays the record of detail. |
 | DSP-023 | **Removal of Trinity-held files.** The core's prune pass (the same pass as LED-013 and CHK-009) also removes adapter-written transcripts (RDR-015) and per-call session directories (DSP-020) older than the profile's `transcript_retention`, and live files (DSP-022) of nodes that have ended or whose run was pruned; it logs each count in the prune log. |
 
+The `codex` and `opencode` adapters, the `call` options and the memory gate are specified in `rules/TRN-3056-CHG-Codex-OpenCode-Dispatch-Adapters.md` (ONE-*).
+
 ## 4. Exit classes (complete list)
 
 "Set by" is who decides the class. "Journal" is what the journal holds afterwards. "Who retries" names who may make the next attempt and in what form; "—" means a retry is not the right response.
@@ -79,17 +85,17 @@ Round reasons: `review_rejection`, `failure`, `timeout`, `stuck`, `manual` (LED-
 | `bad_request` | core | request invalid (DSP-003) | nothing | caller fixes the request; not a round |
 | `nesting_refused` | core | recursion guard set and nesting not allowed, or depth over `max_depth` (DSP-004, DSP-015) | no node; one error-log line (run, depth, limit) | — (the child sees it in its own output) |
 | `journal_unavailable` | core | journal lock/append failed before the node, or unknown major version (LED-011) | nothing; one error-log line | person fixes the store; then the caller calls again |
-| `profile_refused` | core | profile disabled, wide credential mode, retired model id (DSP-006) | node, `queued → failed` | person fixes the profile; caller may use another profile as a new round (`failure`) |
-| `check_failed` | core | no default candidate (PRF-005) | node, `queued → failed` | caller: another profile as a new round, later, or fix the profile data |
+| `profile_refused` | core | profile disabled, wide credential mode, retired model id (DSP-006), codex/opencode preflight (ONE-040, ONE-041) | node, `queued → failed` | person fixes the profile; caller may use another profile as a new round (`failure`) |
+| `check_failed` | core | no default candidate (PRF-005), a memory-gate reading could not be taken (ONE-065) | node, `queued → failed` | caller: another profile as a new round, later, or fix the profile data |
 | `lock_unavailable` | core | heavy lock not acquired within `lock_wait_s`, held by an ancestor, or its location unreachable (DSP-008) | node, lock check line with `waited_s`, `queued → failed` | caller later as a new round (`failure`); person checks the holder |
 | `dependency_failed` | core | a `depends` target ended `failed` or `interrupted` (DSP-007) | node, dependency check line naming the target id, `queued → failed` | caller: retry the target first, then this step as a new round |
 | `dependency_cycle` | core | the node is on a wait-for cycle (GRF-006): only through nesting, or a defective journal | node, edges, dependency check line `cycle` naming the members; state stays `queued` (shown stuck) | person: interrupts one node of the cycle (DSP-013); never the core |
 | `quota_exhausted` | adapter | vendor reported quota or rate limit during the run | `running → failed` | caller: another profile as a new round (new session, PRF-010), or later |
 | `auth_error` | adapter | credential rejected | `running → failed` | person fixes the credential; caller must not retry on the same profile |
 | `session_not_found` | adapter | continue on a missing or expired session (ADP-004) | `running → failed` | caller: `session: new` as a new round (`failure`), CHK-007 |
-| `timeout` | adapter | `time_s` reached; process group killed (ADP-009) | `running → failed`, partial `output_ref` if any | caller: a new round (`timeout`), possibly with a larger `time_s` |
+| `timeout` | adapter, or core, when the memory gate's wait uses up `time_s` (ONE-064) | `time_s` reached; process group killed (ADP-009) | `running → failed`, partial `output_ref` if any; `queued → failed` in that case | caller: a new round (`timeout`), possibly with a larger `time_s` |
 | `interrupted` | core | caller or person interrupt (DSP-013) | `running → interrupted` or `queued → interrupted` | caller decides; a retry is a new round (`manual`) |
-| `harness_error` | adapter, or core under DSP-020 | harness exited with a recognised error, or ended normally with no session id (`session_unknown`, DSP-020) | `running → failed` | caller: a new round (`failure`); repeated → person (DSP-011) |
+| `harness_error` | adapter, or core under DSP-020 | harness exited with a recognised error, or ended normally with no session id (`session_unknown`, DSP-020), or the session readback does not confirm the model or sandbox (ONE-035, ONE-055) | `running → failed` | caller: a new round (`failure`); repeated → person (DSP-011) |
 | `unknown` | adapter | anything not recognised | `running → failed`; redacted stderr tail in the error log (ADP-002) | person reads the error log; caller may retry once |
 
 ## 5. Failure expectations

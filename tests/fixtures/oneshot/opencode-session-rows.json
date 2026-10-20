@@ -1,0 +1,10 @@
+[
+ {
+  "id": "ses_ea6b67225ffeQME2XU4FmlGOpP",
+  "model": "{\"id\":\"no-such-model\",\"providerID\":\"opencode-go\",\"variant\":\"default\"}"
+ },
+ {
+  "id": "ses_ea6b71557ffeZT1KD9BtS3vm6s",
+  "model": "{\"id\":\"deepseek-v4.1-flash\",\"providerID\":\"opencode-go\",\"variant\":\"default\"}"
+ }
+]

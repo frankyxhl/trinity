@@ -18,14 +18,13 @@ import json
 import math
 import os
 import shlex
-import selectors
+import selectors  # noqa: F401
 import shutil
 import signal
-import subprocess
-import sys
-import time
+import subprocess  # noqa: F401
+import time  # noqa: F401
 
-from . import journal
+from . import harness_proc, journal
 
 ADAPTER = "claude-code"
 WRAPPER_AUTH_MARKER = "trinity-claude-code: auth_error:"
@@ -80,6 +79,10 @@ def run(
     heartbeat,
     poll_s: float = DEFAULT_POLL_S,
     time_s: float | None = None,
+    model=None,
+    on_session=None,
+    log_dir=None,
+    output=None,
 ) -> dict:
     wrapper = credential_wrapper(profile)
     if wrapper is None:
@@ -99,7 +102,8 @@ def run(
         "--verbose",
         "--include-partial-messages",
     ]
-    model = profile.get("model")
+    if model is None:
+        model = profile.get("model")
     if model:
         argv += ["--model", str(model)]
 
@@ -113,129 +117,30 @@ def run(
         }
     )
 
-    interval = _poll_interval(poll_s)
-    started = time.monotonic()
-    timeout_s = _finite_timeout(time_s)
-    deadline = started + timeout_s if timeout_s is not None else None
-    stdout_read, stdout_write = os.pipe()
-    try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            env=env,
-            stdout=stdout_write,
-            stderr=subprocess.PIPE,
-            bufsize=0,
-            start_new_session=True,
-        )
-    except BaseException:
-        os.close(stdout_read)
-        os.close(stdout_write)
-        raise
-    os.close(stdout_write)
+    logged = harness_proc.run_harness(
+        argv,
+        cwd=cwd,
+        env=env,
+        heartbeat=heartbeat,
+        heartbeat_source=HEARTBEAT_SOURCE,
+        poll_s=poll_s,
+        time_s=time_s,
+        on_line=lambda _line: None,
+        stdin=None,
+    )
+    wall_s = logged["wall_s"]
+    rc = logged["rc"]
+    out = logged["stdout"]
+    stderr_text = logged["stderr"]
 
-    output = bytearray()
-    errors = bytearray()
-    timed_out = False
-    interrupted = False
-    selector = None
-    last_heartbeat = None
-
-    def read_ready(events, *, emit_heartbeat=True):
-        nonlocal last_heartbeat
-        for key, _mask in events:
-            descriptor = key.fd
-            try:
-                chunk = os.read(descriptor, 65536)
-            except (BlockingIOError, InterruptedError):
-                continue
-            if not chunk:
-                selector.unregister(descriptor)
-                continue
-            if key.data == "stdout":
-                output.extend(chunk)
-                observed_at = time.monotonic()
-                if emit_heartbeat and (
-                    last_heartbeat is None or observed_at - last_heartbeat >= interval
-                ):
-                    heartbeat(HEARTBEAT_SOURCE)
-                    last_heartbeat = observed_at
-            else:
-                errors.extend(chunk)
-
-    def drain_for(grace_s, *, emit_heartbeat=False):
-        if selector is None:
-            return
-        drain_deadline = time.monotonic() + grace_s
-        while selector.get_map():
-            remaining = drain_deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            read_ready(selector.select(remaining), emit_heartbeat=emit_heartbeat)
-
-    try:
-        selector = selectors.DefaultSelector()
-        stderr_fd = proc.stderr.fileno()
-        os.set_blocking(stdout_read, False)
-        os.set_blocking(stderr_fd, False)
-        selector.register(stdout_read, selectors.EVENT_READ, "stdout")
-        selector.register(stderr_fd, selectors.EVENT_READ, "stderr")
-        while True:
-            if proc.poll() is not None and not selector.get_map():
-                break
-            remaining = (
-                deadline - time.monotonic() if deadline is not None else interval
-            )
-            if deadline is not None and remaining <= 0:
-                timed_out = True
-                _kill_group(proc.pid)
-                break
-            wait_s = min(interval, remaining) if deadline is not None else interval
-            if not selector.get_map():
-                wait_s = min(wait_s, 0.05)
-            read_ready(selector.select(wait_s))
-    except KeyboardInterrupt:
-        interrupted = True
-        _kill_group(proc.pid)
-    except BaseException:
-        _kill_group(proc.pid)
-        raise
-    finally:
-        cleanup_failure = sys.exc_info()
-
-        def attempt_cleanup(action, *, timeout_ok=False):
-            nonlocal cleanup_failure
-            try:
-                action()
-            except subprocess.TimeoutExpired:
-                if not timeout_ok and cleanup_failure[0] is None:
-                    cleanup_failure = sys.exc_info()
-            except BaseException:
-                if cleanup_failure[0] is None:
-                    cleanup_failure = sys.exc_info()
-
-        if timed_out or interrupted or cleanup_failure[0] is not None:
-            attempt_cleanup(lambda: drain_for(_DRAIN_GRACE_S))
-            attempt_cleanup(lambda: proc.wait(timeout=_DRAIN_GRACE_S), timeout_ok=True)
-        if selector is not None:
-            attempt_cleanup(selector.close)
-        attempt_cleanup(lambda: os.close(stdout_read))
-        if proc.stderr is not None:
-            attempt_cleanup(proc.stderr.close)
-        if cleanup_failure[0] is not None:
-            raise cleanup_failure[1].with_traceback(cleanup_failure[2])
-    wall_s = int(time.monotonic() - started)
-    out = output.decode("utf-8", errors="replace")
-    stderr_text = errors.decode("utf-8", errors="replace")
-
-    if interrupted:
-        return _outcome("interrupted", None, None, wall_s)
-    if timed_out:
+    if logged["interrupted"]:
+        return {**_outcome("interrupted", None, None, wall_s), "log": logged}
+    if logged["timed_out"]:
         result = _final_result(out)
         usage = result.get("usage") if result else None
-        return _outcome("timeout", session_id, usage, wall_s)
+        return {**_outcome("timeout", session_id, usage, wall_s), "log": logged}
 
-    auth_hint = _wrapper_auth_hint(proc.returncode, stderr_text)
+    auth_hint = _wrapper_auth_hint(rc, stderr_text)
     result = _final_result(out)
     usage = result.get("usage") if result else None
     is_error = bool(result.get("is_error")) if result else True
@@ -246,7 +151,7 @@ def run(
     reported = result.get("session_id") if result else None
     if auth_hint is not None:
         exit_class = "auth_error"
-    elif proc.returncode == 0 and result is not None and not is_error:
+    elif rc == 0 and result is not None and not is_error:
         exit_class = "ok"
     else:
         exit_class = "unknown"
@@ -266,8 +171,11 @@ def run(
         exit_class = "harness_error"
         session_out = None
     outcome = _outcome(exit_class, session_out, usage, wall_s)
+    if exit_class == "ok":
+        outcome["answer"] = result.get("result")
     if auth_hint is not None:
         outcome["hint"] = auth_hint
+    outcome["log"] = logged
     return outcome
 
 
@@ -321,20 +229,6 @@ def _kill_group(pgid: int) -> None:
         pass
 
 
-def _last_result(out: str) -> dict | None:
-    for line in reversed(out.splitlines()):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            parsed = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(parsed, dict) and parsed.get("type") == "result":
-            return parsed
-    return None
-
-
 def _final_result(out: str) -> dict | None:
     """The strict Claude JSON auth record: only the last non-empty stdout line."""
     lines = [line.strip() for line in out.splitlines() if line.strip()]
@@ -378,6 +272,7 @@ def _outcome(
         "exit_class": exit_class,
         "session_id": session_id,
         "output_kind": "none",
+        "answer": None,
         "usage": usage if isinstance(usage, dict) else None,
         "wall_s": wall_s,
     }

@@ -1,0 +1,1 @@
+! permission requested: external_directory (/tmp/trinity-oneshot-probe/*); auto-rejecting

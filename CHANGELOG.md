@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-21
+
+### Added
+- `codex` adapter for `trinity call`: runs `codex exec` for a new session or `exec resume` to continue, with the profile's model, sandbox and `CODEX_HOME`; captures the session id from the stream and classifies the exit (ONE-030–035). A run is `ok` only after the session file confirms the model and the sandbox.
+- `opencode` adapter for `trinity call`: runs `opencode run --format json` for a new session or `-s` to continue, with the profile's model and config; captures the session id from the stream and classifies the exit (ONE-050–055). A run is `ok` only after the session database confirms the model.
+- Call options: `--prompt-file` (repeatable, mutually exclusive with `--prompt`), `--output`, `--log-dir`, `--time-s`, `--gate`, `--model` (ONE-010–015).
+- Memory gate for a call: `none|light|heavy`, from the profile or the command line (ONE-060–065).
+- `cost_usd` in the journal's usage whitelist for `opencode` calls (ONE-053).
+
+### Changed
+- `claude-code` now runs on the shared process loop; its argv, env, journal lines and result are unchanged (ONE-016).
+
+### Fixed
+- A gate reading that says go after `time_s` is used up now stops with `timeout` instead of starting the harness with no time limit (ONE-064).
+
 ## [4.0.2] - 2026-10-15
 
 ### Changed
