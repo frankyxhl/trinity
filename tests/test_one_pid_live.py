@@ -11,9 +11,9 @@ from tests import one_support as one
 
 def test_pid_is_live_treats_a_zombie_as_gone(tmp_path):
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    pid_file = tmp_path / "child.pid"
-    pid_file.write_text(str(proc.pid))
     try:
+        pid_file = tmp_path / "child.pid"
+        pid_file.write_text(str(proc.pid))
         assert one.pid_is_live(pid_file) is True
         os.kill(proc.pid, signal.SIGKILL)
         state = ""
@@ -22,6 +22,7 @@ def test_pid_is_live_treats_a_zombie_as_gone(tmp_path):
                 ["ps", "-o", "stat=", "-p", str(proc.pid)],
                 capture_output=True,
                 text=True,
+                timeout=5,
             ).stdout.strip()
             if state.startswith("Z"):
                 break
