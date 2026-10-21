@@ -235,7 +235,7 @@ def make_root(
 def call_env(ns: SimpleNamespace, extra: dict | None = None) -> dict:
     env = dict(os.environ)
     env.pop("TRINITY_GUARD", None)
-    venv_bin = str(Path(sys.executable).resolve().parent)
+    venv_bin = str(Path(sys.executable).parent)
     env["PATH"] = os.pathsep.join([str(ns.root / "bin"), venv_bin, "/usr/bin", "/bin"])
     env["HOME"] = str(ns.home)
     env["TRINITY_ROOT"] = str(ns.state)
