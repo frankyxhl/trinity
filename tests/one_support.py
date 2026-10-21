@@ -651,12 +651,20 @@ def pid_is_live(pid_file: Path) -> bool:
     except PermissionError:
         return True
     try:
-        stat = subprocess.run(
+        proc = subprocess.run(
             ["ps", "-o", "stat=", "-p", str(pid)],
             capture_output=True,
             text=True,
             timeout=5,
-        ).stdout.strip()
+        )
     except subprocess.TimeoutExpired:
         return True
-    return stat != "" and not stat.startswith("Z")
+    if proc.returncode != 0 or not proc.stdout.strip():
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    return not proc.stdout.strip().startswith("Z")
