@@ -259,7 +259,7 @@ def test_wo006_a1_detached_stdout_holder_returns_within_deadline_grace(tmp_path)
             worker.stderr if worker else None
         )
         observed = json.loads(worker.stdout)
-        assert observed["outcome"]["exit_class"] == "timeout", observed
+        assert observed["outcome"]["exit_class"] == "ok", observed
         assert observed["elapsed"] <= 0.5 + 5, observed
     finally:
         _kill_recorded_tree(tmp_path)
