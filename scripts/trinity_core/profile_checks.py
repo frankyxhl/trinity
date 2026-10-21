@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from . import journal
 
 GATES = frozenset({"none", "light", "heavy"})
@@ -33,4 +35,4 @@ def env_pass_ok(profile: dict) -> bool:
 
 
 def matches(text: str, markers) -> bool:
-    return any(marker in text for marker in markers)
+    return any(re.search(r"\b" + re.escape(marker) + r"\b", text) for marker in markers)

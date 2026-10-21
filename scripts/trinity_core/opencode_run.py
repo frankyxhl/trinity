@@ -6,7 +6,6 @@ import re
 import shutil
 import sqlite3
 import subprocess
-import urllib.parse
 
 from . import claude_code, harness_proc, journal, profile_checks
 
@@ -294,9 +293,7 @@ def _readback_error(session_id: str, model):
     if not os.path.isfile(path):
         return "readback_missing"
     try:
-        conn = sqlite3.connect(
-            "file:" + urllib.parse.quote(path) + "?mode=ro", uri=True, timeout=2
-        )
+        conn = sqlite3.connect(path, timeout=2)
         try:
             conn.execute("PRAGMA query_only=ON")
             row = conn.execute(

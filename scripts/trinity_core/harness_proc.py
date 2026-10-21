@@ -107,7 +107,10 @@ def run_harness(
         selector.register(stdout_read, selectors.EVENT_READ, "stdout")
         selector.register(stderr_fd, selectors.EVENT_READ, "stderr")
         while True:
-            if proc.poll() is not None and not selector.get_map():
+            if proc.poll() is not None:
+                drain_for(claude_code._DRAIN_GRACE_S)
+                if selector.get_map():
+                    claude_code._kill_group(proc.pid)
                 break
             remaining = (
                 deadline - time.monotonic() if deadline is not None else interval
