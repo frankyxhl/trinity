@@ -1,0 +1,3 @@
+opencode/deepseek-v4.1-flash-free
+opencode-go/deepseek-v4-pro
+opencode-go/deepseek-v4.1-flash

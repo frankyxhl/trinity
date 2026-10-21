@@ -53,6 +53,11 @@ except ImportError:
     import _status as _status_mod
 
 try:
+    from . import _call as _call_mod
+except ImportError:
+    import _call as _call_mod
+
+try:
     from . import trinity_core
 except ImportError:
     import trinity_core
@@ -159,6 +164,7 @@ _format_ago = _status_mod._format_ago
 _print_incomplete_only_summary = _status_mod._print_incomplete_only_summary
 _print_review_summary = _status_mod._print_review_summary
 cmd_status = _status_mod.cmd_status
+cmd_call = _call_mod.cmd_call
 
 
 def parse_structured_review(raw_text, pass_threshold=None):
@@ -558,25 +564,6 @@ def cmd_session_path(args):
     return session_path.cmd_session_path(project_dir, lookup_key)
 
 
-def cmd_call(args):
-    """Build the dispatch-core request and hand it to the core (NG-06)."""
-    allow_nesting = False
-    if args.allow_nesting_max_depth is not None:
-        allow_nesting = {"max_depth": args.allow_nesting_max_depth}
-    request = {
-        "profiles_path": args.profiles,
-        "profile": args.profile,
-        "step": args.step,
-        "session": args.session,
-        "prompt": {"text": args.prompt},
-        "cwd": args.cwd,
-        "allow_nesting": allow_nesting,
-    }
-    result = trinity_core.call(request)
-    sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
-    return 0
-
-
 def cmd_tree(args):
     root = trinity_core.journal_root()
     try:
@@ -650,7 +637,13 @@ def build_parser():
     call.add_argument("--profile", required=True)
     call.add_argument("--step", required=True)
     call.add_argument("--session", default=None)
-    call.add_argument("--prompt", required=True)
+    call.add_argument("--prompt", default=None)
+    call.add_argument("--prompt-file", action="append", default=None)
+    call.add_argument("--output", default=None)
+    call.add_argument("--log-dir", default=None)
+    call.add_argument("--time-s", default=None)
+    call.add_argument("--gate", default=None)
+    call.add_argument("--model", default=None)
     call.add_argument("--cwd", default=None)
     call.add_argument("--allow-nesting-max-depth", default=None)
 

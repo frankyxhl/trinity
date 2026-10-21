@@ -12,17 +12,26 @@ from __future__ import annotations
 import os
 import math
 import re
+import stat
+import sys
+import time
 import uuid
 from pathlib import Path
 
-from . import claude_code, journal
+from . import claude_code, codex_exec, journal, memory_gate, opencode_run
+from . import profile_checks
 from . import profiles as profiles_mod
 
-_ADAPTERS = {claude_code.ADAPTER: claude_code}
+_ADAPTERS = {
+    claude_code.ADAPTER: claude_code,
+    codex_exec.ADAPTER: codex_exec,
+    opencode_run.ADAPTER: opencode_run,
+}
 
 MAX_LABEL_LEN = 64
 _USAGE_FIELDS = frozenset(
     {
+        "cost_usd",
         "input_tokens",
         "output_tokens",
         "tokens",
@@ -165,7 +174,110 @@ def _heartbeat_poll_s() -> float:
     return _DEFAULT_POLL_S
 
 
+def _write_private(path: Path, text: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"not a regular file: {path}")
+        os.fchmod(fd, 0o600)
+        os.ftruncate(fd, 0)
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
+def _redact_text(text: str) -> str:
+    return "\n".join(journal.redact(piece) for piece in text.split("\n"))
+
+
+def _gate_check(gate: str, reading: dict | None, decision: str) -> dict:
+    if reading is None:
+        values = {key: None for key in memory_gate.READING_KEYS}
+    else:
+        values = {key: reading[key] for key in memory_gate.READING_KEYS}
+    return {"check": "memory_gate", "gate": gate, "decision": decision, **values}
+
+
+def _gate_record(run_id: str, node_id: str, gate: str, reading, decision: str) -> dict:
+    return {
+        "kind": "check",
+        "run": run_id,
+        "node": node_id,
+        **_gate_check(gate, reading, decision),
+        "t": journal.utc_now(),
+    }
+
+
+def _gate_line(gate: str, reading: dict | None, decision: str) -> str:
+    if reading is None:
+        values = {key: "na" for key in memory_gate.READING_KEYS}
+    else:
+        values = {key: reading[key] for key in memory_gate.READING_KEYS}
+    return (
+        f"gate={gate} level={values['level']} free={values['free_pct']} "
+        f"swap_mb={values['swap_mb']} load5={values['load5']} "
+        f"decision={decision}\n"
+    )
+
+
+def _write_log_dir(log_dir: str, log, start: float, end: float) -> None:
+    if isinstance(log, dict):
+        rc = log.get("rc")
+        rc_text = f"rc={rc}" if rc is not None else "rc=none"
+        stdout = log.get("stdout")
+        stderr = log.get("stderr")
+        if not isinstance(stdout, str):
+            stdout = ""
+        if not isinstance(stderr, str):
+            stderr = ""
+        started_at = log.get("started_at")
+        ended_at = log.get("ended_at")
+        if not isinstance(started_at, (int, float)):
+            started_at = start
+        if not isinstance(ended_at, (int, float)):
+            ended_at = end
+    else:
+        rc_text = "rc=none"
+        stdout = ""
+        stderr = ""
+        started_at = start
+        ended_at = end
+    base = Path(log_dir)
+    _write_private(base / "start", f"{float(started_at)}\n")
+    _write_private(base / "end", f"{float(ended_at)}\n")
+    _write_private(base / "rc.txt", rc_text + "\n")
+    _write_private(base / "out.jsonl", _redact_text(stdout))
+    _write_private(base / "err.txt", _redact_text(stderr))
+
+
+def _write_log_dir_checked(
+    root: str,
+    run_id: str,
+    node_id: str,
+    log_dir,
+    log,
+    start: float,
+    end: float,
+    gate_line: str | None,
+) -> None:
+    if not isinstance(log_dir, str) or not log_dir:
+        return
+    try:
+        _write_log_dir(log_dir, log, start, end)
+        if gate_line is not None:
+            _write_private(Path(log_dir) / "gate.txt", gate_line)
+    except OSError:
+        try:
+            journal.append_error(
+                root, {"error": "log_unwritable", "run": run_id, "node": node_id}
+            )
+        except OSError:
+            pass
+        print(f"trinity call: log dir not written: {log_dir}", file=sys.stderr)
+
+
 def call(request: dict) -> dict:
+    call_started = time.time()
     step = request.get("step") or ""
     label = request.get("label")
     if not _valid_label(step) or (label is not None and not _valid_label(label)):
@@ -208,6 +320,13 @@ def call(request: dict) -> dict:
     if stall_limit_s is None:
         return _result(None, None, "bad_request", None)
     time_limit_s = _time_limit(request)
+    request_gate = request.get("gate")
+    if request_gate is not None and request_gate not in profile_checks.GATES:
+        return _result(None, None, "bad_request", None)
+    gate = request_gate if request_gate is not None else profile.get("gate")
+    if gate is None:
+        gate = "none"
+    effective_model = request.get("model") or profile.get("model")
 
     if is_root:
         run_id = _new_id("r-")
@@ -233,8 +352,30 @@ def call(request: dict) -> dict:
 
     node_id = _new_id("n-")
     session_mode = request.get("session") or "new"
-    session_id = _new_session_id() if session_mode == "new" else session_mode
+    captures_session = bool(getattr(adapter, "CAPTURES_SESSION", False))
+    if captures_session:
+        session_id = None if session_mode == "new" else session_mode
+        session_record_mode = "new" if session_mode == "new" else "continue"
+        session_source = "pending" if session_mode == "new" else "caller"
+    else:
+        session_id = _new_session_id() if session_mode == "new" else session_mode
+        session_record_mode = session_mode
+        session_source = "assigned"
     node_written = False
+
+    log_dir = request.get("log_dir")
+    if isinstance(log_dir, str) and log_dir:
+        try:
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return _result(None, None, "bad_request", None)
+
+    output = request.get("output")
+    if isinstance(output, str) and output:
+        real_root = os.path.realpath(root)
+        real_output = os.path.realpath(output)
+        if real_output == real_root or real_output.startswith(real_root + os.sep):
+            return _result(None, None, "bad_request", None)
 
     journal_complete = True
     journal_error_logged = False
@@ -294,12 +435,12 @@ def call(request: dict) -> dict:
                 "harness": adapter.ADAPTER,
                 "profile": profile.get("name"),
                 "profile_reason": "named",
-                "model": profile.get("model"),
+                "model": effective_model,
                 "stall_limit_s": stall_limit_s,
                 "session": {
                     "id": session_id,
-                    "mode": session_mode,
-                    "source": "assigned",
+                    "mode": session_record_mode,
+                    "source": session_source,
                 },
                 "t": journal.utc_now(),
             },
@@ -317,6 +458,134 @@ def call(request: dict) -> dict:
         )
     except TimeoutError:
         return unavailable_result()
+
+    gate_line = None
+
+    def refuse(exit_class: str, check: dict | None, wall_s: float) -> dict:
+        try:
+            if isinstance(check, dict):
+                journal.append(
+                    root,
+                    {
+                        "kind": "check",
+                        "run": run_id,
+                        "node": node_id,
+                        **check,
+                        "t": journal.utc_now(),
+                    },
+                )
+            journal.append(
+                root,
+                {
+                    "kind": "state",
+                    "run": run_id,
+                    "node": node_id,
+                    "state": state_for_exit_class(exit_class),
+                    "exit_class": exit_class,
+                    "output_kind": "none",
+                    "wall_s": wall_s,
+                    "t": journal.utc_now(),
+                },
+            )
+            if is_root:
+                journal.append(
+                    root,
+                    {
+                        "kind": "run",
+                        "run": run_id,
+                        "event": "end",
+                        "t": journal.utc_now(),
+                    },
+                )
+        except TimeoutError:
+            return unavailable_result()
+        _write_log_dir_checked(
+            root,
+            run_id,
+            node_id,
+            log_dir,
+            None,
+            call_started,
+            time.time(),
+            gate_line,
+        )
+        return {
+            "run": run_id,
+            "node": node_id,
+            "exit_class": exit_class,
+            "session_id": None,
+            "output_kind": "none",
+            "output_ref": None,
+            "transcript_ref": None,
+            "usage": None,
+            "ended_at": journal.utc_now(),
+            "journal_complete": journal_complete,
+        }
+
+    preflight = getattr(adapter, "preflight", None)
+    if preflight is not None:
+        refusal = preflight(profile, model=effective_model)
+        if isinstance(refusal, dict):
+            return refuse("profile_refused", refusal.get("check"), 0)
+
+    if gate != "none":
+        gate_started = time.monotonic()
+        gate_poll_s = memory_gate.poll_s()
+        gate_deadline = (
+            gate_started + time_limit_s if time_limit_s is not None else None
+        )
+        last_decision = None
+        try:
+            while True:
+                try:
+                    reading = memory_gate.read()
+                except memory_gate.GateUnreadable:
+                    gate_line = _gate_line(gate, None, "refused")
+                    return refuse(
+                        "check_failed",
+                        _gate_check(gate, None, "refused"),
+                        time.time() - call_started,
+                    )
+                decision = "go" if memory_gate.passes(gate, reading) else "wait"
+                if (
+                    decision == "go"
+                    and gate_deadline is not None
+                    and gate_deadline - time.monotonic() <= 0
+                ):
+                    decision = "wait"
+                gate_line = _gate_line(gate, reading, decision)
+                if decision != last_decision:
+                    append_after_start(
+                        _gate_record(run_id, node_id, gate, reading, decision)
+                    )
+                    last_decision = decision
+                if decision == "go":
+                    break
+                now = time.monotonic()
+                if gate_deadline is not None and gate_deadline - now <= 0:
+                    gate_line = _gate_line(gate, reading, "stop")
+                    return refuse(
+                        "timeout",
+                        _gate_check(gate, reading, "stop"),
+                        time.time() - call_started,
+                    )
+                sleep_s = (
+                    min(gate_poll_s, gate_deadline - now)
+                    if gate_deadline is not None
+                    else gate_poll_s
+                )
+                time.sleep(max(sleep_s, 0.0))
+        except KeyboardInterrupt:
+            return refuse("interrupted", None, time.time() - call_started)
+        if time_limit_s is not None:
+            time_limit_s -= time.monotonic() - gate_started
+            if time_limit_s <= 0:
+                gate_line = _gate_line(gate, reading, "stop")
+                return refuse(
+                    "timeout",
+                    _gate_check(gate, reading, "stop"),
+                    time.time() - call_started,
+                )
 
     try:
         journal.append(
@@ -343,6 +612,25 @@ def call(request: dict) -> dict:
             },
         )
 
+    captured_report = {"done": False}
+
+    def on_session(reported) -> None:
+        if captured_report["done"]:
+            return
+        captured_report["done"] = True
+        if session_mode != "new" and reported == session_id:
+            return
+        append_after_start(
+            {
+                "kind": "session",
+                "run": run_id,
+                "node": node_id,
+                "id": reported,
+                "source": "captured",
+                "t": journal.utc_now(),
+            },
+        )
+
     outcome = adapter.run(
         profile,
         prompt=prompt,
@@ -356,6 +644,10 @@ def call(request: dict) -> dict:
         heartbeat=record_heartbeat,
         poll_s=_heartbeat_poll_s(),
         time_s=time_limit_s,
+        model=effective_model,
+        on_session=on_session if captures_session else None,
+        log_dir=request.get("log_dir"),
+        output=request.get("output"),
     )
 
     exit_class = outcome.get("exit_class", "unknown")
@@ -372,7 +664,9 @@ def call(request: dict) -> dict:
                 "t": journal.utc_now(),
             },
         )
-    if exit_class == "harness_error" and not outcome.get("session_id"):
+    if (captures_session or exit_class == "harness_error") and not outcome.get(
+        "session_id"
+    ):
         append_after_start(
             {
                 "kind": "session",
@@ -384,6 +678,22 @@ def call(request: dict) -> dict:
             },
         )
     usage = _sanitize_usage(outcome.get("usage"))
+    output_kind = outcome.get("output_kind", "none")
+    output_ref = None
+    answer = outcome.get("answer")
+    output_path = request.get("output")
+    if output_path and isinstance(answer, str):
+        try:
+            Path(output_path).write_text(answer, encoding="utf-8")
+        except OSError:
+            journal.append_error(
+                root,
+                {"error": "output_unwritable", "run": run_id, "node": node_id},
+            )
+            print(f"trinity call: output not written: {output_path}", file=sys.stderr)
+        else:
+            output_kind = "file"
+            output_ref = output_path
     append_after_start(
         {
             "kind": "state",
@@ -391,7 +701,7 @@ def call(request: dict) -> dict:
             "node": node_id,
             "state": state_for_exit_class(exit_class),
             "exit_class": exit_class,
-            "output_kind": outcome.get("output_kind", "none"),
+            "output_kind": output_kind,
             "wall_s": outcome.get("wall_s", 0),
             **({"usage": usage} if usage else {}),
             "t": journal.utc_now(),
@@ -402,45 +712,28 @@ def call(request: dict) -> dict:
             {"kind": "run", "run": run_id, "event": "end", "t": journal.utc_now()}
         )
 
+    _write_log_dir_checked(
+        root,
+        run_id,
+        node_id,
+        log_dir,
+        outcome.get("log"),
+        call_started,
+        time.time(),
+        gate_line,
+    )
+
     return {
         "run": run_id,
         "node": node_id,
         "exit_class": exit_class,
         "session_id": outcome.get("session_id"),
-        "output_kind": outcome.get("output_kind", "none"),
-        "output_ref": None,
+        "output_kind": output_kind,
+        "output_ref": output_ref,
         "transcript_ref": None,
         "usage": usage,
         "ended_at": journal.utc_now(),
         "journal_complete": journal_complete,
-    }
-
-
-def _finish(root, run_id, node_id, is_root, exit_class, output_kind, wall_s):
-    journal.append(
-        root,
-        {
-            "kind": "state",
-            "run": run_id,
-            "node": node_id,
-            "state": "failed",
-            "exit_class": exit_class,
-            "output_kind": output_kind,
-            "wall_s": wall_s,
-            "t": journal.utc_now(),
-        },
-    )
-    if is_root:
-        journal.append(
-            root, {"kind": "run", "run": run_id, "event": "end", "t": journal.utc_now()}
-        )
-    return {
-        "run": run_id,
-        "node": node_id,
-        "exit_class": exit_class,
-        "session_id": None,
-        "output_kind": output_kind,
-        "journal_complete": True,
     }
 
 
