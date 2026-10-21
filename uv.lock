@@ -348,6 +348,18 @@ wheels = [
 ]
 
 [[package]]
+name = "gherkin-official"
+version = "42.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/7a/fbc8bd486d1ede3805542e01be84cdfc0726f1d10647b2db20abafebf50f/gherkin_official-42.0.1.tar.gz", hash = "sha256:adcc1f392d97dc044861bb645a614e335632330cc2653d23acb7097c923f75cd", size = 35497, upload-time = "2026-08-05T20:03:18.768Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4b/04/1f16eba1ffc5e0f5ae7b5bfd1847e8f0355c03bf67c34381d6cc5b7b2b2b/gherkin_official-42.0.1-py3-none-any.whl", hash = "sha256:6bf291733d126712eb167f6f75be57931dd8b9c9eb606de28013f3669007ec06", size = 40041, upload-time = "2026-08-05T20:03:17.765Z" },
+]
+
+[[package]]
 name = "idna"
 version = "3.18"
 source = { registry = "https://pypi.org/simple" }
@@ -743,9 +755,10 @@ wheels = [
 
 [[package]]
 name = "pytest-bdd"
-version = "7.3.0"
+version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "gherkin-official" },
     { name = "mako" },
     { name = "packaging" },
     { name = "parse" },
@@ -753,9 +766,9 @@ dependencies = [
     { name = "pytest" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/9a/45c2aa5241513eb3169d9aa600933104a59dc12e8754ad63cf16dd8b9dcb/pytest_bdd-7.3.0.tar.gz", hash = "sha256:9dfeb1d8565d9548907f36a5a9e2c8e1e0cbac3b2724e17331b87386a19fbc16", size = 47435, upload-time = "2024-09-21T09:52:28.744Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/69/3313981067b212025b6b71a374114590afce235267cff891307c5790f26f/pytest_bdd-9.0.0.tar.gz", hash = "sha256:f22450a98345590c2b3aac5ed3412662788e0a7afac34aa8d650c14445b87046", size = 56311, upload-time = "2026-09-30T18:28:10.91Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/30/557b1cf7b951ad47d822f0495a248c0a18e6e12e4e3287bd63a85aeceb4b/pytest_bdd-7.3.0-py3-none-any.whl", hash = "sha256:168ede4a118e348feb70182590ee4a2f856e68dafe54a75a4e9203da37d4ade6", size = 42218, upload-time = "2024-09-21T09:52:26.404Z" },
+    { url = "https://files.pythonhosted.org/packages/38/92/af52b4afa6d27689de69bebc6c582142e8e552a2070abfc6fe7d04f997b1/pytest_bdd-9.0.0-py3-none-any.whl", hash = "sha256:e407a361d8a07bff7d37df2ae0bf93e6b3542ed57e2c6bb89ba46b786ac7984e", size = 49855, upload-time = "2026-09-30T18:28:09.334Z" },
 ]
 
 [[package]]
@@ -930,7 +943,7 @@ dev = [
     { name = "pip-audit", specifier = ">=2.10.1" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "pytest-bdd", specifier = ">=7,<8" },
+    { name = "pytest-bdd", specifier = ">=9.0.0,<10" },
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
