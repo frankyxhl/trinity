@@ -515,6 +515,7 @@ def seed_session_db(db_path: Path, rows: list) -> None:
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
     with conn:
         conn.execute("CREATE TABLE session (id TEXT, model TEXT)")
         conn.executemany("INSERT INTO session (id, model) VALUES (?, ?)", rows)

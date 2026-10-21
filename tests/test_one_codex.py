@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
 import subprocess
 import time
 from pathlib import Path
+
+import pytest
 
 from tests import one_support as one
 
@@ -576,3 +579,80 @@ def test_one_040_binary_not_on_path_is_profile_refused(tmp_path):
     states = one.states_of(records, node_id)
     assert [s.get("state") for s in states] == ["queued", "failed"], states
     assert not ns.capture.exists(), "the harness started despite preflight"
+
+
+def test_one_034_child_holding_stdout_does_not_turn_ok_into_timeout(tmp_path):
+    child_pid_file = tmp_path / "harness-child.pid"
+    ns = one.make_root(tmp_path, child_pid_file=child_pid_file, **one.OK_FAKE)
+    try:
+        proc = one.run_call(ns, args=("--time-s", "5"))
+        result = one.result_of(proc)
+        assert result.get("exit_class") == "ok", (result, proc.stderr)
+    finally:
+        if child_pid_file.exists():
+            pid = int(child_pid_file.read_text().strip())
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_one_034_child_holding_stdout_without_time_limit_returns_promptly(tmp_path):
+    child_pid_file = tmp_path / "harness-child.pid"
+    ns = one.make_root(tmp_path, child_pid_file=child_pid_file, **one.OK_FAKE)
+    try:
+        started = time.monotonic()
+        proc = one.run_call(ns, timeout=20)
+        elapsed = time.monotonic() - started
+        assert proc.returncode is not None, (
+            "the call waited for the child holding stdout"
+        )
+        assert elapsed < 10, elapsed
+        result = one.result_of(proc)
+        assert result.get("exit_class") == "ok", (result, proc.stderr)
+    finally:
+        if child_pid_file.exists():
+            pid = int(child_pid_file.read_text().strip())
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.parametrize(
+    "stderr_text",
+    ["Error: item_4290 failed\n", "Error: cannot write /tmp/run-1401\n"],
+)
+def test_one_034_marker_digits_inside_longer_text_stay_unknown(tmp_path, stderr_text):
+    ns = one.make_root(
+        tmp_path,
+        stdout_fixture=one.FIXTURES / "codex-new.jsonl",
+        stderr_text=stderr_text,
+        rc=2,
+    )
+    proc = one.run_call(ns)
+    result = one.result_of(proc)
+    assert result.get("exit_class") == "unknown", (result, proc.stderr)
+
+
+@pytest.mark.parametrize(
+    ("stderr_text", "exit_class"),
+    [
+        ("Error: HTTP 401\n", "auth_error"),
+        ("Error: 401 unauthorized\n", "auth_error"),
+        ("Error: HTTP 429\n", "quota_exhausted"),
+        ("Error: 429 rate limit\n", "quota_exhausted"),
+    ],
+)
+def test_one_034_bounded_status_markers_still_classify(
+    tmp_path, stderr_text, exit_class
+):
+    ns = one.make_root(
+        tmp_path,
+        stdout_fixture=one.FIXTURES / "codex-new.jsonl",
+        stderr_text=stderr_text,
+        rc=2,
+    )
+    proc = one.run_call(ns)
+    result = one.result_of(proc)
+    assert result.get("exit_class") == exit_class, (result, proc.stderr)

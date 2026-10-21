@@ -3,6 +3,9 @@ from __future__ import annotations
 import signal
 import subprocess
 import time
+from pathlib import Path
+
+import pytest
 
 from tests import one_support as one
 
@@ -537,3 +540,20 @@ def test_one_055_missing_database_is_readback_missing(tmp_path):
         and entry.get("node") == node_id
         for entry in entries
     ), entries
+
+
+def test_one_055_wal_db_without_shm_reads_back_under_system_python(tmp_path):
+    system_python = Path("/usr/bin/python3")
+    if not system_python.exists():
+        pytest.skip("no /usr/bin/python3")
+    ns = one.make_opencode_root(tmp_path, seed_rows="match")
+    assert ns.db_path.read_bytes()[18:20] == b"\x02\x02", (
+        "the seeded database is not WAL"
+    )
+    assert not Path(str(ns.db_path) + "-shm").exists(), (
+        "the seeded database left a -shm file"
+    )
+    (ns.root / "bin" / "python3").symlink_to(system_python)
+    proc = one.run_oc_call(ns)
+    result = one.result_of(proc)
+    assert result.get("exit_class") == "ok", (result, proc.stderr)
