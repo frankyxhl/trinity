@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -50,14 +51,34 @@ def stub_env(tmp_path):
     return make_env
 
 
-def _run(args, env):
+def _run(args, env, cwd=None):
     assert MINIMAX_BIN.is_file(), f"{MINIMAX_BIN} missing"
-    return subprocess.run(
+    proc = subprocess.Popen(
         [str(MINIMAX_BIN), *args],
         env=env,
-        capture_output=True,
+        cwd=cwd,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
     )
+    try:
+        stdout, stderr = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        assert False, "wrapper did not exit within 30 s"
+    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+
+
+def _assert_keys_not_leaked(res, argv, *keys):
+    for key in keys:
+        assert all(key not in arg for arg in argv), f"key in argv {argv!r}"
+        assert key not in res.stdout
+        assert key not in res.stderr
 
 
 def _write_key_file(home, content, mode=0o600):
@@ -91,7 +112,9 @@ def test_m2_key_file_mode_600_is_used(stub_env):
     _write_key_file(env["HOME"], KEY + "\n", mode=0o600)
     res = _run(["hello"], env)
     assert res.returncode == 0, res.stderr
-    assert _record(rec)["key"] == KEY
+    data = _record(rec)
+    assert data["key"] == KEY
+    _assert_keys_not_leaked(res, data["argv"], KEY)
 
 
 def test_m3_key_file_mode_400_is_used(stub_env):
@@ -99,7 +122,9 @@ def test_m3_key_file_mode_400_is_used(stub_env):
     _write_key_file(env["HOME"], KEY + "\n", mode=0o400)
     res = _run(["hello"], env)
     assert res.returncode == 0, res.stderr
-    assert _record(rec)["key"] == KEY
+    data = _record(rec)
+    assert data["key"] == KEY
+    _assert_keys_not_leaked(res, data["argv"], KEY)
 
 
 def test_m4_key_file_wrong_mode_is_refused(stub_env):
@@ -110,6 +135,7 @@ def test_m4_key_file_wrong_mode_is_refused(stub_env):
     assert not rec.exists(), "codex stub should not have been invoked"
     assert "minimax_api_key" in res.stderr
     assert KEY not in res.stderr
+    assert KEY not in res.stdout
 
 
 def test_m5_no_key_is_refused(stub_env):
@@ -125,7 +151,9 @@ def test_m6_env_key_wins_over_file(stub_env):
     _write_key_file(env["HOME"], OTHER_KEY + "\n", mode=0o600)
     res = _run(["hello"], env)
     assert res.returncode == 0, res.stderr
-    assert _record(rec)["key"] == KEY
+    data = _record(rec)
+    assert data["key"] == KEY
+    _assert_keys_not_leaked(res, data["argv"], KEY, OTHER_KEY)
 
 
 def test_m7_key_never_in_argv_or_output(stub_env, tmp_path):
@@ -163,6 +191,15 @@ def test_m9_no_codex_config_needed(stub_env, tmp_path):
     argv = _record(rec)["argv"]
     assert "--profile" not in argv
     assert "-p" not in argv
+
+
+def test_m11_caller_args_forwarded_exactly(stub_env, tmp_path):
+    env, rec = stub_env({"MINIMAX_API_KEY": KEY})
+    (tmp_path / "a.txt").write_text("")
+    res = _run(["two words", "", "*"], env, cwd=tmp_path)
+    assert res.returncode == 0, res.stderr
+    argv = _record(rec)["argv"]
+    assert argv[-3:] == ["two words", "", "*"]
 
 
 def test_m10_wrapper_is_executable_sh():
