@@ -310,7 +310,7 @@ t_runs_without_usage_read() {
     assert_rc 0 "wrapper runs without reading /usage"
     assert_no_usage_call "wrapper does not read /usage"
     assert_argv "hello" "task reaches agy without a usage read"
-    assert_argv "claude-opus-5-5-high" "model pin survives without a usage read"
+    assert_argv "claude-opus-5-5-high" "model pin claude-opus-5-5-high survives without a usage read"
 }
 
 t_runs_when_usage_unreadable() {
