@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Pin agy-opus to Claude Opus 5.5 (High), `claude-opus-5-5-high`.
+
 ## [4.1.0] - 2026-10-21
 
 ### Added
