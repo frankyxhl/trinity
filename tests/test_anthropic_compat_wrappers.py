@@ -155,8 +155,8 @@ def test_t1_deepseek_env_key_sets_anthropic_env_and_passes_argv(stub_env):
     assert e["ANTHROPIC_API_KEY"] == "from-env-xxx"
     # V4-Flash runs 1M context by default on the official endpoint — no [1m]
     # suffix needed (the API normalizes it away; verified 2026-07-31).
-    assert e["ANTHROPIC_MODEL"] == "deepseek-v4-flash"
-    assert e["ANTHROPIC_SMALL_FAST_MODEL"] == "deepseek-v4-flash"
+    assert e["ANTHROPIC_MODEL"] == "deepseek-flash"
+    assert e["ANTHROPIC_SMALL_FAST_MODEL"] == "deepseek-flash"
     assert e["API_TIMEOUT_MS"] == "600000"
     assert e["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
     assert e["CLAUDE_CONFIG_DIR"].endswith(".claude-deepseek")
