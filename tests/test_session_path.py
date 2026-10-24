@@ -374,7 +374,7 @@ def test_claude_family_resolves_canonical_slug(
     assert out.out == f"{transcript}\n"
 
 
-@pytest.mark.parametrize("provider", ["glm", "minimax"])
+@pytest.mark.parametrize("provider", ["glm"])
 def test_droid_family_preserves_underscore_in_project_path(
     provider, monkeypatch, capsys
 ):
@@ -914,24 +914,17 @@ def test_nested_cwd_inside_git_repo_uses_literal_dir(tmp_path, monkeypatch):
     )
 
 
-def test_minimax_uses_droid_factory_layout(tmp_path, capsys):
-    """`minimax` shares the droid `~/.factory/sessions/` layout with `glm`
-    (per providers/minimax.md + providers/registry.json — both use the
-    droid CLI). Per codex-bot R4 P2 finding 3214543731 on PR #119: the
-    R5 dispatch was missing minimax, so `trinity session-path minimax`
-    hit the unknown-provider branch instead of resolving the transcript.
-    """
+def test_minimax_uses_codex_session_store(tmp_path, capsys):
     sp = _import_session_path()
     project = tmp_path / "proj"
     project.mkdir()
-    sid = "minimax-session-id"
+    sid = "019dc7bc-minimax-codex-store"
     _write_pointer(project, {"minimax": {"session_id": sid}})
 
     fake_home = Path(os.environ["HOME"])
-    transcript = (
-        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
-    )
-    transcript.parent.mkdir(parents=True, exist_ok=True)
+    day_dir = fake_home / ".codex" / "sessions" / "2026" / "01" / "15"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    transcript = day_dir / f"rollout-2026-01-15T08-00-00-{sid}.jsonl"
     transcript.write_text("")
 
     rc = sp.cmd_session_path(str(project), "minimax")

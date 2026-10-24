@@ -200,6 +200,29 @@ def test_a4c_symlink_uses_lstat(tmp_path, monkeypatch):
     assert result["mode_ok"] is False
 
 
+def test_a4_minimax_env_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("MINIMAX_API_KEY", "mm-test-key-123")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    result = wrapper_auth_check("minimax")
+    assert result is not None, "wrapper_auth_check does not know minimax"
+    assert result["source"] == "env"
+    assert result["env_var"] == "MINIMAX_API_KEY"
+
+
+def test_a4_minimax_key_file_mode_600(tmp_path, monkeypatch):
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    secrets = tmp_path / ".secrets"
+    secrets.mkdir()
+    key_file = secrets / "minimax_api_key"
+    key_file.write_text("mm-test-key-123\n")
+    key_file.chmod(0o600)
+    result = wrapper_auth_check("minimax")
+    assert result is not None, "wrapper_auth_check does not know minimax"
+    assert result["source"] == "file"
+    assert result["mode_ok"] is True
+
+
 # ---------------------------------------------------------------------------
 # A5: non-wrapper providers
 # ---------------------------------------------------------------------------

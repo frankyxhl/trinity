@@ -40,8 +40,8 @@ README_PATH = ROOT / "README.md"
 SKILL_PATH = ROOT / "SKILL.md"
 PROVIDERS_DIR = ROOT / "providers"
 
-DIRECT_PROVIDERS = {"glm", "codex", "minimax"}
-WRAPPER_PROVIDERS = {"openrouter", "deepseek", "claude-code", "agy-opus"}
+DIRECT_PROVIDERS = {"glm", "codex"}
+WRAPPER_PROVIDERS = {"openrouter", "deepseek", "claude-code", "agy-opus", "minimax"}
 REGISTRY_PROVIDERS = DIRECT_PROVIDERS | WRAPPER_PROVIDERS
 
 HOME_LITERAL = os.path.expanduser("~")
@@ -82,6 +82,15 @@ def test_a3a_registry_version_is_one():
 def test_a3a_registry_has_expected_providers():
     registry = _load_registry()
     assert set(registry["providers"].keys()) == REGISTRY_PROVIDERS
+
+
+def test_minimax_registry_entry_is_codex_wrapper():
+    entry = _load_registry()["providers"]["minimax"]
+    assert entry["cli"] == "{HOME}/.claude/skills/trinity/bin/minimax"
+    assert entry["supports_resume"] is True
+    assert entry["resume_arg"] == "resume"
+    assert entry["timeout"] == 600
+    assert "droid" not in entry["cli"]
 
 
 # ---------------------------------------------------------------------------
