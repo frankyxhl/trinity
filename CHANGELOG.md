@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Add a Codex Responses wrapper for `MiniMax-M3` with API-key loading, resume support, and Codex session paths.
+
 ## [4.1.0] - 2026-10-21
 
 ### Added
