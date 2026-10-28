@@ -541,6 +541,10 @@ def test_g16_glm_refuses_missing_or_empty_deny_list(glm_env, tmp_path):
     assert not rec.exists(), "claude stub should not have been invoked"
     assert not (tmp_path / "sandbox.invoked.json").exists()
     assert "deny" in res.stderr.lower()
+    if os.geteuid() == 0:
+        pytest.skip(
+            "root can read mode-000 files, so the unreadable-deny-list leg needs a non-root user"
+        )
     deny_list.write_text(f"{tmp_path / 'client-one'}\n")
     deny_list.chmod(0o000)
     try:
