@@ -14,7 +14,7 @@ and looks it up verbatim in `.claude/trinity.json` -> ``sessions``.
 
 Per-provider resolvers cover:
     glm           -> ~/.factory/sessions/<encoded-project-path>/<session-id>.jsonl
-    codex         -> ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<session-id>.jsonl
+    codex/minimax -> ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<session-id>.jsonl
                      (index-first via ~/.codex/session_index.jsonl;
                       glob fallback `*-<session-id>.jsonl` anchored at the dash
                       boundary; post-filter via `endswith` to defend against
@@ -322,13 +322,13 @@ def cmd_session_path(project_dir: str, lookup_key: str) -> int:
 
     try:
         # Droid-family providers (~/.factory/sessions/<encoded-path>/<sid>.jsonl).
-        # `glm` and `minimax` both use the droid CLI session store; layout is
-        # identical so they share `_resolve_glm`. Source: `providers/glm.md` +
-        # `providers/minimax.md` (same `droid exec` flow + same SESSION_DIR
-        # convention) + `providers/registry.json` lists both with `cli: droid ...`.
-        if provider in {"glm", "minimax"}:
+        # `glm` uses the droid CLI session store; its layout is
+        # handled by `_resolve_glm`. Source: `providers/glm.md` +
+        # `providers/registry.json` (`cli: droid ...`). `minimax` uses the
+        # codex CLI session store via `providers/bin/minimax`.
+        if provider == "glm":
             resolved = _resolve_glm(session_id, project_dir)
-        elif provider == "codex":
+        elif provider in {"codex", "minimax"}:
             resolved = _resolve_codex(session_id, project_dir)
         elif provider in _CLAUDE_FAMILY_ROOTS:
             resolved = _resolve_claude_family(session_id, project_dir, provider)

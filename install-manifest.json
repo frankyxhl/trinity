@@ -38,6 +38,7 @@
     {"src": "providers/deepseek.md", "dest": ".claude/agents/trinity-deepseek.md"},
     {"src": "providers/claude-code.md", "dest": ".claude/agents/trinity-claude-code.md"},
     {"src": "providers/agy-opus.md", "dest": ".claude/agents/trinity-agy-opus.md"},
+    {"src": "providers/bin/minimax", "dest": ".claude/skills/trinity/bin/minimax", "mode": "755"},
     {"src": "providers/bin/deepseek", "dest": ".claude/skills/trinity/bin/deepseek", "mode": "755"},
     {"src": "providers/bin/openrouter", "dest": ".claude/skills/trinity/bin/openrouter", "mode": "755"},
     {"src": "providers/bin/claude-code", "dest": ".claude/skills/trinity/bin/claude-code", "mode": "755"},

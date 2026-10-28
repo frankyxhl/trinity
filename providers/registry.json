@@ -8,10 +8,10 @@
       "timeout": 360
     },
     "minimax": {
-      "cli": "droid exec --auto medium --model custom:MiniMax-M3",
+      "cli": "{HOME}/.claude/skills/trinity/bin/minimax",
       "supports_resume": true,
-      "resume_arg": "-s",
-      "timeout": 360
+      "resume_arg": "resume",
+      "timeout": 600
     },
     "codex": {
       "cli": "codex exec --skip-git-repo-check -m gpt-6.1-sol",
