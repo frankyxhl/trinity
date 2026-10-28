@@ -36,6 +36,27 @@ passes only an allowlisted environment. A working directory deep inside
 `~/.citizens` or `~/.pfc-state` is allowed while the other roots stay denied;
 shallower working directories under those roots are refused.
 
+The wrapper pins the tool grant on the command line: `--allowedTools
+Read,Grep,Glob,Edit,Write,Bash`. It does this because project settings do not
+load inside the sandbox.
+
+Writes are allowed only in the working directory and outside the fenced
+places. Inside the working directory, the secret directories and the
+deny-list paths stay denied. Parent directories of fenced paths cannot be
+renamed or removed.
+
+One known limit: when the working directory is inside `~/.citizens` or
+`~/.pfc-state`, Claude Code itself refuses edits there, because it cannot
+inspect the denied parent directories. This fails closed.
+
+Each line of the deny list must be an absolute path.
+
+The `--disallowedTools` entries match command names only. They are not a
+security boundary; the sandbox is the boundary.
+
+Writes elsewhere in the home directory, for example to shell startup files,
+are still allowed. A later change may fence them.
+
 ```bash
 run_glm() {
   "$HOME/.claude/skills/trinity/bin/glm" "$@"
