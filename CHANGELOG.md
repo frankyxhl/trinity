@@ -6,6 +6,7 @@
 - Add a Codex Responses wrapper for `MiniMax-M3` with API-key loading, resume support, and Codex session paths.
 
 ### Changed
+- `minimax` wrapper now sets `CODEX_PROVIDER_ROUTED=1` in codex's environment, overriding any caller value, so the station's codex router knows the provider was already chosen.
 - `glm` now keeps the exact bytes of the physical working directory, including trailing newlines, so a control-character check refuses a cwd whose name ends in a newline instead of letting it resolve to a sibling path.
 - Widen the `glm` sandbox fence to `~/.claude`, `~/.codex`, `~/.citizens` and `~/.pfc-state`, allow a deep working directory inside `~/.citizens` or `~/.pfc-state`, and escape quote and backslash characters in profile paths.
 - Route `glm` through `providers/bin/glm` — `claude` against Z.ai's Anthropic-compatible endpoint, sandboxed, with `ZAI_API_KEY` or `~/.secrets/zai_api_key` — retiring the droid CLI path (`GLM-5.2` → `glm-5.3-flash`).
