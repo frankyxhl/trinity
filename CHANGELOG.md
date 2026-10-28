@@ -6,6 +6,7 @@
 - Add a Codex Responses wrapper for `MiniMax-M3` with API-key loading, resume support, and Codex session paths.
 
 ### Changed
+- `minimax` wrapper now sets `CODEX_PROVIDER_ROUTED=1` in codex's environment, overriding any caller value, so the station's codex router knows the provider was already chosen.
 - Pin agy-opus to Claude Opus 5.5 (Medium), `claude-opus-5-5-medium`.
 - Pin both DeepSeek model variables to `deepseek-flash`.
 
