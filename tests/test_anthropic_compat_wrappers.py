@@ -698,6 +698,73 @@ def test_w4_glm_real_sandbox_denies_writes_outside_cwd(tmp_path):
             assert f"{status} {name}" in lines, f"cwd={cwd}: {name}"
 
 
+@pytest.mark.skipif(
+    not (sys.platform == "darwin" and os.access("/usr/bin/sandbox-exec", os.X_OK)),
+    reason="requires executable macOS sandbox-exec",
+)
+def test_w5_glm_real_sandbox_refuses_renaming_parents_of_fenced_paths(tmp_path):
+    base = tmp_path.resolve()
+    home = base / "home"
+    run = home / ".pfc-state" / "st" / "citizens" / "me" / "run"
+    out = base / "out"
+    out.mkdir()
+    originals = (
+        home / ".config" / "gh" / "hosts.yml",
+        home / "Projects" / "client" / "sub" / "c.txt",
+        run / "a" / "b" / "x.txt",
+    )
+    for path in (*originals, run / "keep.txt"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+    deny_list = base / "deny-list.txt"
+    deny_list.write_text(f"{home / 'Projects' / 'client' / 'sub'}\n{run / 'a' / 'b'}\n")
+    renames = (
+        ("client", home / "Projects" / "client", home / "Projects" / "client2"),
+        ("cwd-a", run / "a", run / "a2"),
+        ("config", home / ".config", home / ".cfgx"),
+        ("projects", home / "Projects", home / "P"),
+        ("own", run / "keep.txt", run / "keep2.txt"),
+    )
+    record = out / "renames.txt"
+    record.write_text("")
+    quoted_record = shlex.quote(str(record))
+    script = ["#!/bin/sh"]
+    for name, source, destination in renames:
+        script.append(
+            f"if /bin/mv {shlex.quote(str(source))} {shlex.quote(str(destination))}; then\n"
+            f"    printf '%s\\n' {shlex.quote(f'RENAMED {name}')} >> {quoted_record}\n"
+            "else\n"
+            f"    printf '%s\\n' {shlex.quote(f'DENY {name}')} >> {quoted_record}\n"
+            "fi"
+        )
+    script.append("exit 0")
+    bin_dir = base / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "claude"
+    stub.write_text("\n".join(script) + "\n")
+    stub.chmod(0o755)
+    env = {
+        "HOME": str(home),
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "ZAI_API_KEY": "zai-test-key-123",
+        "GLM_SANDBOX_EXEC": "/usr/bin/sandbox-exec",
+        "GLM_DENY_LIST": str(deny_list),
+    }
+    res = _run(GLM_BIN, [], env, cwd=run)
+    assert res.returncode == 0
+    lines = record.read_text().splitlines()
+    assert len(lines) == 5
+    assert lines == [
+        "DENY client",
+        "DENY cwd-a",
+        "DENY config",
+        "DENY projects",
+        "RENAMED own",
+    ]
+    for path in originals:
+        assert path.is_file()
+
+
 def test_f1_glm_profile_first_deny_covers_new_roots(glm_env, tmp_path):
     env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
     res = _run(GLM_BIN, [], env, cwd=tmp_path)
