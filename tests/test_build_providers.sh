@@ -212,6 +212,7 @@ for p in glm minimax; do
 done
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
 check "deepseek run function"    grep -q 'run_deepseek()' providers/deepseek.md
+check "deepseek default model"   grep -q 'Default model: deepseek-flash\.' providers/deepseek.md
 check "claude-code run function" grep -q 'run_claude_code()' providers/claude-code.md
 
 # TRN-3002: all Claude-family generated templates must share the installed

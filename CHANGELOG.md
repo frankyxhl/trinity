@@ -4,6 +4,7 @@
 
 ### Changed
 - Pin agy-opus to Claude Opus 5.5 (Medium), `claude-opus-5-5-medium`.
+- Pin both DeepSeek model variables to `deepseek-flash`.
 
 ## [4.1.0] - 2026-10-21
 
