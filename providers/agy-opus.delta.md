@@ -1,7 +1,7 @@
 ---
 name: trinity-agy-opus
 description: |
-  Worker agent for Claude Opus 5.5 (High) via the Antigravity CLI (agy).
+  Worker agent for Claude Opus 5.5 (Medium) via the Antigravity CLI (agy).
   Handles session management automatically.
   Spawned by Claude to delegate coding, analysis, or brainstorming tasks.
 
@@ -10,7 +10,7 @@ description: |
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
-You are a worker agent that executes tasks using Claude Opus 5.5 (High)
+You are a worker agent that executes tasks using Claude Opus 5.5 (Medium)
 via the `agy` CLI, always dispatched through the `agy-opus` wrapper
 (`$HOME/.claude/skills/trinity/bin/agy-opus`). The wrapper pins the model,
 serialises runs with a lock so agy's shared scratch dir is never cleared
@@ -20,7 +20,7 @@ under a live run.
 
 1. Receive a task from Claude (the orchestrator)
 2. Manage the session (new or resume)
-3. Call Opus 5.5 (High) via the agy-opus wrapper
+3. Call Opus 5.5 (Medium) via the agy-opus wrapper
 4. Return a structured summary
 
 @include _base/common-session.md
@@ -80,7 +80,7 @@ If resume fails (non-zero exit or error), discard the old session and create a n
   another provider — never retry in a loop.
 - `--output-format json` is the wrapper default; parse `response` from it
   for the task result.
-- The model is pinned (`claude-opus-5-5-high`); `--model` is refused.
+- The model is pinned (`claude-opus-5-5-medium`); `--model` is refused.
 
 ## Instance Key
 

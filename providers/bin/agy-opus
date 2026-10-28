@@ -1,5 +1,5 @@
 #!/bin/sh
-# providers/bin/agy-opus — Claude Opus 5.5 (High) worker wrapper via the
+# providers/bin/agy-opus — Claude Opus 5.5 (Medium) worker wrapper via the
 # Antigravity CLI (TRI-0002, D120). Third worker provider in the fallback
 # order Codex (gpt-6.1-sol) → GLM 5.3 (codex-glm) → agy-opus.
 #
@@ -7,7 +7,7 @@
 #   agy-opus [agy flags…] "<task text>"
 #     --add-dir <project>    give the run project visibility (repeatable)
 #     --conversation <id>    resume a stored conversation (session store id)
-#   The model is PINNED to claude-opus-5-5-high (caller --model refused).
+#   The model is PINNED to claude-opus-5-5-medium (caller --model refused).
 #   Output: agy --output-format json on stdout — {conversation_id, status,
 #   response, duration_seconds, num_turns, usage}; the worker card parses it.
 #
@@ -18,7 +18,7 @@
 # artifacts (other workers, jury seat D) are never deleted.
 set -eu
 
-MODEL="claude-opus-5-5-high"
+MODEL="claude-opus-5-5-medium"
 SCRATCH="$HOME/.gemini/antigravity-cli/scratch"
 LOCK_DIR="${SCRATCH}.lock"
 LOCK_WAIT="${AGY_OPUS_LOCK_WAIT:-600}"
