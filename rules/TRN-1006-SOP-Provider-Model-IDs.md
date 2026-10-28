@@ -84,12 +84,14 @@ Single source of truth per provider (post-TRN-3020 / TRN-3027):
 |----------|--------------------|----------------------------------|
 | `codex` | `providers/registry.json` → `providers.codex.cli` + `.agents/trinity.codex.json` + `providers/codex.delta.md` | `codex exec --skip-git-repo-check -m gpt-6.1-sol`; required in both default and deep review panels |
 | `glm` | `providers/registry.json` → `providers.glm.cli` + `.agents/trinity.codex.json` + `providers/glm.delta.md` | Claude Code install + Codex review: `droid exec --auto medium --model custom:GLM-5.2` (BYOK custom model — Z.AI endpoint; `--reasoning-effort` omitted — Factory docs mark it unsupported for `custom:` models, and droid silently ignores it) |
+| `minimax` | Model: `providers/bin/minimax` config flags. Bin path: `providers/registry.json` → `providers.minimax.cli`. | `model=MiniMax-M3`, `model_provider=minimax` |
 | `deepseek` | Model: `providers/bin/deepseek` env block. Bin path: `providers/registry.json` → `providers.deepseek.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="deepseek-flash"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-flash"` |
 | `openrouter` | Model: `providers/bin/openrouter` env block. Bin path: `providers/registry.json` → `providers.openrouter.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
 
-**Three patterns**:
+**Four patterns**:
 
-- **Registry-managed native CLIs** (codex, glm, minimax): model is part of the `cli` string in `providers/registry.json`. The `Makefile install` target and `install.sh` both consume the registry via `scripts/install.py`; do NOT edit Makefile or install.sh `register` lines for these — they derive from the registry.
+- **Registry-managed native CLIs** (codex, glm): model is part of the `cli` string in `providers/registry.json`. The `Makefile install` target and `install.sh` both consume the registry via `scripts/install.py`; do NOT edit Makefile or install.sh `register` lines for these — they derive from the registry.
+- **Codex Responses wrapper** (minimax): model selection lives in `providers/bin/minimax` through `-c model=MiniMax-M3`; the registry stores the wrapper path. Update the wrapper and `providers/minimax.delta.md`, then rebuild and verify the provider templates.
 - **Antigravity wrapper** (agy-opus): model selection lives in `providers/bin/agy-opus`; the registry stores the wrapper path. It remains an implementation fallback, not a review-panel member.
 - **Anthropic-compat wrappers** (deepseek, openrouter, claude-code): model lives in `ANTHROPIC_MODEL` env var inside `providers/bin/<name>`. The registry stores the bin-script wrapper path, not the model.
 
@@ -97,9 +99,9 @@ Single source of truth per provider (post-TRN-3020 / TRN-3027):
 
 ## Steps
 
-The exact procedure depends on which pin location the provider uses. **Section A** covers registry-managed native-CLI providers (codex, glm, minimax). **Section B** covers Anthropic-compat wrappers (deepseek, openrouter, claude-code). **Section C** covers verification after `make install`.
+The exact procedure depends on which pin location the provider uses. **Section A** covers registry-managed native-CLI providers (codex, glm). **Section B** covers Anthropic-compat wrappers (deepseek, openrouter, claude-code). **Section C** covers verification after `make install`.
 
-### A. Registry-managed native-CLI providers (codex, glm, minimax)
+### A. Registry-managed native-CLI providers (codex, glm)
 
 1. Edit `providers/registry.json` → `providers.<name>.cli` field. The `Makefile install` target and `install.sh` both read this file via `scripts/install.py` — do NOT also edit `register` lines in those files (they no longer hardcode CLI strings for codex/glm post-TRN-3020).
 2. If the provider has caller-side flags in its `.delta.md` or in `.agents/trinity.codex.json`, update there too.

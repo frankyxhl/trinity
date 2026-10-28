@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Add a Codex Responses wrapper for `MiniMax-M3` with API-key loading, resume support, and Codex session paths.
+
 ### Changed
 - Pin agy-opus to Claude Opus 5.5 (Medium), `claude-opus-5-5-medium`.
 - Pin both DeepSeek model variables to `deepseek-flash`.

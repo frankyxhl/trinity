@@ -48,6 +48,17 @@ def test_manifest_declares_trinity_zc_conditional():
     assert entry["condition_dir"] == ".agents"
 
 
+def test_manifest_installs_minimax_wrapper():
+    manifest = json.loads(MANIFEST.read_text())
+    entry = next(
+        (e for e in manifest["files"] if e["src"] == "providers/bin/minimax"),
+        None,
+    )
+    assert entry, "providers/bin/minimax not declared in files"
+    assert entry["dest"] == ".claude/skills/trinity/bin/minimax"
+    assert entry["mode"] == "755"
+
+
 def test_installs_trinity_zc_when_agents_dir_exists(tmp_path):
     home = tmp_path / "home"
     (home / ".agents").mkdir(parents=True)  # simulate ZCode runtime present

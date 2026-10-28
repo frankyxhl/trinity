@@ -142,7 +142,8 @@ OUTPUT_FILE="$RUN_DIR/${INSTANCE_KEY//[:\/]/-}.out"
 ```
 
 **4. Build the command.** Read `cli` from merged config; expand `~` and `$HOME`. If resume pointer != NEW and the provider supports resume, append the resume flag:
-- droid-backed (glm/minimax): `<cli> -s "$SESSION_ID"`
+- droid-backed (glm): `<cli> -s "$SESSION_ID"`
+- codex wrapper (minimax): `<cli> resume "$SESSION_ID"`
 - claude-wrapper (deepseek **and** claude-code): `<cli> --resume "$SESSION_ID"` — **pass the saved `$SESSION_ID`**; a bare `-r`/`--resume` with no id makes the underlying `claude` resume the latest/wrong conversation instead of the stored pointer (the bin forwards args verbatim to `claude`; see `providers/deepseek.md`, `providers/claude-code.md`). Both registry entries set `supports_resume:true, resume_arg:"--resume"`, so both resume here. Flag order is safe: the cli ends in `-p`, and `claude -p --resume "$ID" "<task>"` parses correctly — `-p` does not consume `--resume` (verified live: a bogus id returns "No conversation found", i.e. `--resume` was parsed, not swallowed).
 - codex: `<cli>` (codex resume is experimental/session-scoped; omit unless explicitly requested)
 - any provider with registry `supports_resume:false` (e.g. openrouter): no resume arg
