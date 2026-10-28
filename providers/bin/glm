@@ -1,0 +1,94 @@
+#!/bin/sh
+set -eu
+
+KEY="${ZAI_API_KEY:-}"
+KEY_FILE="${HOME}/.secrets/zai_api_key"
+
+if [ -z "$KEY" ] && [ -f "$KEY_FILE" ]; then
+    PERM=$(stat -c '%a' "$KEY_FILE" 2>/dev/null \
+        || stat -f '%Lp' "$KEY_FILE" 2>/dev/null \
+        || echo unknown)
+    case "$PERM" in
+        600|400) ;;
+        unknown)
+            echo "trinity-glm: cannot stat $KEY_FILE — refusing to read for safety." >&2
+            exit 1 ;;
+        *)
+            echo "trinity-glm: refuse to read $KEY_FILE (perm $PERM, expected 600 or 400). Run: chmod 600 $KEY_FILE" >&2
+            exit 1 ;;
+    esac
+    KEY=$(cat "$KEY_FILE")
+fi
+
+unset ZAI_API_KEY
+
+if [ -z "$KEY" ]; then
+    echo "trinity-glm: no API key. Set \$ZAI_API_KEY or write ~/.secrets/zai_api_key (mode 600)." >&2
+    exit 1
+fi
+
+SBX="${GLM_SANDBOX_EXEC:-/usr/bin/sandbox-exec}"
+DENY_LIST="${GLM_DENY_LIST:-${HOME}/.pfc-state/rules/client-data-dirs.txt}"
+
+if [ ! -x "$SBX" ]; then
+    echo "trinity-glm: sandbox executable missing or not executable: $SBX" >&2
+    exit 1
+fi
+
+if [ ! -f "$DENY_LIST" ] || [ ! -r "$DENY_LIST" ]; then
+    echo "trinity-glm: deny list missing or unreadable: $DENY_LIST" >&2
+    exit 1
+fi
+
+PROFILE="(version 1)(allow default)(deny file-read*"
+for d in "${HOME}/.secrets" "${HOME}/.ssh" "${HOME}/.claude/fleet-tokens" "${HOME}/.config/gh"; do
+    PROFILE="${PROFILE} (subpath \"${d}\")"
+done
+
+DENY_COUNT=0
+while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+        ''|'#'*) continue ;;
+    esac
+    DENY_COUNT=$((DENY_COUNT + 1))
+    PROFILE="${PROFILE} (subpath \"${line}\")"
+done < "$DENY_LIST"
+
+if [ "$DENY_COUNT" -eq 0 ]; then
+    echo "trinity-glm: deny list has no path lines: $DENY_LIST" >&2
+    exit 1
+fi
+
+PROFILE="${PROFILE})"
+
+FLEET_LINE="Secrets never enter output: no env, printenv, set, ps e / ps eww / ps -E, set -x, no cat of any file under ~/.secrets, no traceback that carries a key. If one slips out, stop and tell the steward."
+DISALLOWED="Bash(env:*),Bash(printenv:*),Bash(set:*),Bash(ps:*),Read(~/.secrets/**),Grep(~/.secrets/**),Glob(~/.secrets/**)"
+
+set -- "$DISALLOWED" "$@"
+set -- --disallowedTools "$@"
+set -- "$FLEET_LINE" "$@"
+set -- --append-system-prompt "$@"
+set -- --dangerously-skip-permissions "$@"
+set -- claude "$@"
+
+set -- "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1" "$@"
+set -- "CLAUDE_CONFIG_DIR=${HOME}/.claude-glm" "$@"
+set -- "ANTHROPIC_SMALL_FAST_MODEL=glm-5.3-flash" "$@"
+set -- "ANTHROPIC_MODEL=glm-5.3-flash" "$@"
+set -- "ANTHROPIC_API_KEY=${KEY}" "$@"
+set -- "ANTHROPIC_AUTH_TOKEN=${KEY}" "$@"
+set -- "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" "$@"
+set -- "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1" "$@"
+
+if [ -n "${LANG:-}" ]; then set -- "LANG=${LANG}" "$@"; fi
+if [ -n "${TMPDIR:-}" ]; then set -- "TMPDIR=${TMPDIR}" "$@"; fi
+if [ -n "${PATH:-}" ]; then set -- "PATH=${PATH}" "$@"; fi
+if [ -n "${HOME:-}" ]; then set -- "HOME=${HOME}" "$@"; fi
+
+set -- -i "$@"
+set -- env "$@"
+set -- "$PROFILE" "$@"
+set -- -p "$@"
+set -- "$SBX" "$@"
+
+exec "$@"

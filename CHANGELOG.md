@@ -6,6 +6,7 @@
 - Add a Codex Responses wrapper for `MiniMax-M3` with API-key loading, resume support, and Codex session paths.
 
 ### Changed
+- Route `glm` through `providers/bin/glm` — `claude` against Z.ai's Anthropic-compatible endpoint, sandboxed, with `ZAI_API_KEY` or `~/.secrets/zai_api_key` — retiring the droid CLI path (`GLM-5.2` → `glm-5.3-flash`).
 - Pin agy-opus to Claude Opus 5.5 (Medium), `claude-opus-5-5-medium`.
 - Pin both DeepSeek model variables to `deepseek-flash`.
 

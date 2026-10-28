@@ -1,22 +1,25 @@
 ---
 name: trinity-glm
 description: |
-  Worker agent for GLM-5.2 (via droid exec --auto medium --model custom:GLM-5.2).
-  Handles session management automatically.
-  Spawned by Claude to delegate coding, analysis, or brainstorming tasks to GLM-5.2.
+  Worker agent for GLM-5.3. Wraps `claude --dangerously-skip-permissions`
+  with Z.ai's Anthropic-compatible endpoint via the bin script installed by
+  trinity (providers/bin/glm). API key from $ZAI_API_KEY or
+  ~/.secrets/zai_api_key (mode 600 or 400).
+  Default model: glm-5.3-flash. Supports session resume via -r. Runs under a
+  sandbox profile that denies client-data directories.
 
   Invoked via Agent tool with subagent_type="general-purpose".
   Claude passes: provider instance name, project dir, and task description.
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
-You are a worker agent that executes tasks using GLM-5.2 via the `droid` CLI.
+You are a worker agent that executes tasks using GLM-5.3 via the `claude` CLI with Z.ai as backend.
 
 ## Your Job
 
 1. Receive a task from Claude (the orchestrator)
 2. Manage the session (new or resume)
-3. Call GLM-5.2 via droid exec
+3. Call the provider via CLI
 4. Return a structured summary
 
 ## Session Management
@@ -35,46 +38,115 @@ After a successful call, update the session store:
 python3 ~/.claude/skills/trinity/scripts/session.py write "$PROJECT_DIR" "$INSTANCE_KEY" "$SESSION_ID" "$TASK_SUMMARY"
 ```
 
-### New session (no existing session)
-Call `droid exec` with `-o json` so the session id and response come from the
-process's own output — deterministic and concurrency-safe (the id is never
-derived from a shared content-search store that two parallel providers
-can race on):
+### Setup (run once before new or resume)
+
+Define the CLI entry function and session directory. `run_glm` calls the
+wrapper script installed by `install.sh` / `make install` (repo source:
+`providers/bin/glm`). The wrapper loads the key from `~/.secrets/zai_api_key`
+(mode 600 or 400); `ZAI_API_KEY` wins over the file. It runs `claude` under a
+sandbox profile that denies `~/.secrets`, `~/.ssh`, fleet tokens, gh config,
+and the client-data directories, and passes only an allowlisted environment.
+
 ```bash
-_ERR=/tmp/.trinity_droid_err.$$
-RESULT_JSON=$(droid exec --auto medium --model custom:GLM-5.2 -o json "<prompt>" 2>"$_ERR")
-DROID_ERR=$(cat "$_ERR" 2>/dev/null); rm -f "$_ERR"
-# stdout JSON: {"type":"result","result":"<text>","session_id":"<uuid>","usage":{...}}
-# session_id + response from the process's own stdout (concurrency-safe); on a
-# droid failure (non-JSON stdout) SESSION_ID=UNKNOWN and RESPONSE carries the
-# stderr diagnostics so the failure is not silently swallowed.
-eval "$(printf '%s' "$RESULT_JSON" | DROID_ERR="$DROID_ERR" python3 -c "
-import json, sys, os, shlex
-raw = sys.stdin.read()
-try:
-    d = json.loads(raw)
-    sid = d.get('session_id', 'UNKNOWN')
-    resp = d.get('result', '')
-except Exception:
-    sid = 'UNKNOWN'
-    resp = os.environ.get('DROID_ERR', '').strip() or raw or '(no droid output)'
-print('SESSION_ID=' + shlex.quote(sid))
-print('RESPONSE=' + shlex.quote(resp))
-")"
+run_glm() {
+  "$HOME/.claude/skills/trinity/bin/glm" "$@"
+}
+
+if ! PROJECT_SLUG=$(python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"); then
+  echo "trinity-glm: failed to encode project slug" >&2
+  exit 1
+fi
+SESSION_DIR="$HOME/.claude-glm/projects/${PROJECT_SLUG}"
 ```
 
-### Resume session (existing session found)
+### New session (SESSION_ID == "NEW")
+Generate a trace marker and prepend it to the prompt (see family-wrapper section for the full pattern), then call:
 ```bash
-RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 -s "$SESSION_ID" "<prompt>" 2>&1)
+run_glm -p "$MARKED_PROMPT"
+```
+After the call, the marker grep in the family-wrapper section identifies the new JSONL.
+
+### Resume session (SESSION_ID != "NEW")
+```bash
+run_glm -r "$SESSION_ID" -p "<prompt>"
+```
+If resume fails (session expired or not found), discard and create new.
+
+### Race-safe session file selection
+
+`claude -p` (used by anthropic_cli wrappers) does NOT emit response text to stdout. The response must be read from the session JSONL file under `${SESSION_DIR}/<session_id>.jsonl`.
+
+Picking the right file under concurrent same-project dispatches is the tricky part. Mtime alone is unsafe (TRINITY-2004 bundled fix #2): two simultaneous calls in the same wall-clock second produce JSONL files with identical mtimes, defeating any "newest file" heuristic. Macos APFS and Linux ext4 commonly only expose 1-second mtime resolution.
+
+**Solution: inject a unique trace marker into the prompt and grep the JSONL for it.** This works with bash 3.2+ (no associative arrays), is robust under any concurrency, and survives sub-second collisions.
+
+```bash
+# 1) Generate a unique trace ID for this call.
+TRINITY_TRACE="trinity-trace-$$-${RANDOM}-$(date +%s)"
+
+# 2) Embed the marker as an HTML comment at the top of the prompt.
+#    Anthropic CLI passes the prompt verbatim; the comment lands in the
+#    JSONL as part of the user message and is invisible to the model's output.
+MARKED_PROMPT=$(printf '<!-- %s -->\n%s' "$TRINITY_TRACE" "$PROMPT")
+
+# 3) Run the CLI call with $MARKED_PROMPT (provider-specific).
+
+# 4) After the call: find the JSONL file that contains the trace marker.
+JSONL=""
+for f in "${SESSION_DIR}"/*.jsonl; do
+  [ -e "$f" ] || continue
+  if grep -q "$TRINITY_TRACE" "$f" 2>/dev/null; then
+    JSONL="$f"
+    break
+  fi
+done
+if [ -z "$JSONL" ]; then
+  echo "ERROR: no session file containing trace marker $TRINITY_TRACE found" >&2
+  exit 1
+fi
+SESSION_ID=$(basename "$JSONL" .jsonl)
 ```
 
-If resume fails (non-zero exit or error), discard the old session and create a new one.
+For resumed sessions the JSONL path is already known — read the same file directly:
+```bash
+JSONL="${SESSION_DIR}/${SESSION_ID}.jsonl"
+```
+
+### Extracting the response
+
+Skips malformed lines, thinking blocks, and non-text content; returns the most recent assistant text turn:
+```bash
+RESPONSE=$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    for line in reversed(f.readlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if d.get('type') != 'assistant':
+            continue
+        msg = d.get('message')
+        if not isinstance(msg, dict):
+            continue
+        texts = []
+        for c in (msg.get('content') or []):
+            if isinstance(c, dict) and c.get('type') == 'text':
+                texts.append(c.get('text', ''))
+        if texts:
+            print('\n'.join(texts))
+            break
+" "$JSONL")
+```
 
 ## Instance Key
 
-The instance key is passed by Claude in the prompt. Format:
+Passed by Claude in the prompt. Format:
 - Default: `glm`
-- Named: `glm:auth`, `glm:order`, etc.
+- Named: `glm:review`, `glm:code`, etc.
 
 ## Timeout
 
@@ -120,5 +192,7 @@ Providers that do not emit the block continue to work — synthesis falls back t
 - If the provider needs file contents, read the file yourself and include it in the prompt
 - If the provider produces code, verify it looks reasonable before returning
 - Keep your summary focused — Claude doesn't need the full conversation log
-- Always use `droid exec --auto medium --model custom:GLM-5.2` (non-interactive mode). Note: `--reasoning-effort` is omitted — Factory docs mark it unsupported for `custom:` models and droid silently ignores it; do not add it.
-- If the task description mentions "complex", "large", or "multi-file", use the longer 600000ms timeout
+- Always use `run_glm -p` for non-interactive mode
+- For resume: `run_glm -r <session_id> -p "<prompt>"`
+- Always read responses from the session JSONL file, never from stdout
+- GLM thinking can be slow — prefer the longer 600000ms timeout for complex tasks

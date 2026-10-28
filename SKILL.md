@@ -66,16 +66,16 @@ The command reads `<project>/.claude/trinity.json`, looks up the pointer for the
 
 | Provider | Transcript root |
 |----------|-----------------|
-| `glm` | `~/.factory/sessions/<encoded-project-path>/<session-id>.jsonl` |
+| `glm` | `~/.claude-glm/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `codex`, `minimax` | `~/.codex/sessions/<YYYY>/<MM>/<DD>/...<session-id>.jsonl` (index-first via `~/.codex/session_index.jsonl`; broad-glob fallback) |
 | `claude-code` | `~/.claude-trinity-claude-code/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `deepseek` | `~/.claude-deepseek/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `openrouter` | `~/.claude-openrouter/projects/<PROJECT_SLUG>/<session-id>.jsonl` |
 | `agy-opus` | not yet supported (exits 3 with explicit deferral message) — transcripts are Antigravity SQLite conversation stores, not JSONL |
 
-Path encoding differs by provider family. Droid-based `glm` preserves its slash-only transform: replace `/` with `-`, keep other characters, and retain the leading dash. `minimax` uses the Codex session store alongside `codex`. The claude-CLI wrappers (`claude-code`, `deepseek`, and `openrouter`) share the canonical Claude Code 2.1.220 transform: replace every non-ASCII-alphanumeric UTF-16 code unit with `-`; when the sanitized slug exceeds 200 UTF-16 units, keep the first 200 and append `-<hash>`, where `<hash>` is the absolute signed 32-bit JavaScript string hash of the original absolute path in lowercase base 36. This preserves the leading dash for absolute paths and matches the wrappers' `~/.claude-*/projects/` layout, including underscores, Unicode, and long paths.
+Path encoding differs by provider family. `minimax` uses the Codex session store alongside `codex`. The claude-CLI wrappers (`glm`, `claude-code`, `deepseek`, and `openrouter`) share the canonical Claude Code 2.1.220 transform: replace every non-ASCII-alphanumeric UTF-16 code unit with `-`; when the sanitized slug exceeds 200 UTF-16 units, keep the first 200 and append `-<hash>`, where `<hash>` is the absolute signed 32-bit JavaScript string hash of the original absolute path in lowercase base 36. This preserves the leading dash for absolute paths and matches the wrappers' `~/.claude-*/projects/` layout, including underscores, Unicode, and long paths.
 
-The claude-CLI wrappers themselves are installed at `~/.claude/skills/trinity/bin/<name>` (e.g. `~/.claude/skills/trinity/bin/claude-code`, `~/.claude/skills/trinity/bin/deepseek`, `~/.claude/skills/trinity/bin/openrouter`) — these are the CLI binaries. Their per-wrapper transcript stores listed above are *separate* from the wrapper bin directory.
+The claude-CLI wrappers themselves are installed at `~/.claude/skills/trinity/bin/<name>` (e.g. `~/.claude/skills/trinity/bin/glm`, `~/.claude/skills/trinity/bin/claude-code`, `~/.claude/skills/trinity/bin/deepseek`, `~/.claude/skills/trinity/bin/openrouter`) — these are the CLI binaries. Their per-wrapper transcript stores listed above are *separate* from the wrapper bin directory.
 
 Exit codes:
 
@@ -108,7 +108,7 @@ A provider is **usable** only when it has both a config entry AND an agent file.
 ```json
 {
   "providers": {
-    "glm":     { "cli": "droid exec --auto medium --model custom:GLM-5.2", "installed": true },
+    "glm":     { "cli": "~/.claude/skills/trinity/bin/glm -p", "installed": true },
     "minimax": { "cli": "~/.claude/skills/trinity/bin/minimax", "installed": true },
     "codex":   { "cli": "codex exec --skip-git-repo-check -m gpt-6.1-sol", "installed": true },
     "deepseek": { "cli": "~/.claude/skills/trinity/bin/deepseek -p", "installed": true }
@@ -316,7 +316,7 @@ Run provider discovery. Display two sections:
 ```
 | Provider | Status    | CLI                              |
 |----------|-----------|----------------------------------|
-| glm      | ✅ usable  | droid exec --auto medium --model custom:GLM-5.2 |
+| glm      | ✅ usable  | ~/.claude/skills/trinity/bin/glm -p |
 | minimax  | ✅ usable  | ~/.claude/skills/trinity/bin/minimax |
 | codex    | ✅ usable  | codex exec --skip-git-repo-check -m gpt-6.1-sol |
 | deepseek | ⚠️ missing | (agent file not found)           |
@@ -362,7 +362,7 @@ exit status before downloading, copying, or registering anything.
 
 1. Check `which <provider-cli>` → already in PATH → skip to step 4
 2. Try Homebrew: `brew search <provider>` → formula found → `brew install <formula>` → on failure fall through
-3. Try npm: `npm install -g <npm-package>` → on failure try pip (glm — droid-backed) → on all failures: report ❌ + manual install link, abort
+3. Try npm: `npm install -g <npm-package>` → on failure try pip → on all failures: report ❌ + manual install link, abort
 4. Copy agent template: `trinity/providers/<provider>.md` → `~/.claude/agents/trinity-<provider>.md`
 5. Register in `~/.claude/trinity.json` under `providers.<provider>` (atomic write: read → merge → write)
 6. Smoke test (Bash timeout 30s): `<cli> "Reply with exactly: trinity-ok"` → verify response contains `trinity-ok`
@@ -374,7 +374,7 @@ exit status before downloading, copying, or registering anything.
 | Provider | brew | npm | pip | Prerequisite |
 |----------|------|-----|-----|--------------|
 | codex  | `brew install codex`* | `npm i -g @openai/codex`      | —                      | OpenAI account    |
-| glm    | —                     | —                             | `pip install factory-droid` | Factory AI account |
+| glm    | —                     | —                             | —                      | `ZAI_API_KEY` or `~/.secrets/zai_api_key` (600/400) |
 | minimax| `brew install codex`* | `npm i -g @openai/codex` | — | `MINIMAX_API_KEY` or `~/.secrets/minimax_api_key` (600/400) |
 
 *Brew formula name verified at runtime via `brew search`; if no result or install fails, fall through to npm/pip.

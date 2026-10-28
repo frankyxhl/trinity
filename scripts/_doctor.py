@@ -37,6 +37,10 @@ _MIN_TIMEOUT_WARNING_SECONDS = 60
 # Tagged tech-debt — declarative `auth_env` + `auth_file` registry fields
 # belong in TRN-3030 follow-up CHG.
 _WRAPPER_AUTH_CONFIG = {
+    "glm": {
+        "env_var": "ZAI_API_KEY",
+        "file": "~/.secrets/zai_api_key",
+    },
     "minimax": {
         "env_var": "MINIMAX_API_KEY",
         "file": "~/.secrets/minimax_api_key",

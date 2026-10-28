@@ -1,10 +1,10 @@
 {
   "providers": {
     "glm": {
-      "cli": "droid exec --auto medium --model custom:GLM-5.2",
+      "cli": "~/.codex/skills/trinity/bin/glm -p",
       "supports_resume": true,
-      "resume_arg": "-s",
-      "timeout": 360
+      "resume_arg": "-r",
+      "timeout": 600
     },
     "codex": {
       "cli": "codex exec --skip-git-repo-check -m gpt-6.1-sol",
