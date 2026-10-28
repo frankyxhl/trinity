@@ -131,10 +131,10 @@ def test_codex_default_config_has_direct_review_providers():
     data = json.loads(CODEX_CONFIG.read_text())
 
     assert data["providers"]["glm"] == {
-        "cli": "droid exec --auto medium --model custom:GLM-5.2",
+        "cli": "~/.codex/skills/trinity/bin/glm -p",
         "supports_resume": True,
-        "resume_arg": "-s",
-        "timeout": 360,
+        "resume_arg": "-r",
+        "timeout": 600,
     }
     assert "gemini" not in data["providers"]
     assert "codex" in data["providers"]
@@ -1759,10 +1759,11 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
         CODEX_SKILL.read_text()
     )
     deepseek_wrapper = home / ".codex" / "skills" / "trinity" / "bin" / "deepseek"
+    glm_wrapper = home / ".codex" / "skills" / "trinity" / "bin" / "glm"
     installed_config = json.loads((home / ".codex" / "trinity.json").read_text())
     assert (
         installed_config["providers"]["glm"]["cli"]
-        == "droid exec --auto medium --model custom:GLM-5.2"
+        == "~/.codex/skills/trinity/bin/glm -p"
     )
     assert installed_config["providers"]["deepseek"]["cli"] == (
         "~/.codex/skills/trinity/bin/deepseek -p"
@@ -1782,6 +1783,8 @@ def test_install_codex_installs_skill_config_and_wrapper_without_claude(tmp_path
     assert installed_config["preset_aliases"]["dr"] == "deep-review"
     assert deepseek_wrapper.exists()
     assert os.access(deepseek_wrapper, os.X_OK)
+    assert glm_wrapper.exists()
+    assert os.access(glm_wrapper, os.X_OK)
     assert (home / ".codex" / "skills" / "trinity" / "scripts" / "codex.py").exists()
     assert (home / ".local" / "bin" / "trinity").read_text() == CODEX_BIN.read_text()
     assert os.access(home / ".local" / "bin" / "trinity", os.X_OK)
@@ -1895,11 +1898,7 @@ def test_parse_structured_review_default_threshold():
     assert result_fix["effective_decision"] == "FIX"
 
 
-def test_init_config_warns_on_undeclared_custom_model(tmp_path):
-    """codex init-config must surface the BYOK custom-model prerequisite —
-    custom:GLM-5.2 needs an explicit ~/.factory/settings.json customModels
-    entry, mirroring the install.py register path so Codex installs get the
-    same guidance instead of failing on first dispatch (PR #228 review)."""
+def test_init_config_default_has_no_custom_model_warning(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     env = dict(os.environ)
@@ -1908,8 +1907,7 @@ def test_init_config_warns_on_undeclared_custom_model(tmp_path):
     rc, out, err = run_codex(["init-config", "--global-config", str(cfg)], env=env)
     assert rc == 0
     assert cfg.exists()
-    assert "custom:GLM-5.2" in err
-    assert "glm" in err
+    assert "custom:" not in err
 
 
 def test_init_config_no_warn_when_custom_model_declared(tmp_path):

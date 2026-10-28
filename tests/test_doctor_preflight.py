@@ -228,9 +228,27 @@ def test_a4_minimax_key_file_mode_600(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_a5_glm_returns_none():
-    """glm uses vendor login flow, not auth file."""
-    assert wrapper_auth_check("glm") is None
+def test_a4_glm_env_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZAI_API_KEY", "zai-test-key-123")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    result = wrapper_auth_check("glm")
+    assert result is not None, "wrapper_auth_check does not know glm"
+    assert result["source"] == "env"
+    assert result["env_var"] == "ZAI_API_KEY"
+
+
+def test_a4_glm_key_file_mode_600(tmp_path, monkeypatch):
+    monkeypatch.delenv("ZAI_API_KEY", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    secrets = tmp_path / ".secrets"
+    secrets.mkdir()
+    key_file = secrets / "zai_api_key"
+    key_file.write_text("zai-test-key-123\n")
+    key_file.chmod(0o600)
+    result = wrapper_auth_check("glm")
+    assert result is not None, "wrapper_auth_check does not know glm"
+    assert result["source"] == "file"
+    assert result["mode_ok"] is True
 
 
 def test_a5_codex_returns_none():

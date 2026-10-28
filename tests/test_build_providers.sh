@@ -197,7 +197,8 @@ done
 check "codex CLI signature"      grep -q 'codex exec' providers/codex.md
 check "gemini generated provider absent" test ! -e providers/gemini.md
 check "gemini provider delta absent" test ! -e providers/gemini.delta.md
-check "glm CLI signature"        grep -q 'droid exec --auto medium --model custom:GLM-5.2' providers/glm.md
+check "glm CLI signature"        grep -q 'skills/trinity/bin/glm' providers/glm.md
+check "glm no droid"             bash -c "! grep -q 'droid' providers/glm.md"
 check "minimax CLI signature"    grep -q 'skills/trinity/bin/minimax' providers/minimax.md
 check "minimax no droid"         bash -c "! grep -q 'droid' providers/minimax.md"
 check "agy-opus model pin"       grep -q 'claude-opus-5-5-medium' providers/agy-opus.md
@@ -206,11 +207,6 @@ check "agy-opus no retired pin"  bash -c "! grep -q 'opus-4-6' providers/agy-opu
 # process's own stdout), NOT a `droid search` content lookup that two parallel
 # droid providers can race on (issue #263). Static guard — make verify-built
 # fails if the templates revert to the racy path.
-for p in glm; do
-  check "$p uses droid exec -o json" grep -qE 'droid exec --auto medium --model custom:[A-Za-z0-9.-]+ -o json' "providers/$p.md"
-  check "$p session_id from json"    grep -q "d.get('session_id'" "providers/$p.md"
-  check "$p no droid search"         bash -c "! grep -q 'droid search' providers/$p.md"
-done
 check "openrouter run function"  grep -q 'run_openrouter()' providers/openrouter.md
 check "deepseek run function"    grep -q 'run_deepseek()' providers/deepseek.md
 check "deepseek default model"   grep -q 'Default model: deepseek-flash\.' providers/deepseek.md

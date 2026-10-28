@@ -985,21 +985,20 @@ class TestRealProviderDoctor:
     """
 
     @pytest.fixture(autouse=True)
-    def _skip_if_no_droid(self):
-        # The GLM smoke runs `droid exec`; skip if droid is absent (codex
-        # alone is not sufficient — the test body is GLM/droid-specific).
-        if not shutil_which("droid"):
-            pytest.skip("droid CLI not available (required for GLM smoke)")
+    def _skip_if_no_glm_auth(self):
+        if not shutil_which("claude"):
+            pytest.skip("claude CLI not available (required for GLM smoke)")
+        if (
+            not os.environ.get("ZAI_API_KEY")
+            and not (Path.home() / ".secrets" / "zai_api_key").exists()
+        ):
+            pytest.skip("ZAI_API_KEY or zai_api_key file required for GLM smoke")
 
     def test_glm_replies_trinity_ok(self):
         out = subprocess.run(
             [
-                "droid",
-                "exec",
-                "--auto",
-                "medium",
-                "--model",
-                "custom:GLM-5.2",
+                str(ROOT / "providers" / "bin" / "glm"),
+                "-p",
                 "Reply with exactly: trinity-ok",
             ],
             capture_output=True,
