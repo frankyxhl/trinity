@@ -113,10 +113,11 @@ def stub_env(tmp_path):
     return make_env
 
 
-def _run(wrapper, args, env):
+def _run(wrapper, args, env, cwd=None):
     return subprocess.run(
         [str(wrapper), *args],
         env=env,
+        cwd=cwd,
         capture_output=True,
         text=True,
     )
@@ -489,7 +490,10 @@ def test_g14_glm_runs_under_sandbox_with_deny_profile(glm_env, tmp_path):
     for directory in (
         tmp_path / ".secrets",
         tmp_path / ".ssh",
-        tmp_path / ".claude" / "fleet-tokens",
+        tmp_path / ".claude",
+        tmp_path / ".codex",
+        tmp_path / ".citizens",
+        tmp_path / ".pfc-state",
         tmp_path / ".config" / "gh",
         tmp_path / "client-one",
         tmp_path / "client two",
@@ -547,6 +551,254 @@ def test_g16_glm_refuses_missing_or_empty_deny_list(glm_env, tmp_path):
     assert not rec.exists(), "claude stub should not have been invoked"
     assert not (tmp_path / "sandbox.invoked.json").exists()
     assert "deny" in res.stderr.lower()
+
+
+def test_f1_glm_profile_first_deny_covers_new_roots(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    res = _run(GLM_BIN, [], env, cwd=tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert rec.is_file(), "claude stub was not invoked"
+    sandbox_record = tmp_path / "sandbox.invoked.json"
+    assert sandbox_record.is_file(), "sandbox stub was not invoked"
+    profile = json.loads(sandbox_record.read_text())[2]
+    first_deny = re.search(r"\(deny file-read\*.*?\)\s*\)", profile, re.DOTALL)
+    assert first_deny is not None
+    for name in (".claude", ".codex", ".citizens", ".pfc-state"):
+        assert f'(subpath "{tmp_path / name}")' in first_deny.group()
+    assert "(allow file-read*" not in profile
+
+
+def test_f2_glm_allows_deep_cwd_under_pfc_state_then_redenies(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    cwd = tmp_path / ".pfc-state" / "st" / "citizens" / "me"
+    cwd.mkdir(parents=True)
+    res = _run(GLM_BIN, [], env, cwd=cwd)
+    assert res.returncode == 0, res.stderr
+    assert rec.is_file(), "claude stub was not invoked"
+    sandbox_record = tmp_path / "sandbox.invoked.json"
+    assert sandbox_record.is_file(), "sandbox stub was not invoked"
+    profile = json.loads(sandbox_record.read_text())[2]
+    allow = f'(allow file-read* (subpath "{cwd}"))'
+    assert allow in profile
+    after_allow = profile.partition(allow)[2]
+    second_deny = re.search(r"\(deny file-read\*.*?\)\s*\)", after_allow, re.DOTALL)
+    assert second_deny is not None
+    for directory in (
+        tmp_path / ".claude",
+        tmp_path / ".secrets",
+        tmp_path / ".codex",
+        tmp_path / ".ssh",
+        tmp_path / ".config" / "gh",
+        tmp_path / "client-one",
+        tmp_path / "client two",
+    ):
+        assert f'(subpath "{directory}")' in second_deny.group()
+
+
+def test_f3_glm_allows_cwd_under_citizens_home(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    cwd = tmp_path / ".citizens" / "me"
+    cwd.mkdir(parents=True)
+    res = _run(GLM_BIN, [], env, cwd=cwd)
+    assert res.returncode == 0, res.stderr
+    assert rec.is_file(), "claude stub was not invoked"
+    sandbox_record = tmp_path / "sandbox.invoked.json"
+    assert sandbox_record.is_file(), "sandbox stub was not invoked"
+    profile = json.loads(sandbox_record.read_text())[2]
+    assert f'(allow file-read* (subpath "{cwd}"))' in profile
+
+
+def test_f4_glm_refuses_too_broad_cwd(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    sandbox_record = tmp_path / "sandbox.invoked.json"
+    trash = tmp_path / ".Trash"
+    trash.mkdir()
+    cwds = (
+        tmp_path / ".citizens",
+        tmp_path / ".pfc-state",
+        tmp_path / ".pfc-state" / "st",
+        tmp_path / ".pfc-state" / "st" / "citizens",
+    )
+    for index, cwd in enumerate(cwds):
+        cwd.mkdir(parents=True, exist_ok=True)
+        for record in (rec, sandbox_record):
+            if record.exists():
+                record.rename(trash / f"{index}-{record.name}")
+        res = _run(GLM_BIN, [], env, cwd=cwd)
+        assert res.returncode != 0, f"wrapper accepted cwd {cwd}"
+        assert not rec.exists(), "claude stub should not have been invoked"
+        assert not sandbox_record.exists(), "sandbox stub should not have been invoked"
+        assert "cwd" in res.stderr.lower()
+
+
+@pytest.mark.skipif(
+    not (sys.platform == "darwin" and os.access("/usr/bin/sandbox-exec", os.X_OK)),
+    reason="requires executable macOS sandbox-exec",
+)
+def test_f5_glm_real_sandbox_denies_tokens_and_sibling_homes(tmp_path):
+    base = tmp_path.resolve()
+    home = base / "home"
+    out = base / "out"
+    out.mkdir()
+    bin_dir = base / "bin"
+    bin_dir.mkdir()
+    citizens = home / ".pfc-state" / "st" / "citizens"
+    files = {
+        "fleet-token": home / ".claude" / "fleet-token",
+        "fleet-token.a": home / ".claude" / "fleet-token.a",
+        "auth.json": home / ".codex" / "auth.json",
+        "k": home / ".secrets" / "k",
+        "own.txt": citizens / "me" / "run" / "own.txt",
+        "other/theirs.txt": citizens / "other" / "theirs.txt",
+        "peer/theirs.txt": home / ".citizens" / "peer" / "theirs.txt",
+        "c.txt": home / "client" / "c.txt",
+    }
+    for path in files.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("test-data\n")
+    deny_list = base / "client-data-dirs.txt"
+    deny_list.write_text(f"{home / 'client'}\n")
+    record = out / "reads.txt"
+    quoted_record = shlex.quote(str(record))
+    cat_stdout = shlex.quote(str(out / "cat.stdout"))
+    cat_stderr = shlex.quote(str(out / "cat.stderr"))
+    script = ["#!/bin/sh"]
+    for name, path in files.items():
+        script.append(
+            f"if /bin/cat {shlex.quote(str(path))} > {cat_stdout} 2> {cat_stderr}; then\n"
+            f"    printf '%s\\n' {shlex.quote(f'READ {name}')} >> {quoted_record}\n"
+            "else\n"
+            f"    printf '%s\\n' {shlex.quote(f'DENY {name}')} >> {quoted_record}\n"
+            "fi"
+        )
+    script.append("exit 0")
+    stub = bin_dir / "claude"
+    stub.write_text("\n".join(script) + "\n")
+    stub.chmod(0o755)
+    env = {
+        "HOME": str(home),
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "ZAI_API_KEY": "zai-test-key-123",
+        "GLM_SANDBOX_EXEC": "/usr/bin/sandbox-exec",
+        "GLM_DENY_LIST": str(deny_list),
+    }
+    for cwd in (files["own.txt"].parent, out):
+        record.write_text("")
+        res = _run(GLM_BIN, [], env, cwd=cwd)
+        assert res.returncode == 0, res.stderr
+        lines = record.read_text().splitlines()
+        assert len(lines) == len(files)
+        for name in files:
+            status = "READ" if name == "own.txt" and cwd != out else "DENY"
+            assert f"{status} {name}" in lines
+
+
+def test_f6_glm_profile_escapes_quote_and_backslash(glm_env, tmp_path):
+    home = tmp_path / 'ho"me\\x)) ;y'
+    home.mkdir()
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123", "HOME": str(home)})
+    bin_dir = home / "bin"
+    (tmp_path / "bin").rename(bin_dir)
+    env["PATH"] = f"{bin_dir}:/usr/bin:/bin"
+    client = tmp_path / 'cli"ent'
+    client.mkdir()
+    Path(env["GLM_DENY_LIST"]).write_text(f"{client}\n")
+    res = _run(GLM_BIN, [], env, cwd=tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert rec.is_file(), "claude stub was not invoked"
+    sandbox_record = tmp_path / "sandbox.invoked.json"
+    assert sandbox_record.is_file(), "sandbox stub was not invoked"
+    profile = json.loads(sandbox_record.read_text())[2]
+    escaped_home = str(home).replace("\\", "\\\\").replace('"', '\\"')
+    escaped_client = str(client).replace("\\", "\\\\").replace('"', '\\"')
+    assert f'(subpath "{escaped_home}/.claude")' in profile
+    assert f'(subpath "{escaped_client}")' in profile
+    assert str(home) not in profile
+
+
+@pytest.mark.skipif(
+    not (sys.platform == "darwin" and os.access("/usr/bin/sandbox-exec", os.X_OK)),
+    reason="requires executable macOS sandbox-exec",
+)
+def test_f6_glm_real_sandbox_injected_home_stays_fenced(tmp_path):
+    base = tmp_path.resolve()
+    home = base / 'glm")) ;x'
+    token = home / ".claude" / "fleet-token"
+    token.parent.mkdir(parents=True)
+    token.write_text("fake-fleet-token\n")
+    out = base / "out"
+    out.mkdir()
+    bin_dir = base / "bin"
+    bin_dir.mkdir()
+    record = out / "reads.txt"
+    quoted_record = shlex.quote(str(record))
+    cat_stdout = shlex.quote(str(out / "cat.stdout"))
+    cat_stderr = shlex.quote(str(out / "cat.stderr"))
+    stub = bin_dir / "claude"
+    stub.write_text(
+        "#!/bin/sh\n"
+        f"if /bin/cat {shlex.quote(str(token))} > {cat_stdout} 2> {cat_stderr}; then\n"
+        f"    printf '%s\\n' READ > {quoted_record}\n"
+        "else\n"
+        f"    printf '%s\\n' DENY > {quoted_record}\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    deny_list = base / "client-data-dirs.txt"
+    deny_list.write_text(f"{base / 'client'}\n")
+    env = {
+        "HOME": str(home),
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "ZAI_API_KEY": "zai-test-key-123",
+        "GLM_SANDBOX_EXEC": "/usr/bin/sandbox-exec",
+        "GLM_DENY_LIST": str(deny_list),
+    }
+    res = _run(GLM_BIN, [], env, cwd=out)
+    assert res.returncode == 0, res.stderr
+    assert record.is_file(), "claude stub was not invoked"
+    assert record.read_text().splitlines() == ["DENY"]
+
+
+def test_f6_glm_refuses_control_characters(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    home = tmp_path / "ho\tme"
+    home.mkdir()
+    client = tmp_path / "cli\tent"
+    client.mkdir()
+    deny_list = tmp_path / "control-deny-list.txt"
+    deny_list.write_text(f"{client}\n")
+    cwd = tmp_path / "work\ndir"
+    cwd.mkdir()
+    cases = (
+        ({"HOME": str(home)}, tmp_path),
+        ({"GLM_DENY_LIST": str(deny_list)}, tmp_path),
+        ({}, cwd),
+    )
+    for overrides, working_directory in cases:
+        case_env = {**env, **overrides}
+        res = _run(GLM_BIN, [], case_env, cwd=working_directory)
+        assert res.returncode != 0
+        assert not rec.exists(), "claude stub should not have been invoked"
+        assert not (tmp_path / "sandbox.invoked.json").exists()
+        assert "control" in res.stderr.lower()
+
+
+def test_f7_glm_refuses_empty_overrides(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    default_deny_list = tmp_path / ".pfc-state" / "rules" / "client-data-dirs.txt"
+    default_deny_list.parent.mkdir(parents=True)
+    default_deny_list.write_text(f"{tmp_path / 'client-one'}\n")
+    for variable, reason in (
+        ("GLM_DENY_LIST", "deny"),
+        ("GLM_SANDBOX_EXEC", "sandbox"),
+    ):
+        case_env = {**env, variable: ""}
+        res = _run(GLM_BIN, [], case_env, cwd=tmp_path)
+        assert res.returncode != 0
+        assert not rec.exists(), "claude stub should not have been invoked"
+        assert not (tmp_path / "sandbox.invoked.json").exists()
+        assert reason in res.stderr.lower()
 
 
 # --- OpenRouter wrapper tests (T7 = T1-T6/T8 mirrored) ---
