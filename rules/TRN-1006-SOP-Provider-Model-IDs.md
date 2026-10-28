@@ -85,7 +85,7 @@ Single source of truth per provider (post-TRN-3020 / TRN-3027):
 | `codex` | `providers/registry.json` → `providers.codex.cli` + `.agents/trinity.codex.json` + `providers/codex.delta.md` | `codex exec --skip-git-repo-check -m gpt-6.1-sol`; required in both default and deep review panels |
 | `glm` | `providers/registry.json` → `providers.glm.cli` + `.agents/trinity.codex.json` + `providers/glm.delta.md` | Claude Code install + Codex review: `droid exec --auto medium --model custom:GLM-5.2` (BYOK custom model — Z.AI endpoint; `--reasoning-effort` omitted — Factory docs mark it unsupported for `custom:` models, and droid silently ignores it) |
 | `minimax` | Model: `providers/bin/minimax` config flags. Bin path: `providers/registry.json` → `providers.minimax.cli`. | `model=MiniMax-M3`, `model_provider=minimax` |
-| `deepseek` | Model: `providers/bin/deepseek` env block. Bin path: `providers/registry.json` → `providers.deepseek.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="deepseek-v4-pro[1m]"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-v4-flash"` |
+| `deepseek` | Model: `providers/bin/deepseek` env block. Bin path: `providers/registry.json` → `providers.deepseek.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="deepseek-flash"`, `ANTHROPIC_SMALL_FAST_MODEL="deepseek-flash"` |
 | `openrouter` | Model: `providers/bin/openrouter` env block. Bin path: `providers/registry.json` → `providers.openrouter.cli`. (Env-var registry shape — TRN-3026) | `ANTHROPIC_MODEL="qwen/qwen3.6-plus:free"`, `ANTHROPIC_SMALL_FAST_MODEL="qwen/qwen3.6-plus:free"` |
 
 **Four patterns**:
