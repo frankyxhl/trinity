@@ -84,7 +84,12 @@ fi
 
 DENY="${DENY})"
 
-CWD="$(pwd -P)"
+CWD_SENTINEL="x"
+CWD_RAW="$(pwd -P && printf '%s' "$CWD_SENTINEL")"
+CWD="${CWD_RAW%"$CWD_SENTINEL"}"
+CWD_NL="
+"
+CWD="${CWD%"$CWD_NL"}"
 case "$CWD" in
     *[[:cntrl:]]*)
         echo "trinity-glm: cwd contains control character — refusing." >&2
