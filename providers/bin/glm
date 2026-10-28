@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+fence_path() {
+    case "$1" in
+        *[[:cntrl:]]*)
+            echo "trinity-glm: path contains control character — refusing." >&2
+            exit 1 ;;
+    esac
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
 KEY="${ZAI_API_KEY:-}"
 KEY_FILE="${HOME}/.secrets/zai_api_key"
 
@@ -27,8 +36,14 @@ if [ -z "$KEY" ]; then
     exit 1
 fi
 
-SBX="${GLM_SANDBOX_EXEC:-/usr/bin/sandbox-exec}"
-DENY_LIST="${GLM_DENY_LIST:-${HOME}/.pfc-state/rules/client-data-dirs.txt}"
+SBX="${GLM_SANDBOX_EXEC-/usr/bin/sandbox-exec}"
+DENY_LIST="${GLM_DENY_LIST-$HOME/.pfc-state/rules/client-data-dirs.txt}"
+
+case "$HOME" in
+    *[[:cntrl:]]*)
+        echo "trinity-glm: HOME contains control character — refusing." >&2
+        exit 1 ;;
+esac
 
 if [ ! -x "$SBX" ]; then
     echo "trinity-glm: sandbox executable missing or not executable: $SBX" >&2
@@ -40,9 +55,11 @@ if [ ! -f "$DENY_LIST" ] || [ ! -r "$DENY_LIST" ]; then
     exit 1
 fi
 
-PROFILE="(version 1)(allow default)(deny file-read*"
-for d in "${HOME}/.secrets" "${HOME}/.ssh" "${HOME}/.claude/fleet-tokens" "${HOME}/.config/gh"; do
-    PROFILE="${PROFILE} (subpath \"${d}\")"
+PROFILE="(version 1)(allow default)"
+DENY="(deny file-read*"
+for d in "${HOME}/.secrets" "${HOME}/.ssh" "${HOME}/.config/gh" "${HOME}/.claude" "${HOME}/.codex" "${HOME}/.citizens" "${HOME}/.pfc-state"; do
+    E="$(fence_path "$d")"
+    DENY="${DENY} (subpath \"${E}\")"
 done
 
 DENY_COUNT=0
@@ -50,8 +67,14 @@ while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
         ''|'#'*) continue ;;
     esac
+    case "$line" in
+        *[[:cntrl:]]*)
+            echo "trinity-glm: deny-list path contains control character — refusing." >&2
+            exit 1 ;;
+    esac
     DENY_COUNT=$((DENY_COUNT + 1))
-    PROFILE="${PROFILE} (subpath \"${line}\")"
+    E="$(fence_path "$line")"
+    DENY="${DENY} (subpath \"${E}\")"
 done < "$DENY_LIST"
 
 if [ "$DENY_COUNT" -eq 0 ]; then
@@ -59,7 +82,64 @@ if [ "$DENY_COUNT" -eq 0 ]; then
     exit 1
 fi
 
-PROFILE="${PROFILE})"
+DENY="${DENY})"
+
+CWD="$(pwd -P)"
+case "$CWD" in
+    *[[:cntrl:]]*)
+        echo "trinity-glm: cwd contains control character — refusing." >&2
+        exit 1 ;;
+esac
+
+CITIZENS="${HOME}/.citizens"
+PFC_STATE="${HOME}/.pfc-state"
+ALLOW_PATH=""
+case "$CWD" in
+    "$CITIZENS"/*)
+        rest="${CWD#"$CITIZENS"/}"
+        depth=1
+        while [ "${rest#*/}" != "$rest" ]; do
+            depth=$((depth + 1))
+            rest="${rest#*/}"
+        done
+        ALLOW_PATH="$(fence_path "$CWD")"
+        ;;
+    "$PFC_STATE"/*)
+        rest="${CWD#"$PFC_STATE"/}"
+        depth=1
+        while [ "${rest#*/}" != "$rest" ]; do
+            depth=$((depth + 1))
+            rest="${rest#*/}"
+        done
+        if [ "$depth" -lt 3 ]; then
+            echo "trinity-glm: cwd too broad under $PFC_STATE: $CWD" >&2
+            exit 1
+        fi
+        ALLOW_PATH="$(fence_path "$CWD")"
+        ;;
+    "$CITIZENS"|"$PFC_STATE")
+        echo "trinity-glm: cwd too broad: $CWD" >&2
+        exit 1 ;;
+esac
+
+if [ -n "$ALLOW_PATH" ]; then
+    SECOND="(deny file-read*"
+    for d in "${HOME}/.secrets" "${HOME}/.ssh" "${HOME}/.config/gh" "${HOME}/.claude" "${HOME}/.codex"; do
+        E="$(fence_path "$d")"
+        SECOND="${SECOND} (subpath \"${E}\")"
+    done
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+        E="$(fence_path "$line")"
+        SECOND="${SECOND} (subpath \"${E}\")"
+    done < "$DENY_LIST"
+    SECOND="${SECOND})"
+    PROFILE="${PROFILE}${DENY}(allow file-read* (subpath \"${ALLOW_PATH}\"))${SECOND}"
+else
+    PROFILE="${PROFILE}${DENY}"
+fi
 
 FLEET_LINE="Secrets never enter output: no env, printenv, set, ps e / ps eww / ps -E, set -x, no cat of any file under ~/.secrets, no traceback that carries a key. If one slips out, stop and tell the steward."
 DISALLOWED="Bash(env:*),Bash(printenv:*),Bash(set:*),Bash(ps:*),Read(~/.secrets/**),Grep(~/.secrets/**),Glob(~/.secrets/**)"
@@ -80,10 +160,10 @@ set -- "ANTHROPIC_AUTH_TOKEN=${KEY}" "$@"
 set -- "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" "$@"
 set -- "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1" "$@"
 
-if [ -n "${LANG:-}" ]; then set -- "LANG=${LANG}" "$@"; fi
-if [ -n "${TMPDIR:-}" ]; then set -- "TMPDIR=${TMPDIR}" "$@"; fi
-if [ -n "${PATH:-}" ]; then set -- "PATH=${PATH}" "$@"; fi
-if [ -n "${HOME:-}" ]; then set -- "HOME=${HOME}" "$@"; fi
+if [ -n "${LANG+x}" ]; then set -- "LANG=${LANG}" "$@"; fi
+if [ -n "${TMPDIR+x}" ]; then set -- "TMPDIR=${TMPDIR}" "$@"; fi
+if [ -n "${PATH+x}" ]; then set -- "PATH=${PATH}" "$@"; fi
+if [ -n "${HOME+x}" ]; then set -- "HOME=${HOME}" "$@"; fi
 
 set -- -i "$@"
 set -- env "$@"

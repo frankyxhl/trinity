@@ -74,6 +74,11 @@ def _is_valid_session_id(session_id: str) -> bool:
     return bool(_SESSION_ID_RE.match(session_id)) and ".." not in session_id
 
 
+# ---------------------------------------------------------------------------
+# Per-provider resolvers
+# ---------------------------------------------------------------------------
+
+
 def _encode_project_slug(project_dir: str) -> str:
     """Return Claude Code 2.1.220's canonical project slug.
 

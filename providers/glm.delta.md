@@ -30,8 +30,11 @@ Define the CLI entry function and session directory. `run_glm` calls the
 wrapper script installed by `install.sh` / `make install` (repo source:
 `providers/bin/glm`). The wrapper loads the key from `~/.secrets/zai_api_key`
 (mode 600 or 400); `ZAI_API_KEY` wins over the file. It runs `claude` under a
-sandbox profile that denies `~/.secrets`, `~/.ssh`, fleet tokens, gh config,
-and the client-data directories, and passes only an allowlisted environment.
+sandbox profile that denies `~/.secrets`, `~/.ssh`, `~/.config/gh`, `~/.claude`,
+`~/.codex`, `~/.citizens`, `~/.pfc-state` and the client-data directories, and
+passes only an allowlisted environment. A working directory deep inside
+`~/.citizens` or `~/.pfc-state` is allowed while the other roots stay denied;
+shallower working directories under those roots are refused.
 
 ```bash
 run_glm() {
