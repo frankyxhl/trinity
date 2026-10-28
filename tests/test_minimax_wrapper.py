@@ -33,6 +33,7 @@ def stub_env(tmp_path):
         f"open({str(record_path)!r}, 'w').write(json.dumps({{\n"
         "    'argv': sys.argv[1:],\n"
         "    'key': os.environ.get('MINIMAX_API_KEY'),\n"
+        "    'routed': os.environ.get('CODEX_PROVIDER_ROUTED'),\n"
         "}))\n"
         "sys.exit(0)\n"
     )
@@ -207,3 +208,17 @@ def test_m10_wrapper_is_executable_sh():
     assert os.access(MINIMAX_BIN, os.X_OK), f"{MINIMAX_BIN} not executable"
     first_line = MINIMAX_BIN.read_text().splitlines()[0]
     assert first_line == "#!/bin/sh", f"expected POSIX sh shebang, got {first_line!r}"
+
+
+def test_m11_wrapper_marks_provider_routed(stub_env):
+    env, rec = stub_env({"MINIMAX_API_KEY": KEY})
+    res = _run(["hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert _record(rec)["routed"] == "1"
+
+
+def test_m12_routed_flag_set_even_when_caller_unsets_it(stub_env):
+    env, rec = stub_env({"MINIMAX_API_KEY": KEY, "CODEX_PROVIDER_ROUTED": "0"})
+    res = _run(["hello"], env)
+    assert res.returncode == 0, res.stderr
+    assert _record(rec)["routed"] == "1"
