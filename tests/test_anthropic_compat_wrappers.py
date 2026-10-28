@@ -801,6 +801,55 @@ def test_f7_glm_refuses_empty_overrides(glm_env, tmp_path):
         assert reason in res.stderr.lower()
 
 
+@pytest.mark.skipif(
+    not (sys.platform == "darwin" and os.access("/usr/bin/sandbox-exec", os.X_OK)),
+    reason="requires executable macOS sandbox-exec",
+)
+def test_f8_glm_refuses_cwd_with_trailing_newline(tmp_path):
+    base = tmp_path.resolve()
+    home = base / "home"
+    peer_file = home / ".citizens" / "peer" / "theirs.txt"
+    peer_file.parent.mkdir(parents=True)
+    peer_file.write_text("test-data\n")
+    cwd = home / ".citizens" / "peer\n"
+    cwd.mkdir()
+    out = base / "out"
+    out.mkdir()
+    bin_dir = base / "bin"
+    bin_dir.mkdir()
+    client = base / "client"
+    client.mkdir()
+    deny_list = base / "client-data-dirs.txt"
+    deny_list.write_text(f"{client}\n")
+    record = out / "reads.txt"
+    quoted_record = shlex.quote(str(record))
+    cat_stdout = shlex.quote(str(out / "cat.stdout"))
+    cat_stderr = shlex.quote(str(out / "cat.stderr"))
+    stub = bin_dir / "claude"
+    stub.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' CALLED > {quoted_record}\n"
+        f"if /bin/cat {shlex.quote(str(peer_file))} > {cat_stdout} 2> {cat_stderr}; then\n"
+        f"    printf '%s\\n' READ >> {quoted_record}\n"
+        "else\n"
+        f"    printf '%s\\n' DENY >> {quoted_record}\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    env = {
+        "HOME": str(home),
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "ZAI_API_KEY": "zai-test-key-123",
+        "GLM_SANDBOX_EXEC": "/usr/bin/sandbox-exec",
+        "GLM_DENY_LIST": str(deny_list),
+    }
+    res = _run(GLM_BIN, [], env, cwd=cwd)
+    assert res.returncode != 0
+    assert not record.exists(), "claude stub should not have been invoked"
+    assert "control" in res.stderr.lower()
+
+
 # --- OpenRouter wrapper tests (T7 = T1-T6/T8 mirrored) ---
 
 
