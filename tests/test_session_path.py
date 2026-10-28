@@ -189,7 +189,7 @@ def test_glm_happy_path(tmp_path, capsys):
 
     fake_home = Path(os.environ["HOME"])
     transcript = (
-        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
+        fake_home / ".claude-glm" / "projects" / _claude_slug(project) / f"{sid}.jsonl"
     )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
@@ -344,6 +344,7 @@ def test_claude_project_slug_matches_2_1_220_fixtures(project_dir, expected_slug
         ("claude-code", ".claude-trinity-claude-code"),
         ("deepseek:hbp-smoke", ".claude-deepseek"),
         ("openrouter", ".claude-openrouter"),
+        ("glm", ".claude-glm"),
     ],
 )
 def test_claude_family_resolves_canonical_slug(
@@ -375,9 +376,7 @@ def test_claude_family_resolves_canonical_slug(
 
 
 @pytest.mark.parametrize("provider", ["glm"])
-def test_droid_family_preserves_underscore_in_project_path(
-    provider, monkeypatch, capsys
-):
+def test_glm_claude_slug_replaces_underscore(provider, monkeypatch, capsys):
     sp = _import_session_path()
     project_dir = "/Users/frank/Projects/droid_project"
     session_id = f"{provider}-underscore-session"
@@ -389,9 +388,9 @@ def test_droid_family_preserves_underscore_in_project_path(
 
     transcript = (
         Path(os.environ["HOME"])
-        / ".factory"
-        / "sessions"
-        / "-Users-frank-Projects-droid_project"
+        / ".claude-glm"
+        / "projects"
+        / "-Users-frank-Projects-droid-project"
         / f"{session_id}.jsonl"
     )
     transcript.parent.mkdir(parents=True, exist_ok=True)
@@ -547,7 +546,7 @@ def test_lookup_key_normalization_at_resolver_level(
 
     fake_home = Path(os.environ["HOME"])
     transcript = (
-        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
+        fake_home / ".claude-glm" / "projects" / _claude_slug(project) / f"{sid}.jsonl"
     )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
@@ -581,7 +580,7 @@ def test_codex_wrapper_normalizes_default_suffix(tmp_path, monkeypatch, capsys):
 
     fake_home = Path(os.environ["HOME"])
     transcript = (
-        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
+        fake_home / ".claude-glm" / "projects" / _claude_slug(project) / f"{sid}.jsonl"
     )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
@@ -694,7 +693,7 @@ def test_codex_wrapper_package_import_resolves_session_path(tmp_path, capsys):
 
     fake_home = Path(os.environ["HOME"])
     transcript = (
-        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
+        fake_home / ".claude-glm" / "projects" / _claude_slug(project) / f"{sid}.jsonl"
     )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
@@ -731,7 +730,7 @@ def test_path_only_contract_no_jsonl_read(tmp_path, capsys):
 
     fake_home = Path(os.environ["HOME"])
     transcript = (
-        fake_home / ".factory" / "sessions" / _encoded(project) / f"{sid}.jsonl"
+        fake_home / ".claude-glm" / "projects" / _claude_slug(project) / f"{sid}.jsonl"
     )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
@@ -804,7 +803,11 @@ def test_non_git_project_dir_resolves(tmp_path, monkeypatch):
     _write_pointer(non_git_proj, {"glm": {"session_id": sid}})
 
     transcript = (
-        fake_home / ".factory" / "sessions" / _encoded(non_git_proj) / f"{sid}.jsonl"
+        fake_home
+        / ".claude-glm"
+        / "projects"
+        / _claude_slug(non_git_proj)
+        / f"{sid}.jsonl"
     )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
@@ -898,7 +901,9 @@ def test_nested_cwd_inside_git_repo_uses_literal_dir(tmp_path, monkeypatch):
     _write_pointer(nested, {"glm": {"session_id": sid}})
 
     # Pre-create transcript at nested-dir-encoded path
-    transcript = fake_home / ".factory" / "sessions" / _encoded(nested) / f"{sid}.jsonl"
+    transcript = (
+        fake_home / ".claude-glm" / "projects" / _claude_slug(nested) / f"{sid}.jsonl"
+    )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
 
@@ -966,8 +971,9 @@ def test_symlinked_project_dir_uses_literal_path(tmp_path, monkeypatch):
     # → would encode the real-dir path and miss the test's purpose. The
     # resolver under test uses `os.path.abspath` (no symlink follow), so
     # match that here.
-    link_encoded = os.path.abspath(str(link_dir)).replace("/", "-")
-    transcript = fake_home / ".factory" / "sessions" / link_encoded / f"{sid}.jsonl"
+    transcript = (
+        fake_home / ".claude-glm" / "projects" / _claude_slug(link_dir) / f"{sid}.jsonl"
+    )
     transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
 

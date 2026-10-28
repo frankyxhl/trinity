@@ -78,8 +78,9 @@ install-codex:  ## Install Trinity Codex adapter to ~/.codex/ and ~/.local/bin
 	cp .agents/trinity.codex.json ~/.codex/skills/trinity/trinity.codex.json
 	cp -r scripts/. ~/.codex/skills/trinity/scripts/
 	cp providers/bin/deepseek ~/.codex/skills/trinity/bin/deepseek
+	cp providers/bin/glm ~/.codex/skills/trinity/bin/glm
 	cp bin/trinity ~/.local/bin/trinity
-	chmod +x ~/.codex/skills/trinity/bin/deepseek ~/.local/bin/trinity
+	chmod +x ~/.codex/skills/trinity/bin/deepseek ~/.codex/skills/trinity/bin/glm ~/.local/bin/trinity
 	python3 ~/.codex/skills/trinity/scripts/codex.py init-config \
 		--global-config ~/.codex/trinity.json
 	@echo "Installed Trinity Codex adapter $(CURRENT_VERSION)"

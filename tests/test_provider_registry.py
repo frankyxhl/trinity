@@ -40,8 +40,15 @@ README_PATH = ROOT / "README.md"
 SKILL_PATH = ROOT / "SKILL.md"
 PROVIDERS_DIR = ROOT / "providers"
 
-DIRECT_PROVIDERS = {"glm", "codex"}
-WRAPPER_PROVIDERS = {"openrouter", "deepseek", "claude-code", "agy-opus", "minimax"}
+DIRECT_PROVIDERS = {"codex"}
+WRAPPER_PROVIDERS = {
+    "glm",
+    "openrouter",
+    "deepseek",
+    "claude-code",
+    "agy-opus",
+    "minimax",
+}
 REGISTRY_PROVIDERS = DIRECT_PROVIDERS | WRAPPER_PROVIDERS
 
 HOME_LITERAL = os.path.expanduser("~")
@@ -89,6 +96,15 @@ def test_minimax_registry_entry_is_codex_wrapper():
     assert entry["cli"] == "{HOME}/.claude/skills/trinity/bin/minimax"
     assert entry["supports_resume"] is True
     assert entry["resume_arg"] == "resume"
+    assert entry["timeout"] == 600
+    assert "droid" not in entry["cli"]
+
+
+def test_glm_registry_entry_is_claude_wrapper():
+    entry = _load_registry()["providers"]["glm"]
+    assert entry["cli"] == "{HOME}/.claude/skills/trinity/bin/glm -p"
+    assert entry["supports_resume"] is True
+    assert entry["resume_arg"] == "-r"
     assert entry["timeout"] == 600
     assert "droid" not in entry["cli"]
 
@@ -278,12 +294,11 @@ def test_a3g_wrapper_provider_bin_path_in_readme_skill():
 
 
 def test_a3h_codex_adapter_glm_fixture_matches_registry():
-    """tests/test_codex_adapter.py:131 hard-codes glm.cli; must equal registry."""
     body = (ROOT / "tests" / "test_codex_adapter.py").read_text()
-    registry_glm_cli = _load_registry()["providers"]["glm"]["cli"]
-    assert registry_glm_cli in body, (
-        "test_codex_adapter.py glm fixture must equal registry's glm.cli "
-        f"({registry_glm_cli!r})"
+    codex_glm_cli = json.loads(CODEX_JSON_PATH.read_text())["providers"]["glm"]["cli"]
+    assert codex_glm_cli in body, (
+        "test_codex_adapter.py glm fixture must equal Codex config's glm.cli "
+        f"({codex_glm_cli!r})"
     )
 
 
@@ -321,19 +336,22 @@ def test_a3i_install_sh_no_orphan_registers():
 def test_a3j_test_install_sh_glm_cli_matches_registry():
     body = (ROOT / "tests" / "test_install_sh.sh").read_text()
     registry_glm_cli = _load_registry()["providers"]["glm"]["cli"]
-    # Anchor on `custom:GLM-5.2` (the glm BYOK model id) to find the line.
-    assert "custom:GLM-5.2" in body
-    assert registry_glm_cli in body, (
-        f"tests/test_install_sh.sh must contain registry glm.cli ({registry_glm_cli!r})"
+    shell_glm_cli = registry_glm_cli.replace(
+        "{HOME}/.claude/skills/trinity/bin", "${BIN_DIR}"
+    )
+    assert shell_glm_cli == "${BIN_DIR}/glm -p"
+    assert f'"{shell_glm_cli}"' in body, (
+        f"tests/test_install_sh.sh must contain shell glm.cli ({shell_glm_cli!r})"
     )
 
 
 def test_a3j_test_build_providers_sh_glm_cli_matches_registry():
     body = (ROOT / "tests" / "test_build_providers.sh").read_text()
     registry_glm_cli = _load_registry()["providers"]["glm"]["cli"]
-    assert registry_glm_cli in body, (
-        f"tests/test_build_providers.sh must contain registry glm.cli "
-        f"({registry_glm_cli!r})"
+    bin_path = "skills/trinity/bin/glm"
+    assert bin_path in registry_glm_cli
+    assert bin_path in body, (
+        f"tests/test_build_providers.sh must contain glm wrapper path ({bin_path!r})"
     )
 
 

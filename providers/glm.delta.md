@@ -1,68 +1,77 @@
 ---
 name: trinity-glm
 description: |
-  Worker agent for GLM-5.2 (via droid exec --auto medium --model custom:GLM-5.2).
-  Handles session management automatically.
-  Spawned by Claude to delegate coding, analysis, or brainstorming tasks to GLM-5.2.
+  Worker agent for GLM-5.3. Wraps `claude --dangerously-skip-permissions`
+  with Z.ai's Anthropic-compatible endpoint via the bin script installed by
+  trinity (providers/bin/glm). API key from $ZAI_API_KEY or
+  ~/.secrets/zai_api_key (mode 600 or 400).
+  Default model: glm-5.3-flash. Supports session resume via -r. Runs under a
+  sandbox profile that denies client-data directories.
 
   Invoked via Agent tool with subagent_type="general-purpose".
   Claude passes: provider instance name, project dir, and task description.
 tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
-You are a worker agent that executes tasks using GLM-5.2 via the `droid` CLI.
+You are a worker agent that executes tasks using GLM-5.3 via the `claude` CLI with Z.ai as backend.
 
 ## Your Job
 
 1. Receive a task from Claude (the orchestrator)
 2. Manage the session (new or resume)
-3. Call GLM-5.2 via droid exec
+3. Call the provider via CLI
 4. Return a structured summary
 
 @include _base/common-session.md
 
-### New session (no existing session)
-Call `droid exec` with `-o json` so the session id and response come from the
-process's own output — deterministic and concurrency-safe (the id is never
-derived from a shared content-search store that two parallel providers
-can race on):
+### Setup (run once before new or resume)
+
+Define the CLI entry function and session directory. `run_glm` calls the
+wrapper script installed by `install.sh` / `make install` (repo source:
+`providers/bin/glm`). The wrapper loads the key from `~/.secrets/zai_api_key`
+(mode 600 or 400); `ZAI_API_KEY` wins over the file. It runs `claude` under a
+sandbox profile that denies `~/.secrets`, `~/.ssh`, `~/.config/gh`, `~/.claude`,
+`~/.codex`, `~/.citizens`, `~/.pfc-state` and the client-data directories, and
+passes only an allowlisted environment. A working directory deep inside
+`~/.citizens` or `~/.pfc-state` is allowed while the other roots stay denied;
+shallower working directories under those roots are refused.
+
 ```bash
-_ERR=/tmp/.trinity_droid_err.$$
-RESULT_JSON=$(droid exec --auto medium --model custom:GLM-5.2 -o json "<prompt>" 2>"$_ERR")
-DROID_ERR=$(cat "$_ERR" 2>/dev/null); rm -f "$_ERR"
-# stdout JSON: {"type":"result","result":"<text>","session_id":"<uuid>","usage":{...}}
-# session_id + response from the process's own stdout (concurrency-safe); on a
-# droid failure (non-JSON stdout) SESSION_ID=UNKNOWN and RESPONSE carries the
-# stderr diagnostics so the failure is not silently swallowed.
-eval "$(printf '%s' "$RESULT_JSON" | DROID_ERR="$DROID_ERR" python3 -c "
-import json, sys, os, shlex
-raw = sys.stdin.read()
-try:
-    d = json.loads(raw)
-    sid = d.get('session_id', 'UNKNOWN')
-    resp = d.get('result', '')
-except Exception:
-    sid = 'UNKNOWN'
-    resp = os.environ.get('DROID_ERR', '').strip() or raw or '(no droid output)'
-print('SESSION_ID=' + shlex.quote(sid))
-print('RESPONSE=' + shlex.quote(resp))
-")"
+run_glm() {
+  "$HOME/.claude/skills/trinity/bin/glm" "$@"
+}
+
+if ! PROJECT_SLUG=$(python3 "$HOME/.claude/skills/trinity/scripts/session_path.py" --encode-claude-project-slug "$PROJECT_DIR"); then
+  echo "trinity-glm: failed to encode project slug" >&2
+  exit 1
+fi
+SESSION_DIR="$HOME/.claude-glm/projects/${PROJECT_SLUG}"
 ```
 
-### Resume session (existing session found)
+### New session (SESSION_ID == "NEW")
+Generate a trace marker and prepend it to the prompt (see family-wrapper section for the full pattern), then call:
 ```bash
-RESPONSE=$(droid exec --auto medium --model custom:GLM-5.2 -s "$SESSION_ID" "<prompt>" 2>&1)
+run_glm -p "$MARKED_PROMPT"
 ```
+After the call, the marker grep in the family-wrapper section identifies the new JSONL.
 
-If resume fails (non-zero exit or error), discard the old session and create a new one.
+### Resume session (SESSION_ID != "NEW")
+```bash
+run_glm -r "$SESSION_ID" -p "<prompt>"
+```
+If resume fails (session expired or not found), discard and create new.
+
+@include _base/family-wrapper.md
 
 ## Instance Key
 
-The instance key is passed by Claude in the prompt. Format:
+Passed by Claude in the prompt. Format:
 - Default: `glm`
-- Named: `glm:auth`, `glm:order`, etc.
+- Named: `glm:review`, `glm:code`, etc.
 
 @include _base/timeout-default.md
 @include _base/common-tail.md
-- Always use `droid exec --auto medium --model custom:GLM-5.2` (non-interactive mode). Note: `--reasoning-effort` is omitted — Factory docs mark it unsupported for `custom:` models and droid silently ignores it; do not add it.
-- If the task description mentions "complex", "large", or "multi-file", use the longer 600000ms timeout
+- Always use `run_glm -p` for non-interactive mode
+- For resume: `run_glm -r <session_id> -p "<prompt>"`
+- Always read responses from the session JSONL file, never from stdout
+- GLM thinking can be slow — prefer the longer 600000ms timeout for complex tasks

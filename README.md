@@ -59,13 +59,14 @@ Expected output: glm, minimax, codex, openrouter, deepseek, claude-code, and agy
 |----------|----------|
 | `~/.claude/skills/trinity/SKILL.md` | Trinity skill — loaded by Claude Code |
 | `~/.claude/skills/trinity/scripts/` | Python session/config/discover/install scripts |
-| `~/.claude/agents/trinity-glm.md` | GLM worker agent |
+| `~/.claude/agents/trinity-glm.md` | GLM-5.3 worker agent |
 | `~/.claude/agents/trinity-minimax.md` | MiniMax M3 worker agent |
 | `~/.claude/agents/trinity-codex.md` | Codex worker agent |
 | `~/.claude/agents/trinity-openrouter.md` | OpenRouter worker agent |
 | `~/.claude/agents/trinity-deepseek.md` | DeepSeek V4 worker agent |
 | `~/.claude/agents/trinity-claude-code.md` | Claude Code worker agent |
 | `~/.claude/agents/trinity-agy-opus.md` | Antigravity Opus worker agent |
+| `~/.claude/skills/trinity/bin/glm` | GLM-5.3 wrapper (`claude` against Z.ai, key-file loader, sandbox profile) |
 | `~/.claude/skills/trinity/bin/deepseek` | DeepSeek `claude --dangerously-skip-permissions` wrapper (env injection + key-file loader) |
 | `~/.claude/skills/trinity/bin/openrouter` | OpenRouter wrapper (same shape) |
 | `~/.claude/skills/trinity/bin/claude-code` | Isolated nested Claude Code wrapper (`--model sonnet --effort high`) |
@@ -128,11 +129,11 @@ Each install command:
 5. Runs a smoke test to verify everything works
 6. Rolls back atomically if any step fails
 
-**Wrapper-based providers** (`openrouter`, `deepseek`, `claude-code`) don't have a package install path — they use small POSIX shell wrappers shipped in `providers/bin/` and installed to `~/.claude/skills/trinity/bin/`. `openrouter` and `deepseek` point the `claude` binary at Anthropic-compatible endpoints. `claude-code` starts an isolated nested Claude Code process with Trinity dispatch disabled, defaulting to `--model sonnet --effort high`. It selects one of three Claude Code seats via `TRINITY_CLAUDE_CODE_ACCOUNT` (`a`/`b`/`c`, default `b`), reading that seat's token from `~/.claude/fleet-token.<account>` and handing it to the nested `claude` only as `CLAUDE_CODE_OAUTH_TOKEN`; the wrapper fails closed if the account is invalid or the token file is missing, empty, or readable/writable by group or other, and never prints the token. `install.sh` and `make install` set them up automatically; no `~/.zshrc` edits required.
+**Wrapper-based providers** (`glm`, `openrouter`, `deepseek`, `claude-code`) don't have a package install path — they use small POSIX shell wrappers shipped in `providers/bin/` and installed to `~/.claude/skills/trinity/bin/`. `glm` points the `claude` binary at Z.ai's Anthropic-compatible endpoint and runs it under a sandbox profile; `openrouter` and `deepseek` point the `claude` binary at Anthropic-compatible endpoints. `claude-code` starts an isolated nested Claude Code process with Trinity dispatch disabled, defaulting to `--model sonnet --effort high`. It selects one of three Claude Code seats via `TRINITY_CLAUDE_CODE_ACCOUNT` (`a`/`b`/`c`, default `b`), reading that seat's token from `~/.claude/fleet-token.<account>` and handing it to the nested `claude` only as `CLAUDE_CODE_OAUTH_TOKEN`; the wrapper fails closed if the account is invalid or the token file is missing, empty, or readable/writable by group or other, and never prints the token. `install.sh` and `make install` set them up automatically; no `~/.zshrc` edits required.
 
 The Anthropic-compatible wrappers expect an API key, in this order of precedence:
-1. **Environment variable** — `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY`
-2. **Key file** — `~/.secrets/<provider>_api_key` with mode `600` (or `400`); the wrapper refuses anything more permissive
+1. **Environment variable** — `ZAI_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY`
+2. **Key file** — `~/.secrets/<provider>_api_key` (for `glm`, `~/.secrets/zai_api_key`) with mode `600` (or `400`); the wrapper refuses anything more permissive
 
 ```bash
 # Either set an env var in your shell rc:
@@ -168,14 +169,15 @@ cp trinity/providers/claude-code.md ~/.claude/agents/trinity-claude-code.md
 # Antigravity Opus
 cp trinity/providers/agy-opus.md ~/.claude/agents/trinity-agy-opus.md
 
-# Wrapper bin scripts (deepseek + openrouter + claude-code + agy-opus)
+# Wrapper bin scripts (glm + deepseek + openrouter + claude-code + agy-opus)
 mkdir -p ~/.claude/skills/trinity/bin
 cp "trinity/providers/bin/minimax" "$HOME/.claude/skills/trinity/bin/minimax"
+cp trinity/providers/bin/glm        ~/.claude/skills/trinity/bin/glm
 cp trinity/providers/bin/deepseek   ~/.claude/skills/trinity/bin/deepseek
 cp trinity/providers/bin/openrouter ~/.claude/skills/trinity/bin/openrouter
 cp trinity/providers/bin/claude-code ~/.claude/skills/trinity/bin/claude-code
 cp trinity/providers/bin/agy-opus ~/.claude/skills/trinity/bin/agy-opus
-chmod +x "$HOME/.claude/skills/trinity/bin/minimax" ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code ~/.claude/skills/trinity/bin/agy-opus
+chmod +x "$HOME/.claude/skills/trinity/bin/minimax" ~/.claude/skills/trinity/bin/glm ~/.claude/skills/trinity/bin/deepseek ~/.claude/skills/trinity/bin/openrouter ~/.claude/skills/trinity/bin/claude-code ~/.claude/skills/trinity/bin/agy-opus
 ```
 
 Then create `~/.claude/trinity.json`:
@@ -183,7 +185,7 @@ Then create `~/.claude/trinity.json`:
 {
   "providers": {
     "codex":      { "cli": "codex exec --skip-git-repo-check -m gpt-6.1-sol", "installed": true },
-    "glm":        { "cli": "droid exec --auto medium --model custom:GLM-5.2", "installed": true },
+    "glm":        { "cli": "~/.claude/skills/trinity/bin/glm -p", "installed": true },
     "minimax":    { "cli": "~/.claude/skills/trinity/bin/minimax", "installed": true },
     "openrouter":  { "cli": "/Users/<you>/.claude/skills/trinity/bin/openrouter -p",  "installed": true },
     "deepseek":    { "cli": "/Users/<you>/.claude/skills/trinity/bin/deepseek -p",    "installed": true },
@@ -196,27 +198,6 @@ Then create `~/.claude/trinity.json`:
   }
 }
 ```
-
-> **BYOK prerequisite for `glm`.** It uses the droid `custom:` model
-> `custom:GLM-5.2`, which is **not** in droid's built-in
-> catalog. It requires a matching entry in `~/.factory/settings.json` →
-> `customModels` with an **explicit** `id` equal to the value after `--model`
-> (without it droid auto-generates an indexed id and dispatch fails). A complete
-> entry needs all of `id`, `model`, `baseUrl`, `apiKey`, and `provider` — the
-> installer warning only checks `id`, so an entry missing `apiKey`/`provider`
-> silences the warning but still fails at dispatch. Example for GLM-5.2 (Z.AI):
-> ```json
-> {
->   "id": "custom:GLM-5.2",
->   "model": "glm-5.2",
->   "baseUrl": "https://api.z.ai/api/coding/paas/v4",
->   "apiKey": "<your Z.AI coding-plan API key>",
->   "provider": "generic-chat-completion-api"
-> }
-> ```
-> The `make install` / `make install-codex`
-> installers emit a warning when the `id` is missing; the manual path above does not,
-> so add the full entry before first dispatch.
 
 To use review presets via the Claude Code skill, add them to the same file:
 

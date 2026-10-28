@@ -13,7 +13,7 @@ This module receives the canonicalized lookup key (`glm`, not `glm:default`)
 and looks it up verbatim in `.claude/trinity.json` -> ``sessions``.
 
 Per-provider resolvers cover:
-    glm           -> ~/.factory/sessions/<encoded-project-path>/<session-id>.jsonl
+    glm           -> ~/.claude-glm/projects/<PROJECT_SLUG>/<session-id>.jsonl
     codex/minimax -> ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<session-id>.jsonl
                      (index-first via ~/.codex/session_index.jsonl;
                       glob fallback `*-<session-id>.jsonl` anchored at the dash
@@ -25,12 +25,10 @@ Per-provider resolvers cover:
 
 Encoding differs by provider (matches per-wrapper conventions in
 ``providers/<name>.md``):
-    glm                              -> replace "/" with "-"; KEEP leading dash
-                                        (matches ~/.factory/sessions/-Users-frank-...)
-    claude-code/deepseek/openrouter  -> Claude Code 2.1.220 canonical project
-                                        slug (non-ASCII-alphanumeric UTF-16 code
-                                        units become "-"; long paths add the JS
-                                        hash suffix)
+    glm/claude-code/deepseek/openrouter -> Claude Code 2.1.220 canonical
+                                        project slug (non-ASCII-alphanumeric
+                                        UTF-16 code units become "-"; long
+                                        paths add the JS hash suffix)
 
 Exit codes:
     0  path printed; file exists on disk.
@@ -76,16 +74,6 @@ def _is_valid_session_id(session_id: str) -> bool:
     return bool(_SESSION_ID_RE.match(session_id)) and ".." not in session_id
 
 
-def _encode_project_path(project_dir: str) -> str:
-    """Encode an absolute project path as droid/claude do: replace '/' with '-'.
-
-    Matches existing layout under ``~/.factory/sessions/`` and
-    ``~/.claude/projects/`` (e.g. ``-Users-frank-Projects-trinity``).
-    """
-    abs_path = os.path.abspath(project_dir)
-    return abs_path.replace("/", "-")
-
-
 # ---------------------------------------------------------------------------
 # Per-provider resolvers
 # ---------------------------------------------------------------------------
@@ -127,20 +115,15 @@ def _encode_project_slug(project_dir: str) -> str:
     return f"{slug[:200]}-{suffix or '0'}"
 
 
-def _resolve_glm(session_id: str, project_dir: str) -> Path:
-    encoded = _encode_project_path(project_dir)
-    home = Path(os.path.expanduser("~"))
-    return home / ".factory" / "sessions" / encoded / f"{session_id}.jsonl"
-
-
 # Per-wrapper transcript roots — each claude-CLI variant uses its own
 # CLAUDE_CONFIG_DIR (``~/.claude-trinity-claude-code/``, ``~/.claude-deepseek/``,
-# ``~/.claude-openrouter/``) NOT the bare ``~/.claude/`` root. Source of truth:
-# ``providers/<name>.md`` per-wrapper SESSION_DIR snippets.
+# ``~/.claude-openrouter/``, ``~/.claude-glm/``) NOT the bare ``~/.claude/`` root.
+# Source of truth: ``providers/<name>.md`` per-wrapper SESSION_DIR snippets.
 _CLAUDE_FAMILY_ROOTS = {
     "claude-code": ".claude-trinity-claude-code",
     "deepseek": ".claude-deepseek",
     "openrouter": ".claude-openrouter",
+    "glm": ".claude-glm",
 }
 
 
@@ -321,14 +304,10 @@ def cmd_session_path(project_dir: str, lookup_key: str) -> int:
     provider = lookup_key.split(":", 1)[0]
 
     try:
-        # Droid-family providers (~/.factory/sessions/<encoded-path>/<sid>.jsonl).
-        # `glm` uses the droid CLI session store; its layout is
-        # handled by `_resolve_glm`. Source: `providers/glm.md` +
-        # `providers/registry.json` (`cli: droid ...`). `minimax` uses the
-        # codex CLI session store via `providers/bin/minimax`.
-        if provider == "glm":
-            resolved = _resolve_glm(session_id, project_dir)
-        elif provider in {"codex", "minimax"}:
+        # Codex-family providers use the codex CLI session store; `minimax`
+        # reaches it through `providers/bin/minimax`. `glm` uses the
+        # claude-CLI wrapper family with its own `~/.claude-glm` root.
+        if provider in {"codex", "minimax"}:
             resolved = _resolve_codex(session_id, project_dir)
         elif provider in _CLAUDE_FAMILY_ROOTS:
             resolved = _resolve_claude_family(session_id, project_dir, provider)
