@@ -10,6 +10,15 @@ fence_path() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+fence_ancestors() {
+    ANC="$(dirname "$1")"
+    while [ -n "$ANC" ] && [ "$ANC" != "." ] && [ "$ANC" != "/" ]; do
+        ANC_E="$(fence_path "$ANC")"
+        ANCESTOR_DENY="${ANCESTOR_DENY} (literal \"${ANC_E}\")"
+        ANC="$(dirname "$ANC")"
+    done
+}
+
 KEY="${ZAI_API_KEY:-}"
 KEY_FILE="${HOME}/.secrets/zai_api_key"
 
@@ -57,9 +66,13 @@ fi
 
 PROFILE="(version 1)(allow default)"
 DENY="(deny file-read*"
+WRITE_DENY="(deny file-write*"
+ANCESTOR_DENY="(deny file-write-unlink"
 for d in "${HOME}/.secrets" "${HOME}/.ssh" "${HOME}/.config/gh" "${HOME}/.claude" "${HOME}/.codex" "${HOME}/.citizens" "${HOME}/.pfc-state"; do
     E="$(fence_path "$d")"
     DENY="${DENY} (subpath \"${E}\")"
+    WRITE_DENY="${WRITE_DENY} (subpath \"${E}\")"
+    fence_ancestors "$d"
 done
 
 DENY_COUNT=0
@@ -75,6 +88,8 @@ while IFS= read -r line || [ -n "$line" ]; do
     DENY_COUNT=$((DENY_COUNT + 1))
     E="$(fence_path "$line")"
     DENY="${DENY} (subpath \"${E}\")"
+    WRITE_DENY="${WRITE_DENY} (subpath \"${E}\")"
+    fence_ancestors "$line"
 done < "$DENY_LIST"
 
 if [ "$DENY_COUNT" -eq 0 ]; then
@@ -83,6 +98,8 @@ if [ "$DENY_COUNT" -eq 0 ]; then
 fi
 
 DENY="${DENY})"
+WRITE_DENY="${WRITE_DENY})"
+ANCESTOR_DENY="${ANCESTOR_DENY})"
 
 CWD_SENTINEL="x"
 CWD_RAW="$(pwd -P && printf '%s' "$CWD_SENTINEL")"
@@ -129,9 +146,11 @@ esac
 
 if [ -n "$ALLOW_PATH" ]; then
     SECOND="(deny file-read*"
+    WRITE_SECOND="(deny file-write*"
     for d in "${HOME}/.secrets" "${HOME}/.ssh" "${HOME}/.config/gh" "${HOME}/.claude" "${HOME}/.codex"; do
         E="$(fence_path "$d")"
         SECOND="${SECOND} (subpath \"${E}\")"
+        WRITE_SECOND="${WRITE_SECOND} (subpath \"${E}\")"
     done
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
@@ -139,20 +158,25 @@ if [ -n "$ALLOW_PATH" ]; then
         esac
         E="$(fence_path "$line")"
         SECOND="${SECOND} (subpath \"${E}\")"
+        WRITE_SECOND="${WRITE_SECOND} (subpath \"${E}\")"
     done < "$DENY_LIST"
     SECOND="${SECOND})"
-    PROFILE="${PROFILE}${DENY}(allow file-read* (subpath \"${ALLOW_PATH}\"))${SECOND}"
+    WRITE_SECOND="${WRITE_SECOND})"
+    PROFILE="${PROFILE}${DENY}${WRITE_DENY}(allow file-read* (subpath \"${ALLOW_PATH}\"))${SECOND}(allow file-write* (subpath \"${ALLOW_PATH}\"))${WRITE_SECOND}${ANCESTOR_DENY}"
 else
-    PROFILE="${PROFILE}${DENY}"
+    PROFILE="${PROFILE}${DENY}${WRITE_DENY}${ANCESTOR_DENY}"
 fi
 
 FLEET_LINE="Secrets never enter output: no env, printenv, set, ps e / ps eww / ps -E, set -x, no cat of any file under ~/.secrets, no traceback that carries a key. If one slips out, stop and tell the steward."
 DISALLOWED="Bash(env:*),Bash(printenv:*),Bash(set:*),Bash(ps:*),Read(~/.secrets/**),Grep(~/.secrets/**),Glob(~/.secrets/**)"
+ALLOWED="Read,Grep,Glob,Edit,Write,Bash"
 
 set -- "$DISALLOWED" "$@"
 set -- --disallowedTools "$@"
 set -- "$FLEET_LINE" "$@"
 set -- --append-system-prompt "$@"
+set -- "$ALLOWED" "$@"
+set -- --allowedTools "$@"
 set -- --dangerously-skip-permissions "$@"
 set -- claude "$@"
 

@@ -6,6 +6,7 @@
 - Add a Codex Responses wrapper for `MiniMax-M3` with API-key loading, resume support, and Codex session paths.
 
 ### Changed
+- `glm` now grants `Read,Grep,Glob,Edit,Write,Bash` with `--allowedTools` and adds a write fence to the sandbox profile, denying `~/.secrets`, `~/.ssh`, `~/.config/gh`, `~/.claude`, `~/.codex`, `~/.citizens`, `~/.pfc-state` and the deny-list paths while allowing the permitted working directory. The fence also denies `file-write-unlink` on every ancestor directory of those paths, so a parent cannot be renamed or removed to move fenced content elsewhere.
 - `minimax` wrapper now sets `CODEX_PROVIDER_ROUTED=1` in codex's environment, overriding any caller value, so the station's codex router knows the provider was already chosen.
 - `glm` now keeps the exact bytes of the physical working directory, including trailing newlines, so a control-character check refuses a cwd whose name ends in a newline instead of letting it resolve to a sibling path.
 - Widen the `glm` sandbox fence to `~/.claude`, `~/.codex`, `~/.citizens` and `~/.pfc-state`, allow a deep working directory inside `~/.citizens` or `~/.pfc-state`, and escape quote and backslash characters in profile paths.
