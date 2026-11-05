@@ -769,6 +769,52 @@ def test_w5_glm_real_sandbox_refuses_renaming_parents_of_fenced_paths(tmp_path):
         assert path.is_file()
 
 
+def test_w6_glm_refuses_non_absolute_deny_list_lines(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    deny_list = Path(env["GLM_DENY_LIST"])
+    cases = (
+        "client-rel\n",
+        "./client-rel\n",
+        "~/Projects/client\n",
+        "-n\n",
+        "wukong-b client-rel\n",
+        f"wukong-b {tmp_path / 'client-rel'} extra\n",
+        f"{tmp_path / 'client-one'}\nclient-rel\n",
+    )
+    for content in cases:
+        deny_list.write_text(content)
+        res = _run(GLM_BIN, [], env, cwd=tmp_path)
+        assert res.returncode != 0
+        assert not rec.exists(), "claude stub should not have been invoked"
+        assert not (tmp_path / "sandbox.invoked.json").exists()
+        assert "absolute" in res.stderr.lower()
+
+
+def test_w7_glm_fences_station_prefixed_deny_list_lines(glm_env, tmp_path):
+    env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
+    path_a = tmp_path / "station-a"
+    path_b = tmp_path / "station-b"
+    path_c = tmp_path / "bare-c"
+    Path(env["GLM_DENY_LIST"]).write_text(
+        f"wukong-b {path_a}\nbajie {path_b}\n{path_c}\n"
+    )
+    run = tmp_path / ".citizens" / "me"
+    run.mkdir(parents=True)
+    for cwd, allowed in ((tmp_path, False), (run, True)):
+        res = _run(GLM_BIN, [], env, cwd=cwd)
+        assert res.returncode == 0, res.stderr
+        assert rec.is_file(), "claude stub was not invoked"
+        sandbox_record = tmp_path / "sandbox.invoked.json"
+        assert sandbox_record.is_file(), "sandbox stub was not invoked"
+        profile = json.loads(sandbox_record.read_text())[2]
+        for path in (path_a, path_b, path_c):
+            assert f'(subpath "{path}")' in profile
+            if allowed:
+                assert profile.count(f'(subpath "{path}")') >= 4
+        assert "wukong-b" not in profile
+        assert "bajie" not in profile
+
+
 def test_f1_glm_profile_first_deny_covers_new_roots(glm_env, tmp_path):
     env, rec = glm_env({"ZAI_API_KEY": "zai-test-key-123"})
     res = _run(GLM_BIN, [], env, cwd=tmp_path)

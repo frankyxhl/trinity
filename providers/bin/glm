@@ -10,6 +10,13 @@ fence_path() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+parse_deny_path() {
+    PARSED="$(printf '%s\n' "$1" | awk '/^\// { if (NF > 2) exit 1; print; next } NF != 2 || $2 !~ /^\// { exit 1 } { print $2 }')" || {
+        echo "trinity-glm: deny-list line is not a single absolute path: $1" >&2
+        exit 1
+    }
+}
+
 fence_ancestors() {
     ANC="$(dirname "$1")"
     while [ -n "$ANC" ] && [ "$ANC" != "." ] && [ "$ANC" != "/" ]; do
@@ -86,10 +93,11 @@ while IFS= read -r line || [ -n "$line" ]; do
             exit 1 ;;
     esac
     DENY_COUNT=$((DENY_COUNT + 1))
-    E="$(fence_path "$line")"
+    parse_deny_path "$line"
+    E="$(fence_path "$PARSED")"
     DENY="${DENY} (subpath \"${E}\")"
     WRITE_DENY="${WRITE_DENY} (subpath \"${E}\")"
-    fence_ancestors "$line"
+    fence_ancestors "$PARSED"
 done < "$DENY_LIST"
 
 if [ "$DENY_COUNT" -eq 0 ]; then
@@ -156,7 +164,8 @@ if [ -n "$ALLOW_PATH" ]; then
         case "$line" in
             ''|'#'*) continue ;;
         esac
-        E="$(fence_path "$line")"
+        parse_deny_path "$line"
+        E="$(fence_path "$PARSED")"
         SECOND="${SECOND} (subpath \"${E}\")"
         WRITE_SECOND="${WRITE_SECOND} (subpath \"${E}\")"
     done < "$DENY_LIST"
