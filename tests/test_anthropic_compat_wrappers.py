@@ -779,6 +779,8 @@ def test_w6_glm_refuses_non_absolute_deny_list_lines(glm_env, tmp_path):
         "-n\n",
         "wukong-b client-rel\n",
         f"wukong-b {tmp_path / 'client-rel'} extra\n",
+        f"{tmp_path / 'client-one'} \n",
+        f"{tmp_path / 'client two'} \n",
         f"{tmp_path / 'client-one'}\nclient-rel\n",
     )
     for content in cases:

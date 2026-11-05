@@ -11,7 +11,7 @@ fence_path() {
 }
 
 parse_deny_path() {
-    PARSED="$(printf '%s\n' "$1" | awk '/^\// { if (NF > 2) exit 1; print; next } NF != 2 || $2 !~ /^\// { exit 1 } { print $2 }')" || {
+    PARSED="$(printf '%s\n' "$1" | awk '/^\// { if (NF > 2 || $0 ~ / $/) exit 1; print; next } NF != 2 || $2 !~ /^\// { exit 1 } { print $2 }')" || {
         echo "trinity-glm: deny-list line is not a single absolute path: $1" >&2
         exit 1
     }
