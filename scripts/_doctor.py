@@ -9,6 +9,7 @@ codex`` so that monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", ...)
 in tests still takes effect.
 """
 
+import argparse
 import os
 import shlex
 import shutil
@@ -474,6 +475,16 @@ def health_results_ok(results, *, preset_metadata=None):
         if result.get("issues") and result["provider"] not in optional_set:
             return False
     return True
+
+
+def positive_float(value):
+    try:
+        number = float(value)
+    except ValueError:
+        number = 0.0
+    if not number > 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number, got {value!r}")
+    return number
 
 
 def _probe_provider(provider, provider_config, root, timeout=None):

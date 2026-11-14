@@ -579,16 +579,6 @@ def cmd_tree(args):
     return 0
 
 
-def _positive_float(value):
-    try:
-        number = float(value)
-    except ValueError:
-        number = 0.0
-    if not number > 0:
-        raise argparse.ArgumentTypeError(f"must be a positive number, got {value!r}")
-    return number
-
-
 def build_parser():
     parser = argparse.ArgumentParser(prog="trinity", allow_abbrev=False)
     parser.add_argument("--version", action="store_true")
@@ -609,7 +599,7 @@ def build_parser():
     )
     doctor.add_argument(
         "--probe-timeout",
-        type=_positive_float,
+        type=_doctor_mod.positive_float,
         metavar="SECONDS",
         help="Per-provider timeout for --live probes (default: 10).",
     )
