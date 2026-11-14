@@ -660,4 +660,6 @@ def cmd_doctor(args):
             verbose=True,
         )
     )
+    if not args.live:
+        print("static OK = resolves only, not working; use --live")
     return 0 if health_results_ok(health, preset_metadata=preset_metadata) else 1

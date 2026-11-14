@@ -902,3 +902,18 @@ def test_probe_timeout_rejects_non_positive(tmp_path, value):
     result = _run_doctor(tmp_path, "echo OK", "--live", "--probe-timeout", value)
     assert result.returncode == 2
     assert "positive" in result.stderr, result.stderr
+
+
+_STATIC_NOTE = "static OK = resolves only, not working; use --live"
+
+
+def test_static_note_printed_once_without_live(tmp_path):
+    result = _run_doctor(tmp_path, "echo OK")
+    assert result.stdout.count(_STATIC_NOTE) == 1, result.stdout
+    assert result.stdout.rstrip().splitlines()[-1] == _STATIC_NOTE, result.stdout
+
+
+def test_static_note_absent_with_live(tmp_path):
+    result = _run_doctor(tmp_path, "echo OK", "--live")
+    assert "live: pass" in result.stdout, result.stdout + result.stderr
+    assert _STATIC_NOTE not in result.stdout
