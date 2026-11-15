@@ -9,6 +9,7 @@ codex`` so that monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", ...)
 in tests still takes effect.
 """
 
+import argparse
 import os
 import shlex
 import shutil
@@ -476,7 +477,17 @@ def health_results_ok(results, *, preset_metadata=None):
     return True
 
 
-def _probe_provider(provider, provider_config, root):
+def positive_float(value):
+    try:
+        number = float(value)
+    except ValueError:
+        number = 0.0
+    if not number > 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number, got {value!r}")
+    return number
+
+
+def _probe_provider(provider, provider_config, root, timeout=None):
     """Run a minimal live probe against a provider CLI.
 
     Returns a dict with 'status' ('pass'|'fail') and if fail, 'cause'
@@ -492,7 +503,7 @@ def _probe_provider(provider, provider_config, root):
         from . import codex as _codex
     except ImportError:
         import codex as _codex
-    live_probe_timeout = _codex._LIVE_PROBE_TIMEOUT
+    live_probe_timeout = timeout if timeout is not None else _codex._LIVE_PROBE_TIMEOUT
 
     try:
         command = parse_provider_command(provider, provider_config)
@@ -642,7 +653,10 @@ def cmd_doctor(args):
             if not h["ok"]:
                 continue
             probe = _probe_provider(
-                h["provider"], provider_configs.get(h["provider"], {}), root
+                h["provider"],
+                provider_configs.get(h["provider"], {}),
+                root,
+                timeout=args.probe_timeout,
             )
             h["live_probe"] = probe
             if probe and probe["status"] == "fail":
@@ -657,4 +671,6 @@ def cmd_doctor(args):
             verbose=True,
         )
     )
+    if not args.live:
+        print("static OK = resolves only, not working; use --live")
     return 0 if health_results_ok(health, preset_metadata=preset_metadata) else 1

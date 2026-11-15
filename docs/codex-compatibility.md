@@ -63,7 +63,8 @@ trinity doctor --live --preset fast-review
 ```
 
 With `--live`, doctor runs a minimal "reply OK" prompt against each
-statically-healthy provider with a short (10s) timeout. Failures are
+statically-healthy provider with a short (10s) timeout; raise it for slow
+providers with `--probe-timeout SECONDS`. Failures are
 classified as **auth**, **quota**, **timeout**, or **error**. REQUIRED
 providers with live failures exit 1; OPTIONAL provider failures are
 demoted to warnings (exit 0), matching the existing static-check

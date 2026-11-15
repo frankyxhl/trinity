@@ -22,6 +22,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import codex as codex_mod  # noqa: E402
@@ -841,3 +843,77 @@ def test_live_probe_timeout_kills_orphaned_children(tmp_path, monkeypatch):
     else:
         _os.kill(child_pid, 9)  # cleanup before failing
         raise AssertionError("orphaned child survived the probe timeout")
+
+
+# ---------------------------------------------------------------------------
+# --probe-timeout flag
+# ---------------------------------------------------------------------------
+
+
+def _run_doctor(tmp_path, body, *extra):
+    import json
+    import subprocess
+
+    fake = tmp_path / "fake_provider"
+    fake.write_text(f"#!/bin/sh\n{body}\n")
+    fake.chmod(0o755)
+    config_path = tmp_path / "trinity.codex.json"
+    config_path.write_text(
+        json.dumps({"providers": {"test": {"cli": str(fake), "timeout": 30}}})
+    )
+    return subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "codex.py"),
+            "doctor",
+            "--root",
+            str(tmp_path),
+            "--config",
+            str(config_path),
+            "--providers",
+            "test",
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_probe_timeout_flag_reaches_probe(tmp_path):
+    result = _run_doctor(tmp_path, "sleep 30", "--live", "--probe-timeout", "1")
+    assert "no response within 1.0s" in result.stdout, result.stdout + result.stderr
+
+
+def test_probe_timeout_default_is_none_and_falls_back_to_module(tmp_path, monkeypatch):
+    args = codex_mod.build_parser().parse_args(["doctor"])
+    assert vars(args).get("probe_timeout", "missing") is None
+
+    monkeypatch.setattr(codex_mod, "_LIVE_PROBE_TIMEOUT", 1)
+    fake = tmp_path / "slow"
+    fake.write_text("#!/bin/sh\nsleep 30\n")
+    fake.chmod(0o755)
+    result = codex_mod._probe_provider("test", {"cli": str(fake)}, tmp_path)
+    assert result["detail"] == "no response within 1s"
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-0.5"])
+def test_probe_timeout_rejects_non_positive(tmp_path, value):
+    result = _run_doctor(tmp_path, "echo OK", "--live", "--probe-timeout", value)
+    assert result.returncode == 2
+    assert "positive" in result.stderr, result.stderr
+
+
+_STATIC_NOTE = "static OK = resolves only, not working; use --live"
+
+
+def test_static_note_printed_once_without_live(tmp_path):
+    result = _run_doctor(tmp_path, "echo OK")
+    assert result.stdout.count(_STATIC_NOTE) == 1, result.stdout
+    assert result.stdout.rstrip().splitlines()[-1] == _STATIC_NOTE, result.stdout
+
+
+def test_static_note_absent_with_live(tmp_path):
+    result = _run_doctor(tmp_path, "echo OK", "--live")
+    assert "live: pass" in result.stdout, result.stdout + result.stderr
+    assert _STATIC_NOTE not in result.stdout

@@ -597,6 +597,12 @@ def build_parser():
         action="store_true",
         help="Probe providers with a minimal prompt to surface auth/quota/timeout failures.",
     )
+    doctor.add_argument(
+        "--probe-timeout",
+        type=_doctor_mod.positive_float,
+        metavar="SECONDS",
+        help="Per-provider timeout for --live probes (default: 10).",
+    )
 
     review = subparsers.add_parser("review")
     review.add_argument("--root", default=".")

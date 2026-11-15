@@ -4,6 +4,8 @@
 
 ### Added
 - Add a Codex Responses wrapper for `MiniMax-M3` with API-key loading, resume support, and Codex session paths.
+- `trinity doctor --probe-timeout SECONDS` overrides the 10s `--live` probe
+  timeout for slow providers (positive number; default unchanged).
 
 ### Changed
 - `glm` now grants `Read,Grep,Glob,Edit,Write,Bash` with `--allowedTools` and adds a write fence to the sandbox profile, denying `~/.secrets`, `~/.ssh`, `~/.config/gh`, `~/.claude`, `~/.codex`, `~/.citizens`, `~/.pfc-state` and the deny-list paths while allowing the permitted working directory. The fence also denies `file-write-unlink` on every ancestor directory of those paths, so a parent cannot be renamed or removed to move fenced content elsewhere. Deny-list lines are either a bare absolute path, which may contain one space, or `<station> <absolute path>`, whose path field is fenced and may not contain a space; any other line, including a non-absolute path, a bare path with a trailing space, or a line with three or more fields, is refused before the sandbox starts.
