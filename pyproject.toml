@@ -11,7 +11,7 @@ dev = [
     "pip-audit>=2.10.1",
     "pytest",
     "pytest-asyncio",
-    "pytest-bdd>=7,<8",
+    "pytest-bdd>=9.0.0,<10",
     "pytest-cov",
     "ruff",
 ]
